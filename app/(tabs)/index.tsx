@@ -1,141 +1,217 @@
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { Provider as PaperProvider } from 'react-native-paper';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { router } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
+import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Chip,
+  FAB,
+  List,
+  Searchbar,
+  Switch,
+  Text,
+} from "react-native-paper";
 
-import AuthScreen from '@/app/(tabs)/AuthScreen';
-import HomeScreen from '@/app/(tabs)/HomeScreen';
-import ProfilesScreen from '@/app/(tabs)/ProfilesScreen';
-import SettingsScreen from '@/app/(tabs)/SettingsScreen';
-import StatsScreen from '@/app/(tabs)/StatsScreen';
-import AppDetailScreen from '@/screens/AppDetailScreen';
+import AppListService from "@/services/app-list.service";
+import StorageService from "@/services/storage.service";
+import VpnSimulatorService from "@/services/vpn-simulator.service";
+import { InstalledApp } from "@/types";
 
-import StorageService from '@/services/storage.service';
-
-const Stack = createStackNavigator();
-const Tab = createBottomTabNavigator();
-
-function MainTabs() {
-  return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ color, size }) => {
-          let iconName: string;
-
-          switch (route.name) {
-            case 'Home':
-              iconName = 'apps';
-              break;
-            case 'Profiles':
-              iconName = 'account-group';
-              break;
-            case 'Stats':
-              iconName = 'chart-bar';
-              break;
-            default:
-              iconName = 'circle';
-          }
-
-          return <Icon name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: '#6200ee',
-        tabBarInactiveTintColor: 'gray',
-      })}
-    >
-      <Tab.Screen 
-        name="Home" 
-        component={HomeScreen}
-        options={{ title: 'Applications' }}
-      />
-      <Tab.Screen 
-        name="Profiles" 
-        component={ProfilesScreen}
-        options={{ title: 'Profils' }}
-      />
-      <Tab.Screen 
-        name="Stats" 
-        component={StatsScreen}
-        options={{ title: 'Statistiques' }}
-      />
-    </Tab.Navigator>
-  );
-}
-
-function RootNavigator() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+export default function HomeScreen() {
+  const [apps, setApps] = useState<InstalledApp[]>([]);
+  const [filteredApps, setFilteredApps] = useState<InstalledApp[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [vpnActive, setVpnActive] = useState(false);
+  const [blockedApps, setBlockedApps] = useState<Set<string>>(new Set());
+  const [showSystemApps, setShowSystemApps] = useState(false);
 
   useEffect(() => {
-    checkAuthStatus();
+    loadApps();
+    checkVpnStatus();
   }, []);
 
-  const checkAuthStatus = async () => {
+  useEffect(() => {
+    filterApps();
+  }, [searchQuery, apps, showSystemApps]);
+
+  const loadApps = async () => {
     try {
-      const config = await StorageService.getAuthConfig();
-      setIsAuthenticated(!config.isPinEnabled);
+      setLoading(true);
+      const installedApps = await AppListService.getInstalledApps();
+      setApps(installedApps);
+      const rules = await StorageService.getRules();
+      const blocked = new Set(
+        rules.filter((r) => r.isBlocked).map((r) => r.packageName),
+      );
+      setBlockedApps(blocked);
     } catch (error) {
-      console.error('Erreur lors de la vérification auth:', error);
+      console.error("Erreur lors du chargement des apps:", error);
     } finally {
       setLoading(false);
     }
   };
 
+  const checkVpnStatus = async () => {
+    const active = await VpnSimulatorService.isVpnActive();
+    setVpnActive(active);
+  };
+
+  const filterApps = () => {
+    let filtered = apps;
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (app) =>
+          app.appName.toLowerCase().includes(query) ||
+          app.packageName.toLowerCase().includes(query),
+      );
+    }
+    if (!showSystemApps) {
+      filtered = filtered.filter((app) => !app.isSystemApp);
+    }
+    setFilteredApps(filtered);
+  };
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadApps();
+    await checkVpnStatus();
+    setRefreshing(false);
+  }, []);
+
+  const toggleAppBlock = async (
+    packageName: string,
+    currentBlocked: boolean,
+  ) => {
+    try {
+      const newBlocked = !currentBlocked;
+      await VpnSimulatorService.setRule(packageName, newBlocked);
+      setBlockedApps((prev) => {
+        const updated = new Set(prev);
+        if (newBlocked) updated.add(packageName);
+        else updated.delete(packageName);
+        return updated;
+      });
+    } catch (error) {
+      console.error("Erreur lors du changement de règle:", error);
+    }
+  };
+
+  const toggleVpn = async () => {
+    try {
+      if (vpnActive) {
+        await VpnSimulatorService.stopVpn();
+        setVpnActive(false);
+      } else {
+        const started = await VpnSimulatorService.startVpn();
+        setVpnActive(started);
+      }
+    } catch (error) {
+      console.error("Erreur lors du toggle VPN:", error);
+    }
+  };
+
+  const renderAppItem = ({ item }: { item: InstalledApp }) => {
+    const isBlocked = blockedApps.has(item.packageName);
+    return (
+      <List.Item
+        title={item.appName}
+        description={item.packageName}
+        left={(props) => (
+          <List.Icon
+            {...props}
+            icon={item.isSystemApp ? "cog" : "application"}
+          />
+        )}
+        right={() => (
+          <Switch
+            value={!isBlocked}
+            onValueChange={() => toggleAppBlock(item.packageName, isBlocked)}
+            disabled={!vpnActive}
+          />
+        )}
+        onPress={() =>
+          // ✅ Expo Router : route avec paramètre
+          router.push({
+            pathname: "/screens/app-detail",
+            params: { packageName: item.packageName },
+          })
+        }
+      />
+    );
+  };
+
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#6200ee" />
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" />
+        <Text style={styles.loadingText}>Chargement des applications...</Text>
       </View>
     );
   }
 
   return (
-    <Stack.Navigator screenOptions={{ headerShown: true }}>
-      {!isAuthenticated ? (
-        <Stack.Screen 
-          name="Auth" 
-          options={{ headerShown: false }}
-        >
-          {(props) => (
-            <AuthScreen 
-              {...props} 
-              onAuthenticated={() => setIsAuthenticated(true)} 
-            />
-          )}
-        </Stack.Screen>
-      ) : (
-        <>
-          <Stack.Screen 
-            name="Main" 
-            component={MainTabs}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen 
-            name="AppDetail" 
-            component={AppDetailScreen}
-            options={{ title: 'Détails de l\'application' }}
-          />
-          <Stack.Screen 
-            name="Settings" 
-            component={SettingsScreen}
-            options={{ title: 'Paramètres' }}
-          />
-        </>
-      )}
-    </Stack.Navigator>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Searchbar
+          placeholder="Rechercher une application"
+          onChangeText={setSearchQuery}
+          value={searchQuery}
+          style={styles.searchBar}
+        />
+        <View style={styles.chipContainer}>
+          <Chip
+            icon={vpnActive ? "shield-check" : "shield-off"}
+            selected={vpnActive}
+            onPress={toggleVpn}
+            style={styles.chip}
+          >
+            VPN {vpnActive ? "Actif" : "Inactif"}
+          </Chip>
+          <Chip
+            icon={showSystemApps ? "eye" : "eye-off"}
+            selected={showSystemApps}
+            onPress={() => setShowSystemApps(!showSystemApps)}
+            style={styles.chip}
+          >
+            Apps système
+          </Chip>
+        </View>
+        <Text variant="bodySmall" style={styles.appCount}>
+          {filteredApps.length} application(s) • {blockedApps.size} bloquée(s)
+        </Text>
+      </View>
+
+      <FlatList
+        data={filteredApps}
+        renderItem={renderAppItem}
+        keyExtractor={(item) => item.packageName}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+        contentContainerStyle={styles.list}
+      />
+
+      {/* ✅ Expo Router : navigation vers /settings */}
+      <FAB
+        icon="cog"
+        style={styles.fab}
+        onPress={() => router.push("/settings")}
+      />
+    </View>
   );
 }
 
-export default function App() {
-  return (
-    <PaperProvider>
-      <NavigationContainer>
-        <StatusBar style="auto" />
-        <RootNavigator />
-      </NavigationContainer>
-    </PaperProvider>
-  );
-}
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  centerContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 16 },
+  header: { padding: 16, backgroundColor: "#fff", elevation: 2 },
+  searchBar: { marginBottom: 12 },
+  chipContainer: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  chip: { flex: 1 },
+  appCount: { color: "#666", marginTop: 4 },
+  list: { paddingBottom: 80 },
+  fab: { position: "absolute", margin: 16, right: 0, bottom: 0 },
+});

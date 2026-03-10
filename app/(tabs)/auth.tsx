@@ -2,20 +2,20 @@
  * Écran d'authentification (PIN + Biométrie)
  */
 
-import * as LocalAuthentication from 'expo-local-authentication';
-import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
-import { Button, Card, Text, TextInput } from 'react-native-paper';
-import StorageService from '../../services/storage.service';
+import * as LocalAuthentication from "expo-local-authentication";
+import React, { useEffect, useState } from "react";
+import { Alert, StyleSheet, View } from "react-native";
+import { Button, Card, Text, TextInput } from "react-native-paper";
+import StorageService from "../../services/storage.service";
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
 }
 
 export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
-  const [pin, setPin] = useState('');
+  const [pin, setPin] = useState("");
   const [isFirstTime, setIsFirstTime] = useState(false);
-  const [confirmPin, setConfirmPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState("");
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -38,15 +38,15 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const handleBiometricAuth = async () => {
     try {
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Authentification requise',
-        fallbackLabel: 'Utiliser le PIN',
+        promptMessage: "Authentification requise",
+        fallbackLabel: "Utiliser le PIN",
       });
 
       if (result.success) {
         onAuthenticated();
       }
     } catch (error) {
-      Alert.alert('Erreur', 'Échec de l\'authentification biométrique');
+      Alert.alert("Erreur", "Échec de l'authentification biométrique");
     }
   };
 
@@ -56,25 +56,25 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       if (isFirstTime) {
         // Configuration initiale du PIN
         if (pin.length < 4) {
-          Alert.alert('Erreur', 'Le PIN doit contenir au moins 4 chiffres');
+          Alert.alert("Erreur", "Le PIN doit contenir au moins 4 chiffres");
           setLoading(false);
           return;
         }
 
         if (!confirmPin) {
-          Alert.alert('Confirmation', 'Veuillez confirmer votre PIN');
+          Alert.alert("Confirmation", "Veuillez confirmer votre PIN");
           setLoading(false);
           return;
         }
 
         if (pin !== confirmPin) {
-          Alert.alert('Erreur', 'Les PINs ne correspondent pas');
+          Alert.alert("Erreur", "Les PINs ne correspondent pas");
           setLoading(false);
           return;
         }
 
         await StorageService.savePin(pin);
-        Alert.alert('Succès', 'PIN configuré avec succès');
+        Alert.alert("Succès", "PIN configuré avec succès");
         onAuthenticated();
       } else {
         // Vérification du PIN
@@ -82,12 +82,12 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         if (isValid) {
           onAuthenticated();
         } else {
-          Alert.alert('Erreur', 'PIN incorrect');
-          setPin('');
+          Alert.alert("Erreur", "PIN incorrect");
+          setPin("");
         }
       }
     } catch (error) {
-      Alert.alert('Erreur', 'Une erreur est survenue');
+      Alert.alert("Erreur", "Une erreur est survenue");
     } finally {
       setLoading(false);
     }
@@ -98,7 +98,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       <Card style={styles.card}>
         <Card.Content>
           <Text variant="headlineMedium" style={styles.title}>
-            {isFirstTime ? 'Configuration du PIN' : 'Authentification'}
+            {isFirstTime ? "Configuration du PIN" : "Authentification"}
           </Text>
 
           <TextInput
@@ -132,7 +132,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             disabled={loading || !pin}
             style={styles.button}
           >
-            {isFirstTime ? 'Configurer' : 'Déverrouiller'}
+            {isFirstTime ? "Configurer" : "Déverrouiller"}
           </Button>
 
           {!isFirstTime && biometricAvailable && (
@@ -160,15 +160,15 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     padding: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
   },
   card: {
     elevation: 4,
   },
   title: {
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: 24,
   },
   input: {
@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
   },
   hint: {
     marginTop: 16,
-    textAlign: 'center',
-    color: '#666',
+    textAlign: "center",
+    color: "#666",
   },
 });

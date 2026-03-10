@@ -3,15 +3,23 @@
  * Permet de configurer des règles avancées (horaires, profils)
  */
 
-import { useNavigation, useRoute } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Chip, Divider, List, Switch, Text } from 'react-native-paper';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import AppListService from '../services/app-list.service';
-import StorageService from '../services/storage.service';
-import VpnSimulatorService from '../services/vpn-simulator.service';
-import { AppRule, InstalledApp } from '../types';
+import { useNavigation, useRoute } from "@react-navigation/native";
+import React, { useEffect, useState } from "react";
+import { ScrollView, StyleSheet, View } from "react-native";
+import {
+  Button,
+  Card,
+  Chip,
+  Divider,
+  List,
+  Switch,
+  Text,
+} from "react-native-paper";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import AppListService from "../../services/app-list.service";
+import StorageService from "../../services/storage.service";
+import VpnSimulatorService from "../../services/vpn-simulator.service";
+import { AppRule, InstalledApp } from "../../types";
 
 export default function AppDetailScreen() {
   const route = useRoute();
@@ -38,7 +46,7 @@ export default function AppDetailScreen() {
 
       // Charge les statistiques
       const allStats = await StorageService.getStats();
-      const appStats = allStats.find(s => s.packageName === packageName);
+      const appStats = allStats.find((s) => s.packageName === packageName);
       if (appStats) {
         setStats({
           blocked: appStats.blockedAttempts,
@@ -46,7 +54,7 @@ export default function AppDetailScreen() {
         });
       }
     } catch (error) {
-      console.error('Erreur lors du chargement des données:', error);
+      console.error("Erreur lors du chargement des données:", error);
     }
   };
 
@@ -54,8 +62,8 @@ export default function AppDetailScreen() {
     try {
       const newBlocked = !rule?.isBlocked;
       await VpnSimulatorService.setRule(packageName, newBlocked);
-      
-      setRule(prev => ({
+
+      setRule((prev) => ({
         ...prev!,
         isBlocked: newBlocked,
         packageName,
@@ -63,18 +71,19 @@ export default function AppDetailScreen() {
         updatedAt: new Date(),
       }));
     } catch (error) {
-      console.error('Erreur lors du changement de règle:', error);
+      console.error("Erreur lors du changement de règle:", error);
     }
   };
 
   const simulateAttempt = async () => {
-    const result = await VpnSimulatorService.simulateConnectionAttempt(packageName);
+    const result =
+      await VpnSimulatorService.simulateConnectionAttempt(packageName);
     await loadAppData();
-    
-    if (result === 'blocked') {
-      alert('🚫 Connexion bloquée');
+
+    if (result === "blocked") {
+      alert("🚫 Connexion bloquée");
     } else {
-      alert('✅ Connexion autorisée');
+      alert("✅ Connexion autorisée");
     }
   };
 
@@ -91,9 +100,15 @@ export default function AppDetailScreen() {
       <Card style={styles.card}>
         <Card.Content>
           <View style={styles.header}>
-            <List.Icon icon={({ color, size }) => (
-            <MaterialCommunityIcons name="application" size={48} color={color} />
-            )} />
+            <List.Icon
+              icon={({ color, size }) => (
+                <MaterialCommunityIcons
+                  name="application"
+                  size={48}
+                  color={color}
+                />
+              )}
+            />
             <View style={styles.headerText}>
               <Text variant="headlineSmall">{app.appName}</Text>
               <Text variant="bodySmall" style={styles.packageName}>
@@ -117,7 +132,9 @@ export default function AppDetailScreen() {
             <View style={styles.switchLabel}>
               <Text variant="bodyLarge">Internet autorisé</Text>
               <Text variant="bodySmall" style={styles.hint}>
-                {rule?.isBlocked ? 'Toutes les connexions sont bloquées' : 'Accès normal'}
+                {rule?.isBlocked
+                  ? "Toutes les connexions sont bloquées"
+                  : "Accès normal"}
               </Text>
             </View>
             <Switch value={!rule?.isBlocked} onValueChange={toggleBlock} />
@@ -162,7 +179,8 @@ export default function AppDetailScreen() {
             🚧 Fonctionnalité à venir
           </Text>
           <Text variant="bodySmall" style={styles.hint}>
-            Configurez des horaires pour bloquer/autoriser automatiquement l'accès Internet selon des plages horaires.
+            Configurez des horaires pour bloquer/autoriser automatiquement
+            l'accès Internet selon des plages horaires.
           </Text>
         </Card.Content>
       </Card>
@@ -187,15 +205,15 @@ export default function AppDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
   },
   card: {
     margin: 16,
     marginBottom: 0,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 8,
   },
   headerText: {
@@ -203,46 +221,46 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   packageName: {
-    color: '#666',
+    color: "#666",
     marginTop: 4,
   },
   systemChip: {
     marginTop: 12,
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
   },
   switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   switchLabel: {
     flex: 1,
   },
   hint: {
-    color: '#666',
+    color: "#666",
     marginTop: 4,
   },
   statRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    justifyContent: "space-around",
     marginBottom: 16,
   },
   statItem: {
-    alignItems: 'center',
+    alignItems: "center",
     flex: 1,
   },
   statValue: {
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   statDivider: {
     width: 1,
-    height: '100%',
+    height: "100%",
   },
   testButton: {
     marginTop: 8,
   },
   comingSoon: {
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: 8,
   },
   actionButton: {
