@@ -44,21 +44,6 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Paramètres",
-          tabBarIcon: ({ color, size }) => (
-            <Icon name="cog" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="auth"
-        options={{
-          href: null,
-        }}
-      />
     </Tabs>
   );
 }

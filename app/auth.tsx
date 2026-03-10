@@ -2,11 +2,11 @@
  * Écran d'authentification (PIN + Biométrie)
  */
 
+import StorageService from "@/services/storage.service";
 import * as LocalAuthentication from "expo-local-authentication";
 import React, { useEffect, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { Button, Card, Text, TextInput } from "react-native-paper";
-import StorageService from "../../services/storage.service";
 
 interface AuthScreenProps {
   onAuthenticated: () => void;

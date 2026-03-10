@@ -5,8 +5,8 @@
 export interface InstalledApp {
   packageName: string;
   appName: string;
-  icon?: string;
   isSystemApp: boolean;
+  icon?: string | null; // base64 sur Android
 }
 
 export interface AppRule {

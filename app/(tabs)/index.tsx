@@ -1,6 +1,12 @@
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
+import {
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  View,
+} from "react-native";
 import {
   ActivityIndicator,
   Chip,
@@ -13,7 +19,7 @@ import {
 
 import AppListService from "@/services/app-list.service";
 import StorageService from "@/services/storage.service";
-import VpnSimulatorService from "@/services/vpn-simulator.service";
+import VpnSimulatorService from "@/services/vpn.service";
 import { InstalledApp } from "@/types";
 
 export default function HomeScreen() {
@@ -114,16 +120,30 @@ export default function HomeScreen() {
 
   const renderAppItem = ({ item }: { item: InstalledApp }) => {
     const isBlocked = blockedApps.has(item.packageName);
+
     return (
       <List.Item
         title={item.appName}
         description={item.packageName}
-        left={(props) => (
-          <List.Icon
-            {...props}
-            icon={item.isSystemApp ? "cog" : "application"}
-          />
-        )}
+        left={(props) =>
+          item.icon ? (
+            <Image
+              source={{ uri: `data:image/png;base64,${item.icon}` }}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                alignSelf: "center",
+                marginLeft: 8,
+              }}
+            />
+          ) : (
+            <List.Icon
+              {...props}
+              icon={item.isSystemApp ? "cog" : "application"}
+            />
+          )
+        }
         right={() => (
           <Switch
             value={!isBlocked}
@@ -132,7 +152,6 @@ export default function HomeScreen() {
           />
         )}
         onPress={() =>
-          // ✅ Expo Router : route avec paramètre
           router.push({
             pathname: "/screens/app-detail",
             params: { packageName: item.packageName },
