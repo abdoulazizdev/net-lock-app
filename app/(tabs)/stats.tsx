@@ -1,28 +1,144 @@
 import AppListService from "@/services/app-list.service";
 import StorageService from "@/services/storage.service";
 import { AppStats } from "@/types";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  ScrollView,
+  Animated,
+  Easing,
   StatusBar,
   StyleSheet,
   TouchableOpacity,
   View,
 } from "react-native";
 import { Text } from "react-native-paper";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface StatWithName extends AppStats {
   appName: string;
 }
 
+// ─── Animated progress bar ────────────────────────────────────────────────────
+function ProgressBar({
+  pct,
+  color,
+  trackColor,
+  height = 5,
+}: {
+  pct: number;
+  color: string;
+  trackColor: string;
+  height?: number;
+}) {
+  const widthAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(widthAnim, {
+      toValue: pct,
+      duration: 700,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [pct]);
+
+  const width = widthAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0%", "100%"],
+  });
+
+  return (
+    <View
+      style={[
+        barStyles.track,
+        { backgroundColor: trackColor, height, borderRadius: height },
+      ]}
+    >
+      <Animated.View
+        style={[
+          barStyles.fill,
+          { width, backgroundColor: color, height, borderRadius: height },
+        ]}
+      />
+    </View>
+  );
+}
+
+const barStyles = StyleSheet.create({
+  track: { overflow: "hidden", width: "100%" },
+  fill: {},
+});
+
+// ─── Stat row card ────────────────────────────────────────────────────────────
+function StatCard({ stat }: { stat: StatWithName }) {
+  const appTotal = stat.blockedAttempts + stat.allowedAttempts;
+  const pct = appTotal > 0 ? stat.blockedAttempts / appTotal : 0;
+  const initial = (stat.appName ?? "?").charAt(0).toUpperCase();
+
+  return (
+    <View style={styles.statCard}>
+      <View style={styles.statRow}>
+        <View style={styles.statIconWrap}>
+          <Text style={styles.statIconText}>{initial}</Text>
+        </View>
+
+        <View style={styles.statMeta}>
+          <Text style={styles.statAppName} numberOfLines={1}>
+            {stat.appName}
+          </Text>
+          <Text style={styles.statPackage} numberOfLines={1}>
+            {stat.packageName}
+          </Text>
+        </View>
+
+        <View style={styles.statCounts}>
+          <View style={styles.countChip}>
+            <View style={[styles.countDot, { backgroundColor: "#D04070" }]} />
+            <Text style={[styles.countText, { color: "#D04070" }]}>
+              {stat.blockedAttempts}
+            </Text>
+          </View>
+          <View style={styles.countChip}>
+            <View style={[styles.countDot, { backgroundColor: "#3DDB8A" }]} />
+            <Text style={[styles.countText, { color: "#3DDB8A" }]}>
+              {stat.allowedAttempts}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <ProgressBar pct={pct} color="#D04070" trackColor="#0D2218" height={3} />
+    </View>
+  );
+}
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function StatsScreen() {
+  const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<StatWithName[]>([]);
   const [totalBlocked, setTotalBlocked] = useState(0);
   const [totalAllowed, setTotalAllowed] = useState(0);
 
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+
   useEffect(() => {
     loadStats();
   }, []);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 450,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 450,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [stats]);
 
   const loadStats = async () => {
     try {
@@ -34,7 +150,7 @@ export default function StatsScreen() {
             app?.appName ||
             s.packageName.split(".").pop() ||
             s.packageName ||
-            "?"; // ← fallback final
+            "?";
           return { ...s, appName };
         }),
       );
@@ -62,14 +178,15 @@ export default function StatsScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
+      <StatusBar barStyle="light-content" backgroundColor="#080810" />
 
-      {/* Header */}
-      <View style={styles.header}>
+      {/* ── Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Statistiques</Text>
           <Text style={styles.headerSubtitle}>
-            {stats.length} application(s) tracée(s)
+            {stats.length} app{stats.length > 1 ? "s" : ""} tracée
+            {stats.length > 1 ? "s" : ""}
           </Text>
         </View>
         {stats.length > 0 && (
@@ -83,275 +200,309 @@ export default function StatsScreen() {
         )}
       </View>
 
-      <ScrollView
+      <Animated.ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: insets.bottom + 40 },
+        ]}
+        style={{ opacity: fadeAnim }}
       >
-        {/* Overview cards */}
-        <View style={styles.overviewRow}>
-          <View style={[styles.overviewCard, styles.overviewCardBlocked]}>
-            <Text style={[styles.overviewNumber, styles.numberBlocked]}>
+        {/* ── Overview cards */}
+        <Animated.View
+          style={[
+            styles.overviewRow,
+            { transform: [{ translateY: slideAnim }] },
+          ]}
+        >
+          <View style={[styles.overviewCard, styles.cardBlocked]}>
+            <Text style={[styles.overviewNum, { color: "#D04070" }]}>
               {totalBlocked}
             </Text>
-            <Text style={styles.overviewLabel}>Bloquées</Text>
+            <View style={styles.overviewLabelRow}>
+              <View
+                style={[styles.overviewDot, { backgroundColor: "#D04070" }]}
+              />
+              <Text style={styles.overviewLabel}>Bloquées</Text>
+            </View>
           </View>
-          <View style={[styles.overviewCard, styles.overviewCardAllowed]}>
-            <Text style={[styles.overviewNumber, styles.numberAllowed]}>
+
+          <View style={[styles.overviewCard, styles.cardAllowed]}>
+            <Text style={[styles.overviewNum, { color: "#3DDB8A" }]}>
               {totalAllowed}
             </Text>
-            <Text style={styles.overviewLabel}>Autorisées</Text>
+            <View style={styles.overviewLabelRow}>
+              <View
+                style={[styles.overviewDot, { backgroundColor: "#3DDB8A" }]}
+              />
+              <Text style={styles.overviewLabel}>Autorisées</Text>
+            </View>
           </View>
-          <View style={[styles.overviewCard, styles.overviewCardTotal]}>
-            <Text style={styles.overviewNumber}>{total}</Text>
-            <Text style={styles.overviewLabel}>Total</Text>
-          </View>
-        </View>
 
-        {/* Progress */}
+          <View style={[styles.overviewCard, styles.cardTotal]}>
+            <Text style={[styles.overviewNum, { color: "#9B8FFF" }]}>
+              {total}
+            </Text>
+            <View style={styles.overviewLabelRow}>
+              <View
+                style={[styles.overviewDot, { backgroundColor: "#9B8FFF" }]}
+              />
+              <Text style={styles.overviewLabel}>Total</Text>
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* ── Blocking rate */}
         {total > 0 && (
-          <View style={styles.progressSection}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressLabel}>Taux de blocage</Text>
-              <Text style={styles.progressValue}>
+          <Animated.View
+            style={[
+              styles.rateCard,
+              { transform: [{ translateY: slideAnim }] },
+            ]}
+          >
+            <View style={styles.rateHeader}>
+              <Text style={styles.rateLabel}>Taux de blocage</Text>
+              <Text style={styles.rateValue}>
                 {(blockedPct * 100).toFixed(1)}%
               </Text>
             </View>
-            <View style={styles.progressBar}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${blockedPct * 100}%` as any },
-                ]}
-              />
+            <ProgressBar
+              pct={blockedPct}
+              color="#D04070"
+              trackColor="#0D2218"
+              height={6}
+            />
+            <View style={styles.rateFooter}>
+              <Text style={styles.rateFooterText}>
+                {totalBlocked} bloquées sur {total} tentatives
+              </Text>
             </View>
-          </View>
+          </Animated.View>
         )}
 
-        {/* Per app stats */}
+        {/* ── Per-app section */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>PAR APPLICATION</Text>
 
           {stats.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>📊</Text>
+              <View style={styles.emptyIconWrap}>
+                <Text style={styles.emptyIconText}>◈</Text>
+              </View>
               <Text style={styles.emptyTitle}>Aucune statistique</Text>
-              <Text style={styles.emptyText}>
+              <Text style={styles.emptySubtitle}>
                 Les statistiques apparaissent lorsque le VPN est actif et que
                 des connexions sont tentées.
               </Text>
             </View>
           ) : (
-            stats.map((stat) => {
-              const appTotal = stat.blockedAttempts + stat.allowedAttempts;
-              const appBlockedPct =
-                appTotal > 0 ? stat.blockedAttempts / appTotal : 0;
-
-              return (
-                <View key={stat.packageName} style={styles.statCard}>
-                  <View style={styles.statCardHeader}>
-                    <View style={styles.statAppIcon}>
-                      <Text style={styles.statAppIconText}>
-                        {(stat.appName ?? "?").charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={styles.statAppInfo}>
-                      <Text style={styles.statAppName}>{stat.appName}</Text>
-                      <Text style={styles.statAppPackage} numberOfLines={1}>
-                        {stat.packageName}
-                      </Text>
-                    </View>
-                    <View style={styles.statNumbers}>
-                      <Text style={styles.statBlocked}>
-                        🚫 {stat.blockedAttempts}
-                      </Text>
-                      <Text style={styles.statAllowed}>
-                        ✅ {stat.allowedAttempts}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.statBarBg}>
-                    <View
-                      style={[
-                        styles.statBarFill,
-                        { width: `${appBlockedPct * 100}%` as any },
-                      ]}
-                    />
-                  </View>
-                </View>
-              );
-            })
+            stats.map((stat) => <StatCard key={stat.packageName} stat={stat} />)
           )}
         </View>
 
-        {/* Info */}
-        <View style={styles.infoCard}>
+        {/* ── Info banner */}
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoIcon}>◎</Text>
           <Text style={styles.infoText}>
-            💡 En mode simulation, utilisez "Simuler une connexion" sur la page
-            d'une application pour générer des statistiques.
+            En mode simulation, utilisez "Simuler une connexion" sur la page
+            d'une app pour générer des statistiques.
           </Text>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A0A0F" },
+  container: { flex: 1, backgroundColor: "#080810" },
+
+  // ── Header
   header: {
-    paddingTop: 56,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 22,
+    paddingBottom: 18,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#13131F",
   },
   headerTitle: {
-    fontSize: 32,
+    fontSize: 34,
     fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -1,
+    color: "#F0F0FF",
+    letterSpacing: -1.5,
   },
-  headerSubtitle: { fontSize: 13, color: "#555", marginTop: 2 },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "#3A3A58",
+    marginTop: 3,
+    letterSpacing: 0.4,
+    fontWeight: "500",
+  },
   clearBtn: {
-    backgroundColor: "#FF4D4D15",
-    borderWidth: 1,
-    borderColor: "#FF4D4D50",
-    borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
+    borderRadius: 22,
+    backgroundColor: "#1E0E16",
+    borderWidth: 1,
+    borderColor: "#4A1A2A",
   },
-  clearBtnText: { color: "#FF4D4D", fontSize: 13, fontWeight: "700" },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
-  overviewRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
+  clearBtnText: {
+    color: "#D04070",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+
+  // ── Scroll
+  scroll: { paddingHorizontal: 22, paddingTop: 18 },
+
+  // ── Overview
+  overviewRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
   overviewCard: {
     flex: 1,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     alignItems: "center",
+    gap: 6,
   },
-  overviewCardBlocked: {
-    backgroundColor: "#FF4D4D10",
-    borderColor: "#FF4D4D30",
-  },
-  overviewCardAllowed: {
-    backgroundColor: "#00F5A010",
-    borderColor: "#00F5A030",
-  },
-  overviewCardTotal: { backgroundColor: "#16161E", borderColor: "#1E1E2E" },
-  overviewNumber: {
-    fontSize: 28,
+  cardBlocked: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
+  cardAllowed: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
+  cardTotal: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
+  overviewNum: {
+    fontSize: 30,
     fontWeight: "800",
-    color: "#FFFFFF",
-    marginBottom: 4,
+    letterSpacing: -1,
   },
-  numberBlocked: { color: "#FF4D4D" },
-  numberAllowed: { color: "#00F5A0" },
+  overviewLabelRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  overviewDot: { width: 5, height: 5, borderRadius: 3 },
   overviewLabel: {
     fontSize: 10,
-    color: "#555",
+    color: "#3A3A58",
     fontWeight: "700",
+    letterSpacing: 0.6,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
   },
-  progressSection: {
-    backgroundColor: "#16161E",
+
+  // ── Rate card
+  rateCard: {
+    backgroundColor: "#0E0E18",
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: "#1E1E2E",
+    borderColor: "#1C1C2C",
     marginBottom: 24,
+    gap: 10,
   },
-  progressHeader: {
+  rateHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  progressLabel: { fontSize: 13, color: "#888", fontWeight: "600" },
-  progressValue: { fontSize: 13, color: "#FF4D4D", fontWeight: "800" },
-  progressBar: {
-    height: 6,
-    backgroundColor: "#00F5A020",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressFill: { height: "100%", backgroundColor: "#FF4D4D", borderRadius: 3 },
-  section: { marginBottom: 24 },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#333",
-    letterSpacing: 1.5,
-    marginBottom: 12,
-  },
-  emptyState: {
-    backgroundColor: "#16161E",
-    borderRadius: 16,
-    padding: 32,
-    borderWidth: 1,
-    borderColor: "#1E1E2E",
     alignItems: "center",
   },
-  emptyIcon: { fontSize: 40, marginBottom: 12 },
-  emptyTitle: {
-    fontSize: 16,
+  rateLabel: { fontSize: 13, color: "#5A5A80", fontWeight: "600" },
+  rateValue: {
+    fontSize: 20,
+    color: "#D04070",
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
+  rateFooter: { marginTop: 2 },
+  rateFooterText: { fontSize: 11, color: "#2E2E48", fontWeight: "500" },
+
+  // ── Section
+  section: { marginBottom: 20 },
+  sectionLabel: {
+    fontSize: 10,
     fontWeight: "700",
-    color: "#FFFFFF",
-    marginBottom: 8,
+    color: "#2E2E48",
+    letterSpacing: 2,
+    marginBottom: 12,
   },
-  emptyText: {
-    fontSize: 13,
-    color: "#555",
-    textAlign: "center",
-    lineHeight: 20,
-  },
+
+  // ── Stat card
   statCard: {
-    backgroundColor: "#16161E",
+    backgroundColor: "#0E0E18",
     borderRadius: 14,
     padding: 14,
-    marginBottom: 8,
+    marginBottom: 7,
     borderWidth: 1,
-    borderColor: "#1E1E2E",
+    borderColor: "#1C1C2C",
+    gap: 10,
   },
-  statCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  statAppIcon: {
+  statRow: { flexDirection: "row", alignItems: "center" },
+  statIconWrap: {
     width: 38,
     height: 38,
-    borderRadius: 10,
-    backgroundColor: "#1E1E2E",
+    borderRadius: 11,
+    backgroundColor: "#16162A",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: "#2A2A40",
   },
-  statAppIconText: { fontSize: 16, fontWeight: "800", color: "#00F5A0" },
-  statAppInfo: { flex: 1 },
+  statIconText: { fontSize: 15, fontWeight: "800", color: "#7B6EF6" },
+  statMeta: { flex: 1 },
   statAppName: {
     fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    fontWeight: "600",
+    color: "#E8E8F8",
     marginBottom: 2,
+    letterSpacing: -0.2,
   },
-  statAppPackage: { fontSize: 10, color: "#444", fontFamily: "monospace" },
-  statNumbers: { alignItems: "flex-end", gap: 2 },
-  statBlocked: { fontSize: 12, color: "#FF4D4D", fontWeight: "600" },
-  statAllowed: { fontSize: 12, color: "#00F5A0", fontWeight: "600" },
-  statBarBg: {
-    height: 3,
-    backgroundColor: "#00F5A015",
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  statBarFill: { height: "100%", backgroundColor: "#FF4D4D", borderRadius: 2 },
-  infoCard: {
-    backgroundColor: "#16161E",
-    borderRadius: 14,
-    padding: 16,
+  statPackage: { fontSize: 10, color: "#2E2E44", fontFamily: "monospace" },
+  statCounts: { alignItems: "flex-end", gap: 4 },
+  countChip: { flexDirection: "row", alignItems: "center", gap: 4 },
+  countDot: { width: 5, height: 5, borderRadius: 3 },
+  countText: { fontSize: 12, fontWeight: "700" },
+
+  // ── Empty
+  emptyState: {
+    backgroundColor: "#0E0E18",
+    borderRadius: 16,
+    padding: 32,
     borderWidth: 1,
-    borderColor: "#1E1E2E",
+    borderColor: "#1C1C2C",
+    alignItems: "center",
   },
-  infoText: { fontSize: 13, color: "#555", lineHeight: 20 },
+  emptyIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    backgroundColor: "#16103A",
+    borderWidth: 1,
+    borderColor: "#4A3F8A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  emptyIconText: { fontSize: 26, color: "#7B6EF6" },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#E8E8F8",
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: "#3A3A58",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
+  // ── Info banner
+  infoBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#0E0E18",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+  },
+  infoIcon: { fontSize: 14, color: "#3A3A58", marginTop: 1 },
+  infoText: { flex: 1, fontSize: 12, color: "#3A3A58", lineHeight: 19 },
 });

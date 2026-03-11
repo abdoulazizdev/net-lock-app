@@ -1,11 +1,11 @@
 import StorageService from "@/services/storage.service";
 import VpnService from "@/services/vpn.service";
 import * as LocalAuthentication from "expo-local-authentication";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   Modal,
-  ScrollView,
   Share,
   StatusBar,
   StyleSheet,
@@ -14,6 +14,176 @@ import {
 } from "react-native";
 import { Text } from "react-native-paper";
 
+// ─── Palette ────────────────────────────────────────────────────────────────
+const C = {
+  bg: "#07070C",
+  surface: "#0E0E17",
+  surfaceHigh: "#14141F",
+  border: "#1A1A28",
+  borderSubtle: "#12121C",
+  accent: "#7B6EF6", // violet doux
+  accentGlow: "#7B6EF620",
+  accentDim: "#7B6EF640",
+  success: "#4EFFC0",
+  successGlow: "#4EFFC015",
+  danger: "#FF5E7A",
+  dangerGlow: "#FF5E7A15",
+  textPrimary: "#F0EFF8",
+  textSecondary: "#5A5870",
+  textMuted: "#2E2D40",
+  white: "#FFFFFF",
+};
+
+// ─── Animated Toggle ─────────────────────────────────────────────────────────
+const Toggle = ({
+  value,
+  onToggle,
+  disabled,
+}: {
+  value: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) => {
+  const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(anim, {
+      toValue: value ? 1 : 0,
+      useNativeDriver: false,
+      tension: 180,
+      friction: 18,
+    }).start();
+  }, [value]);
+
+  const translateX = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, 20],
+  });
+  const trackColor = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [C.border, C.accent],
+  });
+
+  return (
+    <TouchableOpacity
+      onPress={onToggle}
+      disabled={disabled}
+      activeOpacity={0.9}
+    >
+      <Animated.View
+        style={[
+          tog.track,
+          { backgroundColor: trackColor },
+          disabled && { opacity: 0.25 },
+        ]}
+      >
+        <Animated.View style={[tog.thumb, { transform: [{ translateX }] }]} />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
+const tog = StyleSheet.create({
+  track: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+  },
+  thumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.white,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+});
+
+// ─── Section Label ────────────────────────────────────────────────────────────
+const Section = ({ label }: { label: string }) => (
+  <View style={styles.sectionRow}>
+    <Text style={styles.sectionLabel}>{label}</Text>
+    <View style={styles.sectionLine} />
+  </View>
+);
+
+// ─── Setting Row ──────────────────────────────────────────────────────────────
+const SettingRow = ({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  right,
+  danger,
+  isLast,
+}: {
+  icon: string;
+  title: string;
+  subtitle?: string;
+  onPress?: () => void;
+  right?: React.ReactNode;
+  danger?: boolean;
+  isLast?: boolean;
+}) => {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () =>
+    onPress &&
+    Animated.spring(scale, {
+      toValue: 0.975,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 20,
+    }).start();
+
+  const onPressOut = () =>
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 20,
+    }).start();
+
+  return (
+    <>
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        activeOpacity={onPress ? 0.9 : 1}
+        disabled={!onPress && !right}
+      >
+        <Animated.View style={[styles.rowInner, { transform: [{ scale }] }]}>
+          {/* Icon pill */}
+          <View style={[styles.iconWrap, danger && styles.iconWrapDanger]}>
+            <Text style={styles.iconText}>{icon}</Text>
+          </View>
+
+          <View style={styles.rowContent}>
+            <Text style={[styles.rowTitle, danger && { color: C.danger }]}>
+              {title}
+            </Text>
+            {subtitle && <Text style={styles.rowSub}>{subtitle}</Text>}
+          </View>
+
+          {right ??
+            (onPress && (
+              <View style={styles.chevronWrap}>
+                <Text style={styles.chevron}>›</Text>
+              </View>
+            ))}
+        </Animated.View>
+      </TouchableOpacity>
+      {!isLast && <View style={styles.rowSep} />}
+    </>
+  );
+};
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
@@ -24,10 +194,26 @@ export default function SettingsScreen() {
     platform: "",
   });
 
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+
   useEffect(() => {
     loadSettings();
     checkBiometric();
     loadVpnStatus();
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 80,
+        friction: 12,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
   const loadSettings = async () => {
@@ -100,122 +286,73 @@ export default function SettingsScreen() {
     );
   };
 
-  const Section = ({ label }: { label: string }) => (
-    <Text style={styles.sectionLabel}>{label}</Text>
-  );
-
-  const SettingRow = ({
-    icon,
-    title,
-    subtitle,
-    onPress,
-    right,
-  }: {
-    icon: string;
-    title: string;
-    subtitle?: string;
-    onPress?: () => void;
-    right?: React.ReactNode;
-  }) => (
-    <TouchableOpacity
-      style={styles.settingRow}
-      onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
-      disabled={!onPress && !right}
-    >
-      <View style={styles.settingIcon}>
-        <Text style={styles.settingIconText}>{icon}</Text>
-      </View>
-      <View style={styles.settingContent}>
-        <Text style={styles.settingTitle}>{title}</Text>
-        {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
-      </View>
-      {right && <View>{right}</View>}
-      {onPress && !right && <Text style={styles.settingChevron}>›</Text>}
-    </TouchableOpacity>
-  );
-
-  const Toggle = ({
-    value,
-    onToggle,
-    disabled,
-  }: {
-    value: boolean;
-    onToggle: () => void;
-    disabled?: boolean;
-  }) => (
-    <TouchableOpacity
-      style={[
-        styles.toggle,
-        value ? styles.toggleOn : styles.toggleOff,
-        disabled && styles.toggleDisabled,
-      ]}
-      onPress={onToggle}
-      disabled={disabled}
-      activeOpacity={0.8}
-    >
-      <View
-        style={[
-          styles.toggleThumb,
-          value ? styles.toggleThumbOn : styles.toggleThumbOff,
-        ]}
-      />
-    </TouchableOpacity>
-  );
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
-      <View style={styles.header}>
+      {/* Header */}
+      <Animated.View
+        style={[
+          styles.header,
+          { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+        ]}
+      >
+        <Text style={styles.headerEyebrow}>NetLock</Text>
         <Text style={styles.headerTitle}>Paramètres</Text>
-      </View>
+      </Animated.View>
 
-      <ScrollView
+      <Animated.ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
+        style={{ opacity: fadeAnim }}
       >
-        {/* VPN Status Banner */}
+        {/* VPN Status Card */}
         <TouchableOpacity
           style={[
-            styles.vpnBanner,
-            vpnStatus.isActive ? styles.vpnBannerOn : styles.vpnBannerOff,
+            styles.vpnCard,
+            vpnStatus.isActive ? styles.vpnCardOn : styles.vpnCardOff,
           ]}
           onPress={async () => {
             if (vpnStatus.isActive) await VpnService.stopVpn();
             else await VpnService.startVpn();
             await loadVpnStatus();
           }}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
-          <View>
-            <Text
-              style={[
-                styles.vpnBannerTitle,
-                { color: vpnStatus.isActive ? "#00F5A0" : "#FF4D4D" },
-              ]}
-            >
-              {vpnStatus.isActive ? "🛡️ VPN Actif" : "⚠️ VPN Inactif"}
-            </Text>
-            <Text style={styles.vpnBannerSub}>
-              {vpnStatus.isNative
-                ? "Mode natif (VPNService)"
-                : "Mode simulation"}{" "}
-              • {vpnStatus.platform}
-            </Text>
-          </View>
+          {/* Status dot */}
           <View
             style={[
-              styles.vpnToggle,
-              vpnStatus.isActive ? styles.vpnToggleOn : styles.vpnToggleOff,
+              styles.vpnDot,
+              vpnStatus.isActive ? styles.vpnDotOn : styles.vpnDotOff,
+            ]}
+          />
+
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[
+                styles.vpnTitle,
+                { color: vpnStatus.isActive ? C.success : C.danger },
+              ]}
+            >
+              {vpnStatus.isActive ? "Protection active" : "Non protégé"}
+            </Text>
+            <Text style={styles.vpnMeta}>
+              {vpnStatus.isNative ? "Mode natif" : "Mode simulation"} ·{" "}
+              {vpnStatus.platform}
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.vpnPill,
+              vpnStatus.isActive ? styles.vpnPillOn : styles.vpnPillOff,
             ]}
           >
             <Text
-              style={{
-                fontSize: 11,
-                fontWeight: "700",
-                color: vpnStatus.isActive ? "#00F5A0" : "#FF4D4D",
-              }}
+              style={[
+                styles.vpnPillText,
+                { color: vpnStatus.isActive ? C.success : C.danger },
+              ]}
             >
               {vpnStatus.isActive ? "ON" : "OFF"}
             </Text>
@@ -223,10 +360,10 @@ export default function SettingsScreen() {
         </TouchableOpacity>
 
         {/* Sécurité */}
-        <Section label="SÉCURITÉ" />
+        <Section label="Sécurité" />
         <View style={styles.card}>
           <SettingRow
-            icon="🔐"
+            icon="⊙"
             title="Authentification biométrique"
             subtitle={
               biometricAvailable ? "Face ID / Touch ID" : "Non disponible"
@@ -239,57 +376,59 @@ export default function SettingsScreen() {
               />
             }
           />
-          <View style={styles.separator} />
           <SettingRow
-            icon="🔑"
+            icon="◈"
             title="Changer le PIN"
-            subtitle="Modifier le code PIN de sécurité"
+            subtitle="Modifier le code de sécurité"
             onPress={() => Alert.alert("Info", "Fonctionnalité à implémenter")}
+            isLast
           />
         </View>
 
         {/* Données */}
-        <Section label="DONNÉES" />
+        <Section label="Données" />
         <View style={styles.card}>
           <SettingRow
-            icon="📤"
+            icon="↑"
             title="Exporter les règles"
             subtitle="Sauvegarder règles et profils"
             onPress={() => setExportDialogVisible(true)}
           />
-          <View style={styles.separator} />
           <SettingRow
-            icon="📥"
+            icon="↓"
             title="Importer les règles"
             subtitle="Restaurer des règles sauvegardées"
             onPress={() =>
               Alert.alert("Import", "Fonctionnalité à implémenter")
             }
           />
-          <View style={styles.separator} />
           <SettingRow
-            icon="🗑️"
+            icon="⊘"
             title="Effacer toutes les données"
             subtitle="Supprimer règles, profils et statistiques"
             onPress={clearAllData}
+            danger
+            isLast
           />
         </View>
 
         {/* À propos */}
-        <Section label="À PROPOS" />
+        <Section label="À propos" />
         <View style={styles.card}>
-          <SettingRow icon="📱" title="Version" subtitle="1.0.0" />
-          <View style={styles.separator} />
+          <SettingRow icon="◎" title="Version" subtitle="1.0.0 — NetLock" />
           <SettingRow
-            icon="📖"
+            icon="☰"
             title="Documentation"
             subtitle="Guide d'utilisation et FAQ"
             onPress={() =>
               Alert.alert("Info", "Consultez le README.md du projet")
             }
+            isLast
           />
         </View>
-      </ScrollView>
+
+        <View style={{ height: 40 }} />
+      </Animated.ScrollView>
 
       {/* Export Modal */}
       <Modal
@@ -299,30 +438,30 @@ export default function SettingsScreen() {
         onRequestClose={() => setExportDialogVisible(false)}
       >
         <View style={modal.overlay}>
-          <View style={modal.container}>
-            <View style={modal.header}>
-              <Text style={modal.title}>Exporter les données</Text>
-              <TouchableOpacity onPress={() => setExportDialogVisible(false)}>
-                <Text style={modal.closeBtn}>✕</Text>
-              </TouchableOpacity>
-            </View>
+          <View style={modal.sheet}>
+            {/* Handle */}
+            <View style={modal.handle} />
+
+            <Text style={modal.title}>Exporter les données</Text>
             <Text style={modal.body}>
               Les règles, profils et statistiques seront exportés au format
-              JSON. Vous pourrez partager ce fichier ou le sauvegarder
-              localement.
+              JSON. Partagez ce fichier ou sauvegardez-le localement.
             </Text>
+
             <TouchableOpacity
-              style={modal.exportBtn}
+              style={modal.primaryBtn}
               onPress={handleExport}
-              activeOpacity={0.8}
+              activeOpacity={0.85}
             >
-              <Text style={modal.exportBtnText}>📤 Exporter et partager</Text>
+              <Text style={modal.primaryBtnText}>Exporter et partager</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
-              style={modal.cancelBtn}
+              style={modal.ghostBtn}
               onPress={() => setExportDialogVisible(false)}
+              activeOpacity={0.7}
             >
-              <Text style={modal.cancelBtnText}>Annuler</Text>
+              <Text style={modal.ghostBtnText}>Annuler</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -331,133 +470,232 @@ export default function SettingsScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A0A0F" },
-  header: { paddingTop: 56, paddingHorizontal: 20, paddingBottom: 20 },
-  headerTitle: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -1,
+  container: { flex: 1, backgroundColor: C.bg },
+
+  header: {
+    paddingTop: 64,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
   },
-  scroll: { paddingHorizontal: 20, paddingBottom: 40 },
-  sectionLabel: {
+  headerEyebrow: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#333",
-    letterSpacing: 1.5,
-    marginBottom: 10,
-    marginTop: 8,
+    letterSpacing: 3,
+    color: C.accent,
+    textTransform: "uppercase",
+    marginBottom: 6,
   },
+  headerTitle: {
+    fontSize: 34,
+    fontWeight: "300",
+    color: C.textPrimary,
+    letterSpacing: -0.5,
+  },
+
+  scroll: { paddingHorizontal: 20 },
+
+  // Section
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 28,
+    marginBottom: 10,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: C.textSecondary,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    marginRight: 12,
+  },
+  sectionLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.border,
+  },
+
+  // Card
   card: {
-    backgroundColor: "#16161E",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#1E1E2E",
-    marginBottom: 8,
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
     overflow: "hidden",
   },
-  separator: { height: 1, backgroundColor: "#1E1E2E", marginLeft: 58 },
-  settingRow: { flexDirection: "row", alignItems: "center", padding: 16 },
-  settingIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "#1E1E2E",
+
+  // Row
+  rowInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  rowSep: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.borderSubtle,
+    marginLeft: 62,
+  },
+  iconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    backgroundColor: C.surfaceHigh,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 14,
   },
-  settingIconText: { fontSize: 16 },
-  settingContent: { flex: 1 },
-  settingTitle: {
+  iconWrapDanger: {
+    backgroundColor: "#FF5E7A0A",
+    borderColor: "#FF5E7A25",
+  },
+  iconText: {
+    fontSize: 14,
+    color: C.textSecondary,
+  },
+  rowContent: { flex: 1 },
+  rowTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: C.textPrimary,
+    letterSpacing: 0.1,
+  },
+  rowSub: {
+    fontSize: 11,
+    color: C.textSecondary,
+    marginTop: 2,
+    letterSpacing: 0.1,
+  },
+  chevronWrap: {
+    width: 20,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chevron: {
+    color: C.textMuted,
+    fontSize: 18,
+  },
+
+  // VPN Card
+  vpnCard: {
+    borderRadius: 16,
+    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 4,
+    position: "relative",
+    overflow: "hidden",
+  },
+  vpnCardOn: {
+    backgroundColor: C.successGlow,
+    borderColor: "#4EFFC030",
+  },
+  vpnCardOff: {
+    backgroundColor: C.dangerGlow,
+    borderColor: "#FF5E7A30",
+  },
+  vpnDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 14,
+  },
+  vpnDotOn: { backgroundColor: C.success },
+  vpnDotOff: { backgroundColor: C.danger },
+  vpnTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#FFFFFF",
-    marginBottom: 2,
+    letterSpacing: 0.1,
+    marginBottom: 3,
   },
-  settingSubtitle: { fontSize: 12, color: "#555" },
-  settingChevron: { color: "#333", fontSize: 22, fontWeight: "300" },
-  toggle: {
-    width: 46,
-    height: 26,
-    borderRadius: 13,
-    justifyContent: "center",
-    padding: 3,
+  vpnMeta: {
+    fontSize: 11,
+    color: C.textSecondary,
+    letterSpacing: 0.2,
   },
-  toggleOn: {
-    backgroundColor: "#00F5A020",
-    borderWidth: 1,
-    borderColor: "#00F5A0",
-  },
-  toggleOff: {
-    backgroundColor: "#1E1E2E",
-    borderWidth: 1,
-    borderColor: "#2E2E3E",
-  },
-  toggleDisabled: { opacity: 0.3 },
-  toggleThumb: { width: 18, height: 18, borderRadius: 9 },
-  toggleThumbOn: { backgroundColor: "#00F5A0", alignSelf: "flex-end" },
-  toggleThumbOff: { backgroundColor: "#333", alignSelf: "flex-start" },
-  vpnBanner: {
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  vpnPill: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderWidth: 1,
   },
-  vpnBannerOn: { backgroundColor: "#00F5A008", borderColor: "#00F5A030" },
-  vpnBannerOff: { backgroundColor: "#FF4D4D08", borderColor: "#FF4D4D30" },
-  vpnBannerTitle: { fontSize: 16, fontWeight: "800", marginBottom: 4 },
-  vpnBannerSub: { fontSize: 12, color: "#555" },
-  vpnToggle: {
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
+  vpnPillOn: { backgroundColor: "#4EFFC010", borderColor: "#4EFFC035" },
+  vpnPillOff: { backgroundColor: "#FF5E7A10", borderColor: "#FF5E7A35" },
+  vpnPillText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
   },
-  vpnToggleOn: { backgroundColor: "#00F5A015", borderColor: "#00F5A0" },
-  vpnToggleOff: { backgroundColor: "#FF4D4D15", borderColor: "#FF4D4D" },
 });
 
 const modal = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "#000000AA",
+    backgroundColor: "#00000088",
     justifyContent: "flex-end",
   },
-  container: {
-    backgroundColor: "#16161E",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "#1E1E2E",
+  sheet: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 28,
+    paddingBottom: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
   },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.border,
+    alignSelf: "center",
+    marginBottom: 28,
   },
-  title: { fontSize: 20, fontWeight: "800", color: "#FFFFFF" },
-  closeBtn: { color: "#555", fontSize: 18, padding: 4 },
-  body: { fontSize: 14, color: "#555", lineHeight: 22, marginBottom: 24 },
-  exportBtn: {
-    backgroundColor: "#00F5A0",
-    borderRadius: 14,
-    padding: 16,
+  title: {
+    fontSize: 20,
+    fontWeight: "300",
+    color: C.textPrimary,
+    letterSpacing: -0.3,
+    marginBottom: 10,
+  },
+  body: {
+    fontSize: 13,
+    color: C.textSecondary,
+    lineHeight: 20,
+    marginBottom: 28,
+    letterSpacing: 0.1,
+  },
+  primaryBtn: {
+    backgroundColor: C.accent,
+    borderRadius: 12,
+    paddingVertical: 15,
     alignItems: "center",
     marginBottom: 10,
   },
-  exportBtnText: { color: "#0A0A0F", fontSize: 15, fontWeight: "800" },
-  cancelBtn: {
-    backgroundColor: "#1E1E2E",
-    borderRadius: 14,
-    padding: 14,
-    alignItems: "center",
+  primaryBtnText: {
+    color: C.white,
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: 0.3,
   },
-  cancelBtnText: { color: "#555", fontSize: 14, fontWeight: "600" },
+  ghostBtn: {
+    backgroundColor: C.surfaceHigh,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
+  },
+  ghostBtnText: {
+    color: C.textSecondary,
+    fontSize: 13,
+    fontWeight: "500",
+    letterSpacing: 0.2,
+  },
 });
