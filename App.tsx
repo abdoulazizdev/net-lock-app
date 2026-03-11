@@ -6,12 +6,12 @@ import { ActivityIndicator, View } from "react-native";
 import { Provider as PaperProvider } from "react-native-paper";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 
-import AuthScreen from "@/app/(tabs)/auth";
 import HomeScreen from "@/app/(tabs)/index";
 import ProfilesScreen from "@/app/(tabs)/profile";
-import SettingsScreen from "@/app/(tabs)/settings";
 import StatsScreen from "@/app/(tabs)/stats";
+import AuthScreen from "@/app/auth";
 import AppDetailScreen from "@/app/screens/app-detail";
+import SettingsScreen from "@/app/settings";
 
 import StorageService from "@/services/storage.service";
 
@@ -24,7 +24,6 @@ function MainTabs() {
       screenOptions={({ route }) => ({
         tabBarIcon: ({ color, size }) => {
           let iconName: string;
-
           switch (route.name) {
             case "Home":
               iconName = "apps";
@@ -38,7 +37,6 @@ function MainTabs() {
             default:
               iconName = "circle";
           }
-
           return <Icon name={iconName} size={size} color={color} />;
         },
         tabBarActiveTintColor: "#6200ee",

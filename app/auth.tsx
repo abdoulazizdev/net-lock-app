@@ -12,7 +12,11 @@ import {
 } from "react-native";
 import { Text } from "react-native-paper";
 
-export default function AuthScreen() {
+type AuthScreenProps = {
+  onAuthenticated?: () => void;
+};
+
+export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [isFirstTime, setIsFirstTime] = useState(false);
@@ -31,6 +35,14 @@ export default function AuthScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  const navigate = () => {
+    if (onAuthenticated) {
+      onAuthenticated();
+    } else {
+      router.replace("/(tabs)");
+    }
+  };
 
   const checkAuthSetup = async () => {
     const config = await StorageService.getAuthConfig();
@@ -74,7 +86,7 @@ export default function AuthScreen() {
         promptMessage: "Authentification requise",
         fallbackLabel: "Utiliser le PIN",
       });
-      if (result.success) router.replace("/(tabs)");
+      if (result.success) navigate();
     } catch {
       Alert.alert("Erreur", "Échec de l'authentification biométrique");
     }
@@ -114,13 +126,13 @@ export default function AuthScreen() {
       setLoading(true);
       await StorageService.savePin(pin);
       setLoading(false);
-      router.replace("/(tabs)");
+      navigate();
     } else {
       setLoading(true);
       const isValid = await StorageService.verifyPin(pin);
       setLoading(false);
       if (isValid) {
-        router.replace("/(tabs)");
+        navigate();
       } else {
         shake();
         setPin("");
@@ -161,13 +173,11 @@ export default function AuthScreen() {
       <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
 
       <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
-        {/* Logo */}
         <View style={styles.logo}>
           <Text style={styles.logoIcon}>🛡️</Text>
           <Text style={styles.logoTitle}>NetLock</Text>
         </View>
 
-        {/* Title */}
         <Text style={styles.title}>
           {isFirstTime
             ? step === "pin"
@@ -183,12 +193,10 @@ export default function AuthScreen() {
             : "Entrez votre code PIN"}
         </Text>
 
-        {/* PIN Dots */}
         <Animated.View style={{ transform: [{ translateX: shakeAnim }] }}>
           <PinDots />
         </Animated.View>
 
-        {/* Numpad */}
         <View style={styles.pad}>
           {[
             ["1", ""],
@@ -222,7 +230,6 @@ export default function AuthScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Submit */}
         <TouchableOpacity
           style={[
             styles.submitBtn,
@@ -243,7 +250,6 @@ export default function AuthScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* Biometric */}
         {!isFirstTime && biometricAvailable && (
           <TouchableOpacity
             style={styles.biometricBtn}

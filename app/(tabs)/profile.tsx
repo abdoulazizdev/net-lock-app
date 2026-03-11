@@ -1,5 +1,6 @@
 import StorageService from "@/services/storage.service";
 import { Profile } from "@/types";
+import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -168,6 +169,20 @@ export default function ProfilesScreen() {
             onPress={() => deleteProfile(item.id)}
           >
             <Text style={styles.deleteBtnText}>🗑</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.manageBtn}
+            onPress={() =>
+              router.push({
+                pathname: "/profile-rules",
+                params: { profileId: item.id },
+              })
+            }
+          >
+            <Text style={styles.manageBtnText}>
+              ⚙️ Gérer les règles ({item.rules.length})
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -428,6 +443,16 @@ const styles = StyleSheet.create({
     color: "#0A0A0F",
     lineHeight: 32,
   },
+
+  manageBtn: {
+    marginLeft: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#1E1E2E",
+    borderRadius: 10,
+  },
+  manageBtnText: { fontSize: 13, color: "#555", fontWeight: "600" },
+  manageBtnTextActive: { color: "#00F5A0" },
 });
 
 const modal = StyleSheet.create({

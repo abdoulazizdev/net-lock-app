@@ -122,16 +122,31 @@ class StorageService {
     }
   }
 
+  // async setActiveProfile(profileId: string | null): Promise<void> {
+  //   try {
+  //     if (profileId) {
+  //       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_PROFILE, profileId);
+  //     } else {
+  //       await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_PROFILE);
+  //     }
+  //   } catch (error) {
+  //     console.error("Erreur lors de la définition du profil actif:", error);
+  //     throw error;
+  //   }
+  // }
+
   async setActiveProfile(profileId: string | null): Promise<void> {
-    try {
-      if (profileId) {
-        await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_PROFILE, profileId);
-      } else {
-        await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_PROFILE);
+    await AsyncStorage.setItem("activeProfile", profileId || "");
+
+    if (profileId) {
+      const profiles = await this.getProfiles();
+      const profile = profiles.find((p) => p.id === profileId);
+      if (profile) {
+        // Applique les règles du profil
+        for (const rule of profile.rules) {
+          await this.saveRule(rule);
+        }
       }
-    } catch (error) {
-      console.error("Erreur lors de la définition du profil actif:", error);
-      throw error;
     }
   }
 

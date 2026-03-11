@@ -51,6 +51,10 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="auth" options={{ headerShown: false }} />
           <Stack.Screen
+            name="screens/profile-rules"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
             name="screens/app-detail"
             options={{ title: "Détails de l'application" }}
           />
