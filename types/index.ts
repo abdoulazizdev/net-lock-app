@@ -1,29 +1,29 @@
-/**
- * Types principaux de l'application
- */
-
 export interface InstalledApp {
   packageName: string;
   appName: string;
   isSystemApp: boolean;
-  icon?: string | null; // base64 sur Android
+  icon?: string | null;
 }
 
 export interface AppRule {
   packageName: string;
   isBlocked: boolean;
   profileId?: string;
-  schedules?: Schedule[];
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface Schedule {
   id: string;
-  dayOfWeek: number[]; // 0 = dimanche, 6 = samedi
-  startTime: string; // format HH:mm
-  endTime: string; // format HH:mm
-  isBlocked: boolean;
+  packageName: string;
+  label: string;
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+  days: number[]; // 0=Dim, 1=Lun, ..., 6=Sam
+  isActive: boolean;
+  action: "block" | "allow";
 }
 
 export interface Profile {
@@ -40,12 +40,13 @@ export interface AppStats {
   blockedAttempts: number;
   allowedAttempts: number;
   lastAttempt?: Date;
+  lastUpdated?: Date;
 }
 
 export interface AuthConfig {
   isPinEnabled: boolean;
   isBiometricEnabled: boolean;
-  pin?: string; // Hash du PIN
+  pin?: string;
 }
 
 export type RootStackParamList = {
