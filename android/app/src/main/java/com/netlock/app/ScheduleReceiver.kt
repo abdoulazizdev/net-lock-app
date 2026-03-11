@@ -1,4 +1,4 @@
-package com.netlock.app
+package com.netoff.app
 
 import android.content.BroadcastReceiver
 import android.content.Context

@@ -1,4 +1,4 @@
-package com.netlock.app
+package com.netoff.app
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

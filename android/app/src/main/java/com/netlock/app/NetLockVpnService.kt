@@ -1,4 +1,4 @@
-package com.netlock.app
+package com.netoff.app
 
 import android.content.Intent
 import android.content.pm.PackageManager

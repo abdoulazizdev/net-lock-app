@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.netlock.app'
+    namespace 'com.netoff.app'
     defaultConfig {
-        applicationId 'com.netlock.app'
+        applicationId 'com.netoff.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

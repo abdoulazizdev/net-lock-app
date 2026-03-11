@@ -1,4 +1,4 @@
-package com.netlock.app
+package com.netoff.app
 
 import android.app.Application
 import android.content.res.Configuration

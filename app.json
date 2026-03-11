@@ -4,17 +4,15 @@
     "slug": "netoff",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icons/netoff_icon.png",
     "scheme": "netoff",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.netoff.app",
-      "icon": "./assets/images/icon.png"
+      "icon": "./assets/icons/netoff_icon.png"
     },
-
     "android": {
       "package": "com.netoff.app",
       "edgeToEdgeEnabled": true,
@@ -27,22 +25,20 @@
         "USE_FINGERPRINT"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1E40AF"
+        "foregroundImage": "./assets/icons/netoff_foreground.png",
+        "backgroundImage": "./assets/icons/netoff_background.png"
       }
     },
-
     "web": {
       "output": "static",
-      "favicon": "./assets/images/icon.png"
+      "favicon": "./assets/icons/netoff_icon.png"
     },
-
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash.png",
+          "image": "./assets/icons/netoff_icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -53,10 +49,15 @@
       ],
       "expo-secure-store"
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "31d284c3-e169-4330-ae67-367c2a8eed64"
+      }
     }
   }
 }
