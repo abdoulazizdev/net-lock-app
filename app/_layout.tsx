@@ -58,6 +58,10 @@ export default function RootLayout() {
             name="screens/app-detail"
             options={{ title: "Détails de l'application" }}
           />
+          <Stack.Screen
+            name="screens/profile-detail"
+            options={{ headerShown: false }}
+          />
           <Stack.Screen name="settings" options={{ title: "Paramètres" }} />
         </Stack>
         <StatusBar style="auto" />

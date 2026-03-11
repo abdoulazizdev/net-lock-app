@@ -26,12 +26,25 @@ export interface Schedule {
   action: "block" | "allow";
 }
 
+export interface ProfileSchedule {
+  id: string;
+  label: string;
+  days: number[]; // 0=Dim, 1=Lun, ..., 6=Sam
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+  isActive: boolean;
+  action: "activate" | "deactivate"; // active ou désactive le profil
+}
+
 export interface Profile {
   id: string;
   name: string;
   description?: string;
   isActive: boolean;
   rules: AppRule[];
+  schedules: ProfileSchedule[];
   createdAt: Date;
 }
 
