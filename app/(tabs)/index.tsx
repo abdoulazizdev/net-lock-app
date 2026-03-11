@@ -221,7 +221,7 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={styles.headerTitle}>NetLock</Text>
+            <Text style={styles.headerTitle}>NetOff</Text>
             <Text style={styles.headerSubtitle}>
               {filteredApps.length} apps • {blockedApps.size} bloquées
             </Text>

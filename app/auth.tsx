@@ -175,7 +175,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
         <View style={styles.logo}>
           <Text style={styles.logoIcon}>🛡️</Text>
-          <Text style={styles.logoTitle}>NetLock</Text>
+          <Text style={styles.logoTitle}>NetOff</Text>
         </View>
 
         <Text style={styles.title}>
