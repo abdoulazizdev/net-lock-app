@@ -62,6 +62,16 @@ class StorageService {
     return rules.find((r) => r.packageName === packageName) || null;
   }
 
+  // ✅ NOUVEAU — efface toutes les règles
+  async clearRules(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.RULES);
+    } catch (error) {
+      console.error("Erreur lors de la suppression des règles:", error);
+      throw error;
+    }
+  }
+
   // ============= PROFILS =============
 
   async getProfiles(): Promise<Profile[]> {
@@ -113,7 +123,6 @@ class StorageService {
     try {
       const profileId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_PROFILE);
       if (!profileId) return null;
-
       const profiles = await this.getProfiles();
       return profiles.find((p) => p.id === profileId) || null;
     } catch (error) {
@@ -122,31 +131,38 @@ class StorageService {
     }
   }
 
-  // async setActiveProfile(profileId: string | null): Promise<void> {
-  //   try {
-  //     if (profileId) {
-  //       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_PROFILE, profileId);
-  //     } else {
-  //       await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_PROFILE);
-  //     }
-  //   } catch (error) {
-  //     console.error("Erreur lors de la définition du profil actif:", error);
-  //     throw error;
-  //   }
-  // }
-
+  // ✅ CORRIGÉ — utilise STORAGE_KEYS.ACTIVE_PROFILE + applique les règles du profil
   async setActiveProfile(profileId: string | null): Promise<void> {
-    await AsyncStorage.setItem("activeProfile", profileId || "");
-
-    if (profileId) {
-      const profiles = await this.getProfiles();
-      const profile = profiles.find((p) => p.id === profileId);
-      if (profile) {
-        // Applique les règles du profil
-        for (const rule of profile.rules) {
-          await this.saveRule(rule);
+    try {
+      if (profileId) {
+        await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_PROFILE, profileId);
+        // Applique les règles du profil activé
+        const profiles = await this.getProfiles();
+        const profile = profiles.find((p) => p.id === profileId);
+        if (profile) {
+          for (const rule of profile.rules) {
+            await this.saveRule(rule);
+          }
         }
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_PROFILE);
       }
+    } catch (error) {
+      console.error("Erreur lors de la définition du profil actif:", error);
+      throw error;
+    }
+  }
+
+  // ✅ NOUVEAU — efface profils + profil actif
+  async clearProfiles(): Promise<void> {
+    try {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.PROFILES,
+        STORAGE_KEYS.ACTIVE_PROFILE,
+      ]);
+    } catch (error) {
+      console.error("Erreur lors de la suppression des profils:", error);
+      throw error;
     }
   }
 
@@ -285,19 +301,28 @@ class StorageService {
     try {
       const data = JSON.parse(jsonString);
 
-      if (data.rules) {
+      // Validation minimale du format
+      if (
+        !data ||
+        typeof data !== "object" ||
+        (!data.rules && !data.profiles && !data.stats)
+      ) {
+        throw new Error("Format JSON invalide — aucune clé reconnue");
+      }
+
+      if (data.rules && Array.isArray(data.rules)) {
         await AsyncStorage.setItem(
           STORAGE_KEYS.RULES,
           JSON.stringify(data.rules),
         );
       }
-      if (data.profiles) {
+      if (data.profiles && Array.isArray(data.profiles)) {
         await AsyncStorage.setItem(
           STORAGE_KEYS.PROFILES,
           JSON.stringify(data.profiles),
         );
       }
-      if (data.stats) {
+      if (data.stats && Array.isArray(data.stats)) {
         await AsyncStorage.setItem(
           STORAGE_KEYS.STATS,
           JSON.stringify(data.stats),
