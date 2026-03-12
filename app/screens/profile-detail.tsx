@@ -1,8 +1,15 @@
+import ProfileDetailSkeleton from "@/components/ProfileDetailSkeleton";
 import AppListService from "@/services/app-list.service";
 import StorageService from "@/services/storage.service";
 import { InstalledApp, Profile, ProfileSchedule } from "@/types";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Animated,
   Easing,
@@ -31,7 +38,6 @@ const PROFILE_COLORS = [
   { accent: "#FFB84D", bg: "#2E1E0A", border: "#6A4A1A" },
   { accent: "#F06292", bg: "#2E0A1A", border: "#6A1A3A" },
 ];
-
 function getProfileColor(id: string) {
   const idx =
     parseInt(id.replace(/\D/g, "").slice(-1) || "0", 10) %
@@ -91,9 +97,7 @@ function TimePicker({
           </ScrollView>
         </View>
       </View>
-
       <Text style={tp.colon}>:</Text>
-
       <View style={tp.col}>
         <Text style={tp.colLabel}>MIN</Text>
         <View style={tp.scrollWrap}>
@@ -146,7 +150,6 @@ function ScheduleModal({
   const [endMinute, setEndMinute] = useState(0);
   const [action, setAction] = useState<"activate" | "deactivate">("activate");
   const [pickerMode, setPickerMode] = useState<"start" | "end">("start");
-
   const slideAnim = useRef(new Animated.Value(600)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
 
@@ -248,7 +251,6 @@ function ScheduleModal({
           activeOpacity={1}
           onPress={close}
         />
-
         <Animated.View
           style={[
             schedModal.sheet,
@@ -259,7 +261,6 @@ function ScheduleModal({
           ]}
         >
           <View style={schedModal.handle} />
-
           <View style={schedModal.header}>
             <Text style={schedModal.title}>
               {editingSchedule ? "Modifier la plage" : "Nouvelle plage horaire"}
@@ -270,9 +271,7 @@ function ScheduleModal({
               </View>
             </TouchableOpacity>
           </View>
-
           <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Label */}
             <Text style={schedModal.fieldLabel}>NOM (optionnel)</Text>
             <TextInput
               style={schedModal.input}
@@ -282,20 +281,20 @@ function ScheduleModal({
               onChangeText={setLabel}
             />
 
-            {/* Action */}
             <Text style={schedModal.fieldLabel}>ACTION</Text>
             <View style={schedModal.actionRow}>
               {(["activate", "deactivate"] as const).map((a) => {
                 const active = action === a;
                 const color = a === "activate" ? "#3DDB8A" : "#D04070";
-                const bgCol = a === "activate" ? "#3DDB8A15" : "#D0407015";
-                const bdCol = a === "activate" ? "#3DDB8A50" : "#D0407050";
                 return (
                   <TouchableOpacity
                     key={a}
                     style={[
                       schedModal.actionBtn,
-                      active && { backgroundColor: bgCol, borderColor: bdCol },
+                      active && {
+                        backgroundColor: color + "15",
+                        borderColor: color + "50",
+                      },
                     ]}
                     onPress={() => setAction(a)}
                     activeOpacity={0.8}
@@ -318,7 +317,6 @@ function ScheduleModal({
               })}
             </View>
 
-            {/* Days presets */}
             <Text style={schedModal.fieldLabel}>JOURS</Text>
             <View style={schedModal.presets}>
               {presets.map((p) => {
@@ -346,7 +344,6 @@ function ScheduleModal({
                 );
               })}
             </View>
-
             <View style={schedModal.daysRow}>
               {DAYS.map((d, i) => (
                 <TouchableOpacity
@@ -370,18 +367,15 @@ function ScheduleModal({
               ))}
             </View>
 
-            {/* Time range tabs */}
             <Text style={schedModal.fieldLabel}>PLAGE HORAIRE</Text>
             <View style={schedModal.timeToggle}>
-              {(["start", "end"] as const).map((mode) => {
+              {(["start", "end"] as const).map((mode, idx) => {
                 const active = pickerMode === mode;
                 const h = mode === "start" ? startHour : endHour;
                 const m = mode === "start" ? startMinute : endMinute;
                 return (
                   <React.Fragment key={mode}>
-                    {mode === "end" && (
-                      <Text style={schedModal.timeArrow}>→</Text>
-                    )}
+                    {idx === 1 && <Text style={schedModal.timeArrow}>→</Text>}
                     <TouchableOpacity
                       style={[
                         schedModal.timeTab,
@@ -420,7 +414,6 @@ function ScheduleModal({
               }}
             />
 
-            {/* Summary */}
             <View style={schedModal.summary}>
               <View style={schedModal.summaryDot} />
               <Text style={schedModal.summaryText}>
@@ -494,25 +487,23 @@ function ScheduleRow({
   const isNow =
     schedule.days.includes(now.getDay()) && nowMins >= startM && nowMins < endM;
   const isAct = schedule.action === "activate";
-  const accentColor = isAct ? "#3DDB8A" : "#D04070";
+  const accent = isAct ? "#3DDB8A" : "#D04070";
   const accentBg = isAct ? "#0D2218" : "#1E0E16";
-  const accentBorder = isAct ? "#1E6A46" : "#4A1A2A";
+  const accentBd = isAct ? "#1E6A46" : "#4A1A2A";
 
   return (
     <View style={[sr.container, !schedule.isActive && sr.containerInactive]}>
-      {/* left accent bar */}
-      <View style={[sr.accent, { backgroundColor: accentColor }]} />
-
+      <View style={[sr.accent, { backgroundColor: accent }]} />
       <View style={sr.left}>
         <View style={sr.topRow}>
           <View
             style={[
               sr.actionBadge,
-              { backgroundColor: accentBg, borderColor: accentBorder },
+              { backgroundColor: accentBg, borderColor: accentBd },
             ]}
           >
-            <View style={[sr.actionDot, { backgroundColor: accentColor }]} />
-            <Text style={[sr.actionBadgeText, { color: accentColor }]}>
+            <View style={[sr.actionDot, { backgroundColor: accent }]} />
+            <Text style={[sr.actionBadgeText, { color: accent }]}>
               {isAct ? "Activer" : "Désactiver"}
             </Text>
           </View>
@@ -528,13 +519,11 @@ function ScheduleRow({
             </Text>
           ) : null}
         </View>
-
         <Text style={sr.time}>
           {fmtTime(schedule.startHour, schedule.startMinute)}
           <Text style={sr.timeSep}> → </Text>
           {fmtTime(schedule.endHour, schedule.endMinute)}
         </Text>
-
         <View style={sr.daysRow}>
           {DAYS_SHORT.map((d, i) => {
             const active = schedule.days.includes(i);
@@ -546,11 +535,11 @@ function ScheduleRow({
                   active && {
                     backgroundColor: accentBg,
                     borderWidth: 1,
-                    borderColor: accentBorder,
+                    borderColor: accentBd,
                   },
                 ]}
               >
-                <Text style={[sr.dayText, active && { color: accentColor }]}>
+                <Text style={[sr.dayText, active && { color: accent }]}>
                   {d}
                 </Text>
               </View>
@@ -558,7 +547,6 @@ function ScheduleRow({
           })}
         </View>
       </View>
-
       <View style={sr.right}>
         <TouchableOpacity
           style={sr.editBtn}
@@ -592,7 +580,7 @@ function ScheduleRow({
 }
 
 // ─── App Row ──────────────────────────────────────────────────────────────────
-function AppRow({
+const AppRow = React.memo(function AppRow({
   app,
   isBlocked,
   onToggle,
@@ -646,7 +634,7 @@ function AppRow({
       </View>
     </TouchableOpacity>
   );
-}
+});
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProfileDetailScreen() {
@@ -660,16 +648,19 @@ export default function ProfileDetailScreen() {
   );
   const [activeTab, setActiveTab] = useState<"apps" | "schedules">("apps");
   const [search, setSearch] = useState("");
+
+  // Loading state: 'idle' | 'meta' (profile+app list, no icons) | 'icons' | 'done'
+  const [loadState, setLoadState] = useState<"meta" | "done">("meta");
+
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [editingSchedule, setEditingSchedule] =
     useState<ProfileSchedule | null>(null);
-  const [loading, setLoading] = useState(true);
 
   const tabAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    loadAll();
+    loadMeta();
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 380,
@@ -678,20 +669,11 @@ export default function ProfileDetailScreen() {
     }).start();
   }, []);
 
-  const switchTab = (tab: "apps" | "schedules") => {
-    setActiveTab(tab);
-    Animated.timing(tabAnim, {
-      toValue: tab === "apps" ? 0 : 1,
-      duration: 250,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: false,
-    }).start();
-  };
-
-  const loadAll = async () => {
-    setLoading(true);
+  const loadMeta = async () => {
+    setLoadState("meta");
     try {
-      const profiles = await StorageService.getProfiles();
+      const [profiles] = await Promise.all([StorageService.getProfiles()]);
+
       const p = profiles.find((pr) => pr.id === profileId);
       if (p) {
         const full = {
@@ -706,11 +688,29 @@ export default function ProfileDetailScreen() {
           ),
         );
       }
-      const allApps = await AppListService.getInstalledApps();
-      setApps(allApps.filter((a) => !a.isSystemApp));
-    } finally {
-      setLoading(false);
+
+      // getAppsProgressive : callback appelé avec les icônes dès qu'elles sont dispo
+      await AppListService.getAppsProgressive((allApps) => {
+        const sorted = [...allApps].sort((a, b) => {
+          if (a.isSystemApp !== b.isSystemApp) return a.isSystemApp ? 1 : -1;
+          return (a.appName ?? "").localeCompare(b.appName ?? "");
+        });
+        setApps(sorted);
+        setLoadState("done");
+      });
+    } catch (e) {
+      console.error("Erreur chargement profil:", e);
+      setLoadState("done");
     }
+  };
+  const switchTab = (tab: "apps" | "schedules") => {
+    setActiveTab(tab);
+    Animated.timing(tabAnim, {
+      toValue: tab === "apps" ? 0 : 1,
+      duration: 250,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    }).start();
   };
 
   const saveProfile = async (updated: Profile) => {
@@ -718,26 +718,35 @@ export default function ProfileDetailScreen() {
     setProfile(updated);
   };
 
-  const toggleApp = async (packageName: string) => {
-    if (!profile) return;
-    const isBlocked = blockedPackages.has(packageName);
-    const updatedRules = [
-      ...profile.rules.filter((r) => r.packageName !== packageName),
-      {
-        packageName,
-        isBlocked: !isBlocked,
-        profileId: profile.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ];
-    await saveProfile({ ...profile, rules: updatedRules });
-    setBlockedPackages((prev) => {
-      const next = new Set(prev);
-      isBlocked ? next.delete(packageName) : next.add(packageName);
-      return next;
-    });
-  };
+  const toggleApp = useCallback(
+    async (packageName: string) => {
+      setProfile((prev) => {
+        if (!prev) return prev;
+        const isBlocked = blockedPackages.has(packageName);
+        const updatedRules = [
+          ...prev.rules.filter((r) => r.packageName !== packageName),
+          {
+            packageName,
+            isBlocked: !isBlocked,
+            profileId: prev.id,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ];
+        const updated = { ...prev, rules: updatedRules };
+        StorageService.saveProfile(updated); // fire-and-forget
+        return updated;
+      });
+      setBlockedPackages((prev) => {
+        const next = new Set(prev);
+        prev.has(packageName)
+          ? next.delete(packageName)
+          : next.add(packageName);
+        return next;
+      });
+    },
+    [blockedPackages],
+  );
 
   const addOrUpdateSchedule = async (data: Omit<ProfileSchedule, "id">) => {
     if (!profile) return;
@@ -767,32 +776,44 @@ export default function ProfileDetailScreen() {
     });
   };
 
-  const filteredApps = apps.filter(
-    (a) =>
-      a.appName?.toLowerCase().includes(search.toLowerCase()) ||
-      a.packageName.toLowerCase().includes(search.toLowerCase()),
+  const filteredApps = useMemo(
+    () =>
+      apps.filter(
+        (a) =>
+          a.appName?.toLowerCase().includes(search.toLowerCase()) ||
+          a.packageName.toLowerCase().includes(search.toLowerCase()),
+      ),
+    [apps, search],
   );
 
-  const blockedCount = blockedPackages.size;
-  const schedules = profile?.schedules ?? [];
+  const renderApp = useCallback(
+    ({ item }: { item: InstalledApp }) => (
+      <AppRow
+        app={item}
+        isBlocked={blockedPackages.has(item.packageName)}
+        onToggle={() => toggleApp(item.packageName)}
+      />
+    ),
+    [blockedPackages, toggleApp],
+  );
+
+  const keyExtractor = useCallback(
+    (item: InstalledApp) => item.packageName,
+    [],
+  );
 
   const tabIndicatorLeft = tabAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ["0%", "50%"],
   });
-
   const profileColor = profile
     ? getProfileColor(profile.id)
     : PROFILE_COLORS[0];
+  const blockedCount = blockedPackages.size;
+  const schedules = profile?.schedules ?? [];
 
-  if (!profile && !loading) {
-    return (
-      <View style={detail.container}>
-        <Text style={{ color: "#F0F0FF", textAlign: "center", marginTop: 100 }}>
-          Profil introuvable
-        </Text>
-      </View>
-    );
+  if (!profile && loadState === "meta") {
+    return <ProfileDetailSkeleton />;
   }
 
   return (
@@ -840,7 +861,6 @@ export default function ProfileDetailScreen() {
           </View>
         </View>
 
-        {/* Tab switcher */}
         <View style={detail.tabBar}>
           <Animated.View
             style={[detail.tabIndicator, { left: tabIndicatorLeft }]}
@@ -858,7 +878,7 @@ export default function ProfileDetailScreen() {
                 ]}
               >
                 {tab === "apps"
-                  ? `Applications (${blockedCount}/${apps.length})`
+                  ? `Apps (${blockedCount}/${apps.length})`
                   : `Planification (${schedules.length})`}
               </Text>
             </TouchableOpacity>
@@ -868,7 +888,7 @@ export default function ProfileDetailScreen() {
 
       {/* ── Apps tab */}
       {activeTab === "apps" && (
-        <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+        <View style={{ flex: 1 }}>
           <View style={detail.searchBar}>
             <Text style={detail.searchIconText}>◎</Text>
             <TextInput
@@ -891,7 +911,7 @@ export default function ProfileDetailScreen() {
           <View style={detail.bulkRow}>
             <TouchableOpacity
               style={[detail.bulkBtn, detail.bulkBtnBlock]}
-              onPress={async () => {
+              onPress={() => {
                 if (!profile) return;
                 const allRules = apps.map((a) => ({
                   packageName: a.packageName,
@@ -900,7 +920,7 @@ export default function ProfileDetailScreen() {
                   createdAt: new Date(),
                   updatedAt: new Date(),
                 }));
-                await saveProfile({ ...profile, rules: allRules });
+                saveProfile({ ...profile, rules: allRules });
                 setBlockedPackages(new Set(apps.map((a) => a.packageName)));
               }}
               activeOpacity={0.8}
@@ -912,9 +932,9 @@ export default function ProfileDetailScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[detail.bulkBtn, detail.bulkBtnAllow]}
-              onPress={async () => {
+              onPress={() => {
                 if (!profile) return;
-                await saveProfile({ ...profile, rules: [] });
+                saveProfile({ ...profile, rules: [] });
                 setBlockedPackages(new Set());
               }}
               activeOpacity={0.8}
@@ -926,28 +946,30 @@ export default function ProfileDetailScreen() {
             </TouchableOpacity>
           </View>
 
-          {loading ? (
-            <View style={detail.center}>
-              <Text style={{ color: "#3A3A58", fontSize: 13 }}>
-                Chargement...
-              </Text>
-            </View>
+          {loadState === "meta" ? (
+            <ProfileDetailSkeleton skeletonOnly />
           ) : (
             <FlatList
               data={filteredApps}
-              keyExtractor={(item) => item.packageName}
-              renderItem={({ item }) => (
-                <AppRow
-                  app={item}
-                  isBlocked={blockedPackages.has(item.packageName)}
-                  onToggle={() => toggleApp(item.packageName)}
-                />
-              )}
+              keyExtractor={keyExtractor}
+              renderItem={renderApp}
+              style={{ flex: 1 }}
               contentContainerStyle={{
                 paddingHorizontal: 20,
                 paddingBottom: insets.bottom + 40,
               }}
               showsVerticalScrollIndicator={false}
+              // ar.container: height 68 + marginBottom 8 = 76px per item
+              getItemLayout={(_, index) => ({
+                length: 76,
+                offset: 76 * index,
+                index,
+              })}
+              initialNumToRender={30}
+              maxToRenderPerBatch={30}
+              updateCellsBatchingPeriod={30}
+              windowSize={21}
+              removeClippedSubviews={false}
               ListEmptyComponent={
                 <View style={detail.emptySearch}>
                   <Text style={detail.emptySearchIcon}>◌</Text>
@@ -958,7 +980,7 @@ export default function ProfileDetailScreen() {
               }
             />
           )}
-        </Animated.View>
+        </View>
       )}
 
       {/* ── Schedules tab */}
@@ -971,7 +993,6 @@ export default function ProfileDetailScreen() {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {/* Info banner */}
             <View style={detail.infoBanner}>
               <View style={detail.infoBannerIcon}>
                 <Text style={detail.infoBannerIconText}>◎</Text>
@@ -1009,7 +1030,6 @@ export default function ProfileDetailScreen() {
             )}
           </ScrollView>
 
-          {/* FAB */}
           <TouchableOpacity
             style={[detail.addFab, { bottom: insets.bottom + 24 }]}
             onPress={() => {
@@ -1036,11 +1056,9 @@ export default function ProfileDetailScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Shared styles ────────────────────────────────────────────────────────────
 const detail = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
-
-  // Header
   header: {
     paddingHorizontal: 20,
     paddingBottom: 0,
@@ -1077,15 +1095,12 @@ const detail = StyleSheet.create({
     letterSpacing: -0.5,
   },
   profileMeta: { fontSize: 11, color: "#3A3A58", marginTop: 3 },
-
-  // Tabs
   tabBar: {
     flexDirection: "row",
     height: 44,
     backgroundColor: "#0E0E18",
     borderRadius: 14,
     overflow: "hidden",
-    marginBottom: 0,
     borderWidth: 1,
     borderColor: "#1C1C2C",
   },
@@ -1101,8 +1116,6 @@ const detail = StyleSheet.create({
   tab: { flex: 1, justifyContent: "center", alignItems: "center" },
   tabText: { fontSize: 11, fontWeight: "600", color: "#3A3A58" },
   tabTextActive: { color: "#9B8FFF" },
-
-  // Search
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -1127,8 +1140,6 @@ const detail = StyleSheet.create({
     alignItems: "center",
   },
   searchClearText: { fontSize: 10, color: "#5A5A80", fontWeight: "700" },
-
-  // Bulk buttons
   bulkRow: {
     flexDirection: "row",
     gap: 10,
@@ -1149,15 +1160,10 @@ const detail = StyleSheet.create({
   bulkBtnAllow: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
   bulkDot: { width: 6, height: 6, borderRadius: 3 },
   bulkBtnText: { fontSize: 12, fontWeight: "700" },
-
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-
-  // Empty search
   emptySearch: { alignItems: "center", paddingTop: 60 },
   emptySearchIcon: { fontSize: 32, color: "#2A2A3A", marginBottom: 10 },
   emptySearchText: { fontSize: 14, color: "#3A3A58" },
-
-  // Schedules list
   schedulesList: { paddingHorizontal: 20, paddingTop: 16 },
   infoBanner: {
     flexDirection: "row",
@@ -1182,8 +1188,6 @@ const detail = StyleSheet.create({
   },
   infoBannerIconText: { fontSize: 12, color: "#7B6EF6" },
   infoText: { flex: 1, fontSize: 12, color: "#5A5A80", lineHeight: 19 },
-
-  // Empty schedules
   emptySchedules: { alignItems: "center", paddingTop: 48 },
   emptyIconWrap: {
     width: 64,
@@ -1210,8 +1214,6 @@ const detail = StyleSheet.create({
     lineHeight: 20,
     paddingHorizontal: 20,
   },
-
-  // FAB
   addFab: {
     position: "absolute",
     left: 20,
@@ -1555,6 +1557,8 @@ const sr = StyleSheet.create({
 });
 
 const ar = StyleSheet.create({
+  // height must stay at 76px (padding 12*2 + icon 44 + marginBottom 8)
+  // to match getItemLayout — do not change padding/margin without updating getItemLayout
   container: {
     flexDirection: "row",
     alignItems: "center",
@@ -1564,6 +1568,7 @@ const ar = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: "#1C1C2C",
+    height: 68,
   },
   iconWrap: { position: "relative", marginRight: 14 },
   icon: { width: 44, height: 44, borderRadius: 11 },

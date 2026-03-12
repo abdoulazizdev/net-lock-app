@@ -1,8 +1,17 @@
+/**
+ * HomeScreen — chargement progressif optimisé
+ *
+ * Stratégie :
+ *  1. L1/L2 cache (service) → liste sans icônes affichée < 50 ms
+ *  2. getAppsProgressive() → callback avec icônes dès dispo (cache L1 ou natif)
+ *  3. AppCard React.memo (shallow compare) — se re-rend uniquement si icon,
+ *     isBlocked ou vpnActive change
+ *  4. FlatList : getItemLayout + windowSize large, pas d'Animated.View wrapper
+ *  5. toggleAppBlock optimiste : setState immédiat + VpnService fire-and-forget
+ */
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Animated,
-  Easing,
   FlatList,
   Image,
   RefreshControl,
@@ -21,222 +30,249 @@ import StorageService from "@/services/storage.service";
 import VpnService from "@/services/vpn.service";
 import { InstalledApp } from "@/types";
 
+// ─── Hauteur fixe des cards (doit correspondre à appCard.height + marginBottom)
+const CARD_H = 76 + 7; // 83
+
+// ─── AppCard ──────────────────────────────────────────────────────────────────
+// React.memo avec shallow compare : se re-rend si item (nouvelle ref = nouvelle
+// icône), isBlocked ou vpnActive change. Pas de comparateur custom pour ne pas
+// bloquer les mises à jour d'icônes.
+interface CardProps {
+  item: InstalledApp;
+  isBlocked: boolean;
+  vpnActive: boolean;
+  onPress: () => void;
+  onToggle: () => void;
+}
+
+const AppCard = React.memo(function AppCard({
+  item,
+  isBlocked,
+  vpnActive,
+  onPress,
+  onToggle,
+}: CardProps) {
+  return (
+    <TouchableOpacity
+      style={[styles.appCard, isBlocked && styles.appCardBlocked]}
+      onPress={onPress}
+      activeOpacity={0.65}
+    >
+      {isBlocked && <View style={styles.blockedAccent} />}
+
+      <View style={styles.iconWrap}>
+        {item.icon ? (
+          <Image
+            source={{ uri: `data:image/png;base64,${item.icon}` }}
+            style={styles.appIcon}
+          />
+        ) : (
+          <View
+            style={[
+              styles.iconPlaceholder,
+              item.isSystemApp && styles.iconSystem,
+            ]}
+          >
+            <Text style={styles.iconLetter}>
+              {item.appName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        {isBlocked && (
+          <View style={styles.blockedBadge}>
+            <Text style={styles.blockedBadgeText}>✕</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.appInfo}>
+        <Text
+          style={[styles.appName, isBlocked && styles.appNameBlocked]}
+          numberOfLines={1}
+        >
+          {item.appName}
+        </Text>
+        <Text style={styles.appPackage} numberOfLines={1}>
+          {item.packageName}
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        style={[
+          styles.toggle,
+          isBlocked ? styles.toggleBlocked : styles.toggleAllowed,
+        ]}
+        onPress={vpnActive ? onToggle : undefined}
+        disabled={!vpnActive}
+        activeOpacity={0.8}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <View
+          style={[
+            styles.thumb,
+            isBlocked ? styles.thumbBlocked : styles.thumbAllowed,
+          ]}
+        />
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+});
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+
   const [apps, setApps] = useState<InstalledApp[]>([]);
-  const [filteredApps, setFilteredApps] = useState<InstalledApp[]>([]);
+  const [blockedApps, setBlockedApps] = useState<Set<string>>(new Set());
+  const [vpnActive, setVpnActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<FilterKey[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [vpnActive, setVpnActive] = useState(false);
-  const [blockedApps, setBlockedApps] = useState<Set<string>>(new Set());
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(24)).current;
+  const [loadState, setLoadState] = useState<"meta" | "done">("meta");
 
   useEffect(() => {
-    loadApps();
-    checkVpnStatus();
+    boot();
   }, []);
-  useEffect(() => {
-    filterApps();
-  }, [searchQuery, apps, activeFilters]);
 
-  useEffect(() => {
-    if (!loading) {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 420,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 420,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [loading]);
-
-  const loadApps = async () => {
+  async function boot() {
+    setLoadState("meta");
     try {
-      setLoading(true);
-      const installedApps = await AppListService.getInstalledApps();
-      setApps(installedApps);
-      const rules = await StorageService.getRules();
-      const blocked = new Set(
-        rules.filter((r) => r.isBlocked).map((r) => r.packageName),
+      const [rules, vpn] = await Promise.all([
+        StorageService.getRules(),
+        VpnService.isVpnActive(),
+      ]);
+      setBlockedApps(
+        new Set(rules.filter((r) => r.isBlocked).map((r) => r.packageName)),
       );
-      setBlockedApps(blocked);
-    } catch (error) {
-      console.error("Erreur chargement apps:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+      setVpnActive(vpn);
 
-  const checkVpnStatus = async () => {
-    const active = await VpnService.isVpnActive();
-    setVpnActive(active);
-  };
-
-  const filterApps = () => {
-    let filtered = apps;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (app) =>
-          app.appName.toLowerCase().includes(q) ||
-          app.packageName.toLowerCase().includes(q),
-      );
+      // getAppsProgressive : affiche les noms immédiatement,
+      // puis appelle onReady avec les icônes dès qu'elles sont dispo
+      await AppListService.getAppsProgressive((withIcons) => {
+        const sorted = [...withIcons].sort((a, b) => {
+          if (a.isSystemApp !== b.isSystemApp) return a.isSystemApp ? 1 : -1;
+          return (a.appName ?? "").localeCompare(b.appName ?? "");
+        });
+        setApps(sorted);
+        setLoadState("done");
+      });
+    } catch (e) {
+      console.error("[HomeScreen] boot error:", e);
+      setLoadState("done");
     }
-    if (activeFilters.includes("system")) {
-      filtered = filtered.filter((app) => app.isSystemApp);
-    } else if (!activeFilters.includes("system") && activeFilters.length > 0) {
-      filtered = filtered.filter((app) => !app.isSystemApp);
-    }
-    if (activeFilters.includes("blocked")) {
-      filtered = filtered.filter((app) => blockedApps.has(app.packageName));
-    }
-    if (activeFilters.includes("allowed")) {
-      filtered = filtered.filter((app) => !blockedApps.has(app.packageName));
-    }
-    setFilteredApps(filtered);
-  };
+  }
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadApps();
-    await checkVpnStatus();
+    AppListService.invalidateCache();
+    await boot();
     setRefreshing(false);
   }, []);
 
-  const toggleAppBlock = async (
-    packageName: string,
-    currentBlocked: boolean,
-  ) => {
-    const newBlocked = !currentBlocked;
-    await VpnService.setRule(packageName, newBlocked);
-    setBlockedApps((prev) => {
-      const updated = new Set(prev);
-      newBlocked ? updated.add(packageName) : updated.delete(packageName);
-      return updated;
-    });
-  };
-
-  const toggleVpn = async () => {
+  const toggleVpn = useCallback(async () => {
     if (vpnActive) {
       await VpnService.stopVpn();
       setVpnActive(false);
     } else {
-      const started = await VpnService.startVpn();
-      setVpnActive(started);
+      const ok = await VpnService.startVpn();
+      setVpnActive(ok);
     }
-  };
+  }, [vpnActive]);
 
-  const renderAppItem = ({ item }: { item: InstalledApp }) => {
-    const isBlocked = blockedApps.has(item.packageName);
+  // Optimistic toggle : met à jour l'UI immédiatement, persiste en background
+  const toggleAppBlock = useCallback(
+    async (packageName: string) => {
+      setBlockedApps((prev) => {
+        const next = new Set(prev);
+        prev.has(packageName)
+          ? next.delete(packageName)
+          : next.add(packageName);
+        return next;
+      });
+      VpnService.setRule(packageName, !blockedApps.has(packageName)).catch(
+        console.error,
+      );
+    },
+    [blockedApps],
+  );
 
-    return (
-      <Animated.View
-        style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}
-      >
-        <TouchableOpacity
-          style={[styles.appCard, isBlocked && styles.appCardBlocked]}
-          onPress={() =>
-            router.push({
-              pathname: "/screens/app-detail",
-              params: { packageName: item.packageName },
-            })
-          }
-          activeOpacity={0.65}
-        >
-          {isBlocked && <View style={styles.blockedAccent} />}
+  // ── Filtrage memoïsé
+  const filteredApps = useMemo(() => {
+    let list = apps;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (a) =>
+          a.appName.toLowerCase().includes(q) ||
+          a.packageName.toLowerCase().includes(q),
+      );
+    }
+    if (activeFilters.includes("system")) {
+      list = list.filter((a) => a.isSystemApp);
+    } else if (activeFilters.length > 0) {
+      list = list.filter((a) => !a.isSystemApp);
+    }
+    if (activeFilters.includes("blocked"))
+      list = list.filter((a) => blockedApps.has(a.packageName));
+    if (activeFilters.includes("allowed"))
+      list = list.filter((a) => !blockedApps.has(a.packageName));
+    return list;
+  }, [apps, searchQuery, activeFilters, blockedApps]);
 
-          <View style={styles.appIconContainer}>
-            {item.icon ? (
-              <Image
-                source={{ uri: `data:image/png;base64,${item.icon}` }}
-                style={styles.appIcon}
-              />
-            ) : (
-              <View
-                style={[
-                  styles.appIconPlaceholder,
-                  item.isSystemApp && styles.systemIconBg,
-                ]}
-              >
-                <Text style={styles.appIconLetter}>
-                  {item.appName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
-            {isBlocked && (
-              <View style={styles.blockedBadge}>
-                <Text style={styles.blockedBadgeText}>✕</Text>
-              </View>
-            )}
-          </View>
+  const keyExtractor = useCallback(
+    (item: InstalledApp) => item.packageName,
+    [],
+  );
 
-          <View style={styles.appInfo}>
-            <Text
-              style={[styles.appName, isBlocked && styles.appNameBlocked]}
-              numberOfLines={1}
-            >
-              {item.appName}
-            </Text>
-            <Text style={styles.appPackage} numberOfLines={1}>
-              {item.packageName}
-            </Text>
-          </View>
+  const getItemLayout = useCallback(
+    (_: unknown, index: number) => ({
+      length: CARD_H,
+      offset: CARD_H * index,
+      index,
+    }),
+    [],
+  );
 
-          <TouchableOpacity
-            style={[
-              styles.toggleBtn,
-              isBlocked ? styles.toggleBtnBlocked : styles.toggleBtnAllowed,
-            ]}
-            onPress={() =>
-              vpnActive && toggleAppBlock(item.packageName, isBlocked)
-            }
-            disabled={!vpnActive}
-            activeOpacity={0.8}
-          >
-            <View
-              style={[
-                styles.toggleThumb,
-                isBlocked ? styles.thumbBlocked : styles.thumbAllowed,
-              ]}
-            />
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Animated.View>
-    );
-  };
+  const renderItem = useCallback(
+    ({ item }: { item: InstalledApp }) => (
+      <AppCard
+        item={item}
+        isBlocked={blockedApps.has(item.packageName)}
+        vpnActive={vpnActive}
+        onPress={() =>
+          router.push({
+            pathname: "/screens/app-detail",
+            params: { packageName: item.packageName },
+          })
+        }
+        onToggle={() => toggleAppBlock(item.packageName)}
+      />
+    ),
+    [blockedApps, vpnActive, toggleAppBlock],
+  );
 
-  // ── Skeleton while loading
-  if (loading) return <HomeScreenSkeleton />;
+  // ── Skeleton pendant le chargement meta
+  if (loadState === "meta") return <HomeScreenSkeleton />;
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
 
-      {/* ── Header */}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={styles.headerTitle}>NetOff</Text>
-            <Text style={styles.headerSubtitle}>
-              {filteredApps.length} apps • {blockedApps.size} bloquées
+            <Text style={styles.title}>NetOff</Text>
+            <Text style={styles.subtitle}>
+              {filteredApps.length} apps · {blockedApps.size} bloquée
+              {blockedApps.size !== 1 ? "s" : ""}
             </Text>
           </View>
 
           <TouchableOpacity
             style={[
-              styles.vpnButton,
-              vpnActive ? styles.vpnButtonActive : styles.vpnButtonInactive,
+              styles.vpnBtn,
+              vpnActive ? styles.vpnBtnOn : styles.vpnBtnOff,
             ]}
             onPress={toggleVpn}
             activeOpacity={0.75}
@@ -244,13 +280,13 @@ export default function HomeScreen() {
             <View
               style={[
                 styles.vpnDot,
-                vpnActive ? styles.vpnDotActive : styles.vpnDotInactive,
+                vpnActive ? styles.vpnDotOn : styles.vpnDotOff,
               ]}
             />
             <Text
               style={[
-                styles.vpnButtonText,
-                vpnActive ? styles.vpnTextActive : styles.vpnTextInactive,
+                styles.vpnTxt,
+                vpnActive ? styles.vpnTxtOn : styles.vpnTxtOff,
               ]}
             >
               {vpnActive ? "VPN ACTIF" : "VPN OFF"}
@@ -258,7 +294,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Search + Filters */}
         <SearchAndFilters
           query={searchQuery}
           onQueryChange={setSearchQuery}
@@ -267,28 +302,41 @@ export default function HomeScreen() {
         />
       </View>
 
-      {/* ── VPN Warning */}
+      {/* ── Bannière VPN inactif ─────────────────────────────────────────────── */}
       {!vpnActive && (
         <TouchableOpacity
           style={styles.vpnWarning}
           onPress={toggleVpn}
           activeOpacity={0.8}
         >
-          <View style={styles.vpnWarningInner}>
-            <Text style={styles.vpnWarningIcon}>⚠</Text>
-            <Text style={styles.vpnWarningText}>
+          <View style={styles.vpnWarningRow}>
+            <Text style={styles.vpnWarnIcon}>⚠</Text>
+            <Text style={styles.vpnWarnText}>
               VPN inactif — les règles ne s'appliquent pas
             </Text>
-            <Text style={styles.vpnWarningCta}>Activer</Text>
+            <Text style={styles.vpnWarnCta}>Activer</Text>
           </View>
         </TouchableOpacity>
       )}
 
-      {/* ── App List */}
+      {/* ── Liste ────────────────────────────────────────────────────────────── */}
       <FlatList
         data={filteredApps}
-        renderItem={renderAppItem}
-        keyExtractor={(item) => item.packageName}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        getItemLayout={getItemLayout}
+        style={styles.flatList}
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: insets.bottom + 24 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        // Perf FlatList
+        initialNumToRender={16}
+        maxToRenderPerBatch={16}
+        updateCellsBatchingPeriod={40}
+        windowSize={13}
+        removeClippedSubviews={false} // évite les bugs de hauteur sur Android
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -296,14 +344,15 @@ export default function HomeScreen() {
             tintColor="#7B6EF6"
           />
         }
-        contentContainerStyle={[
-          styles.list,
-          { paddingBottom: insets.bottom + 90 },
-        ]}
-        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text style={styles.emptyIcon}>◌</Text>
+            <Text style={styles.emptyText}>Aucune application trouvée</Text>
+          </View>
+        }
       />
 
-      {/* ── FAB */}
+      {/* ── FAB ─────────────────────────────────────────────────────────────── */}
       <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + 16 }]}
         onPress={() => router.push("/settings")}
@@ -315,14 +364,13 @@ export default function HomeScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
 
   header: {
-    paddingTop: 12, // overridden dynamically with insets.top
     paddingHorizontal: 22,
     paddingBottom: 16,
-    backgroundColor: "#080810",
     borderBottomWidth: 1,
     borderBottomColor: "#13131F",
   },
@@ -332,21 +380,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 22,
   },
-  headerTitle: {
+  title: {
     fontSize: 34,
     fontWeight: "800",
     color: "#F0F0FF",
     letterSpacing: -1.5,
   },
-  headerSubtitle: {
+  subtitle: {
     fontSize: 12,
     color: "#3A3A58",
     marginTop: 3,
     letterSpacing: 0.5,
     fontWeight: "500",
   },
+  subtitleLoading: { color: "#2A2A42" },
 
-  vpnButton: {
+  vpnBtn: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
@@ -355,14 +404,14 @@ const styles = StyleSheet.create({
     gap: 7,
     borderWidth: 1,
   },
-  vpnButtonActive: { backgroundColor: "#0E1F18", borderColor: "#1E8A5A" },
-  vpnButtonInactive: { backgroundColor: "#1A0F0F", borderColor: "#5A1E1E" },
+  vpnBtnOn: { backgroundColor: "#0E1F18", borderColor: "#1E8A5A" },
+  vpnBtnOff: { backgroundColor: "#1A0F0F", borderColor: "#5A1E1E" },
   vpnDot: { width: 7, height: 7, borderRadius: 4 },
-  vpnDotActive: { backgroundColor: "#3DDB8A" },
-  vpnDotInactive: { backgroundColor: "#E05555" },
-  vpnButtonText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
-  vpnTextActive: { color: "#3DDB8A" },
-  vpnTextInactive: { color: "#E05555" },
+  vpnDotOn: { backgroundColor: "#3DDB8A" },
+  vpnDotOff: { backgroundColor: "#E05555" },
+  vpnTxt: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
+  vpnTxtOn: { color: "#3DDB8A" },
+  vpnTxtOff: { color: "#E05555" },
 
   vpnWarning: {
     marginHorizontal: 22,
@@ -374,28 +423,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#3A151A",
   },
-  vpnWarningInner: {
+  vpnWarningRow: {
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
     gap: 10,
   },
-  vpnWarningIcon: { fontSize: 14, color: "#E05555" },
-  vpnWarningText: {
-    flex: 1,
-    color: "#A04444",
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  vpnWarningCta: {
+  vpnWarnIcon: { fontSize: 14, color: "#E05555" },
+  vpnWarnText: { flex: 1, color: "#A04444", fontSize: 12, fontWeight: "500" },
+  vpnWarnCta: {
     color: "#E05555",
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.5,
   },
 
-  list: { paddingHorizontal: 22, paddingTop: 12, paddingBottom: 110 },
+  flatList: { flex: 1 },
+  list: { paddingHorizontal: 22, paddingTop: 12 },
 
+  // height: 76 = padding 14×2 + icône 48 ; +7 marginBottom = 83 = CARD_H
   appCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -406,6 +452,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1C1C2C",
     overflow: "hidden",
+    height: 76,
   },
   appCardBlocked: { backgroundColor: "#0E0A10", borderColor: "#2A1525" },
   blockedAccent: {
@@ -418,9 +465,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#D04070",
   },
 
-  appIconContainer: { position: "relative", marginRight: 14 },
+  iconWrap: { position: "relative", marginRight: 14 },
   appIcon: { width: 48, height: 48, borderRadius: 14 },
-  appIconPlaceholder: {
+  iconPlaceholder: {
     width: 48,
     height: 48,
     borderRadius: 14,
@@ -428,8 +475,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  systemIconBg: { backgroundColor: "#141422" },
-  appIconLetter: { fontSize: 20, fontWeight: "700", color: "#7B6EF6" },
+  iconSystem: { backgroundColor: "#141422" },
+  iconLetter: { fontSize: 20, fontWeight: "700", color: "#7B6EF6" },
   blockedBadge: {
     position: "absolute",
     top: -3,
@@ -461,7 +508,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  toggleBtn: {
+  toggle: {
     width: 46,
     height: 26,
     borderRadius: 13,
@@ -469,9 +516,9 @@ const styles = StyleSheet.create({
     padding: 3,
     borderWidth: 1,
   },
-  toggleBtnAllowed: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
-  toggleBtnBlocked: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
-  toggleThumb: { width: 18, height: 18, borderRadius: 9 },
+  toggleAllowed: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
+  toggleBlocked: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
+  thumb: { width: 18, height: 18, borderRadius: 9 },
   thumbAllowed: {
     backgroundColor: "#3DDB8A",
     alignSelf: "flex-end",
@@ -483,9 +530,12 @@ const styles = StyleSheet.create({
   },
   thumbBlocked: { backgroundColor: "#4A2030", alignSelf: "flex-start" },
 
+  empty: { alignItems: "center", paddingTop: 80 },
+  emptyIcon: { fontSize: 36, color: "#2A2A3A", marginBottom: 12 },
+  emptyText: { fontSize: 14, color: "#3A3A58" },
+
   fab: {
     position: "absolute",
-    bottom: 16, // overridden dynamically with insets.bottom
     right: 24,
     width: 54,
     height: 54,
