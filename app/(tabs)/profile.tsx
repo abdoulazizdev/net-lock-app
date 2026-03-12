@@ -8,6 +8,7 @@ import {
   Easing,
   FlatList,
   Modal,
+  RefreshControl,
   StatusBar,
   StyleSheet,
   TextInput,
@@ -393,6 +394,7 @@ export default function ProfilesScreen() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false); // ← nouveau
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -420,6 +422,13 @@ export default function ProfilesScreen() {
       console.error("Erreur profils:", e);
     }
   };
+
+  // ← nouveau : pull-to-refresh handler
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadProfiles();
+    setRefreshing(false);
+  }, []);
 
   const createProfile = async (name: string, desc: string) => {
     const newProfile: Profile = {
@@ -540,6 +549,16 @@ export default function ProfilesScreen() {
               { paddingBottom: insets.bottom + 20 },
             ]}
             showsVerticalScrollIndicator={false}
+            // ← pull-to-refresh
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#7B6EF6"
+                colors={["#7B6EF6", "#3DDB8A"]}
+                progressBackgroundColor="#0E0E18"
+              />
+            }
           />
         )}
       </Animated.View>

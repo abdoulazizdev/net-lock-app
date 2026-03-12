@@ -16,6 +16,7 @@ import {
   FlatList,
   Image,
   Modal,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -651,6 +652,7 @@ export default function ProfileDetailScreen() {
 
   // Loading state: 'idle' | 'meta' (profile+app list, no icons) | 'icons' | 'done'
   const [loadState, setLoadState] = useState<"meta" | "done">("meta");
+  const [refreshing, setRefreshing] = useState(false);
 
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [editingSchedule, setEditingSchedule] =
@@ -712,6 +714,13 @@ export default function ProfileDetailScreen() {
       useNativeDriver: false,
     }).start();
   };
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    AppListService.invalidateCache();
+    await loadMeta();
+    setRefreshing(false);
+  }, []);
 
   const saveProfile = async (updated: Profile) => {
     await StorageService.saveProfile(updated);
@@ -959,7 +968,6 @@ export default function ProfileDetailScreen() {
                 paddingBottom: insets.bottom + 40,
               }}
               showsVerticalScrollIndicator={false}
-              // ar.container: height 68 + marginBottom 8 = 76px per item
               getItemLayout={(_, index) => ({
                 length: 76,
                 offset: 76 * index,
@@ -970,6 +978,14 @@ export default function ProfileDetailScreen() {
               updateCellsBatchingPeriod={30}
               windowSize={21}
               removeClippedSubviews={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  tintColor="#7B6EF6"
+                  colors={["#7B6EF6"]}
+                />
+              }
               ListEmptyComponent={
                 <View style={detail.emptySearch}>
                   <Text style={detail.emptySearchIcon}>◌</Text>
@@ -992,6 +1008,14 @@ export default function ProfileDetailScreen() {
               { paddingBottom: insets.bottom + 100 },
             ]}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor="#7B6EF6"
+                colors={["#7B6EF6"]}
+              />
+            }
           >
             <View style={detail.infoBanner}>
               <View style={detail.infoBannerIcon}>
