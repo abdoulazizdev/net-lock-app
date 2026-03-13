@@ -28,12 +28,11 @@ class MainApplication : Application(), ReactApplication {
               add(AppBlockPackage())
               add(SchedulePackage())
               add(FocusPackage())
+              add(WidgetSyncPackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
-
           override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
-
           override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
       }
   )

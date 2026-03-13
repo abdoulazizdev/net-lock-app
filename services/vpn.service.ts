@@ -1,17 +1,19 @@
 import { Alert, NativeModules, Platform } from "react-native";
 import StorageService from "./storage.service";
 
-const { VpnModule, AppBlockModule } = NativeModules;
+const { VpnModule, AppBlockModule, WidgetSyncModule } = NativeModules;
 
 class VpnService {
   async startVpn(): Promise<boolean> {
     try {
       if (!VpnModule) {
-        console.warn("VpnModule natif non disponible");
+        console.warn("VpnModule non disponible");
         return false;
       }
       const result = await VpnModule.startVpn();
       await this.syncRules();
+      // Sync widget
+      WidgetSyncModule?.updateVpnState(true);
       return result;
     } catch (error) {
       console.error("Erreur startVpn:", error);
@@ -22,6 +24,7 @@ class VpnService {
   async stopVpn(): Promise<void> {
     try {
       if (VpnModule) await VpnModule.stopVpn();
+      WidgetSyncModule?.updateVpnState(false);
     } catch (error) {
       console.error("Erreur stopVpn:", error);
     }
@@ -36,11 +39,8 @@ class VpnService {
     }
   }
 
-  // Fix : setRule est public et gère storage + sync VPN en interne
-  // Remplace l'appel direct à StorageService.saveRule + syncBlockedApps dans les écrans
   async setRule(packageName: string, isBlocked: boolean): Promise<void> {
     try {
-      // Fix : createdAt/updatedAt sont des Date, pas des string
       await StorageService.saveRule({
         packageName,
         isBlocked,
@@ -48,6 +48,11 @@ class VpnService {
         updatedAt: new Date(),
       });
       await this.syncRules();
+
+      // Mettre à jour le compteur dans le widget
+      const rules = await StorageService.getRules();
+      const blockedCount = rules.filter((r) => r.isBlocked).length;
+      WidgetSyncModule?.updateBlockedCount(blockedCount);
 
       if (isBlocked && AppBlockModule) {
         Alert.alert(
@@ -69,15 +74,9 @@ class VpnService {
   }
 
   getStatus(): { isActive: boolean; isNative: boolean; platform: string } {
-    return {
-      isActive: false,
-      isNative: !!VpnModule,
-      platform: Platform.OS,
-    };
+    return { isActive: false, isNative: !!VpnModule, platform: Platform.OS };
   }
 
-  // Fix : syncRules est maintenant public pour pouvoir être appelé depuis
-  // FocusModule côté natif ou depuis d'autres services si besoin
   async syncRules(): Promise<void> {
     if (!VpnModule) return;
     const rules = await StorageService.getRules();
