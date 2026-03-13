@@ -43,6 +43,7 @@
     <receiver android:name=".ScheduleReceiver" android:exported="false">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED"/>
+        <action android:name="com.netoff.app.SCHEDULE_TRIGGER"/>
       </intent-filter>
     </receiver>
   </application>

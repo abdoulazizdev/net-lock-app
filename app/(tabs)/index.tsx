@@ -1,16 +1,11 @@
-/**
- * HomeScreen — chargement progressif optimisé
- *
- * Stratégie :
- *  1. L1/L2 cache (service) → liste sans icônes affichée < 50 ms
- *  2. getAppsProgressive() → callback avec icônes dès dispo (cache L1 ou natif)
- *  3. AppCard React.memo (shallow compare) — se re-rend uniquement si icon,
- *     isBlocked ou vpnActive change
- *  4. FlatList : getItemLayout + windowSize large, pas d'Animated.View wrapper
- *  5. toggleAppBlock optimiste : setState immédiat + VpnService fire-and-forget
- */
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   FlatList,
   Image,
@@ -30,13 +25,9 @@ import StorageService from "@/services/storage.service";
 import VpnService from "@/services/vpn.service";
 import { InstalledApp } from "@/types";
 
-// ─── Hauteur fixe des cards (doit correspondre à appCard.height + marginBottom)
-const CARD_H = 76 + 7; // 83
+const CARD_H = 76 + 7;
 
 // ─── AppCard ──────────────────────────────────────────────────────────────────
-// React.memo avec shallow compare : se re-rend si item (nouvelle ref = nouvelle
-// icône), isBlocked ou vpnActive change. Pas de comparateur custom pour ne pas
-// bloquer les mises à jour d'icônes.
 interface CardProps {
   item: InstalledApp;
   isBlocked: boolean;
@@ -74,13 +65,18 @@ const AppCard = React.memo(function AppCard({
             ]}
           >
             <Text style={styles.iconLetter}>
-              {item.appName.charAt(0).toUpperCase()}
+              {(item.appName ?? "?").charAt(0).toUpperCase()}
             </Text>
           </View>
         )}
         {isBlocked && (
           <View style={styles.blockedBadge}>
             <Text style={styles.blockedBadgeText}>✕</Text>
+          </View>
+        )}
+        {item.isSystemApp && (
+          <View style={styles.systemBadge}>
+            <Text style={styles.systemBadgeText}>⚙</Text>
           </View>
         )}
       </View>
@@ -129,10 +125,27 @@ export default function HomeScreen() {
   const [activeFilters, setActiveFilters] = useState<FilterKey[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loadState, setLoadState] = useState<"meta" | "done">("meta");
+  // État des apps système
+  const [systemAppsLoaded, setSystemAppsLoaded] = useState(false);
+  const [systemAppsLoading, setSystemAppsLoading] = useState(false);
+
+  // Ref pour éviter les double-chargements
+  const loadingSystemRef = useRef(false);
 
   useEffect(() => {
     boot();
   }, []);
+
+  // Quand le filtre système est activé → charger les apps système si pas encore fait
+  useEffect(() => {
+    if (
+      activeFilters.includes("system") &&
+      !systemAppsLoaded &&
+      !loadingSystemRef.current
+    ) {
+      loadSystemApps();
+    }
+  }, [activeFilters]);
 
   async function boot() {
     setLoadState("meta");
@@ -146,28 +159,60 @@ export default function HomeScreen() {
       );
       setVpnActive(vpn);
 
-      // getAppsProgressive : affiche les noms immédiatement,
-      // puis appelle onReady avec les icônes dès qu'elles sont dispo
-      await AppListService.getAppsProgressive((withIcons) => {
-        const sorted = [...withIcons].sort((a, b) => {
+      // Charge uniquement les apps utilisateur au démarrage
+      await AppListService.getAppsProgressive((userApps) => {
+        const sorted = [...userApps].sort((a, b) => {
           if (a.isSystemApp !== b.isSystemApp) return a.isSystemApp ? 1 : -1;
           return (a.appName ?? "").localeCompare(b.appName ?? "");
         });
         setApps(sorted);
         setLoadState("done");
-      });
+      }, false); // false = pas d'apps système
     } catch (e) {
       console.error("[HomeScreen] boot error:", e);
       setLoadState("done");
     }
   }
 
+  async function loadSystemApps() {
+    if (loadingSystemRef.current) return;
+    loadingSystemRef.current = true;
+    setSystemAppsLoading(true);
+    try {
+      await AppListService.getAppsProgressive((allApps) => {
+        const sorted = [...allApps].sort((a, b) => {
+          if (a.isSystemApp !== b.isSystemApp) return a.isSystemApp ? 1 : -1;
+          return (a.appName ?? "").localeCompare(b.appName ?? "");
+        });
+        setApps(sorted);
+        setSystemAppsLoaded(true);
+      }, true); // true = inclure les apps système
+    } finally {
+      setSystemAppsLoading(false);
+      loadingSystemRef.current = false;
+    }
+  }
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     AppListService.invalidateCache();
-    await boot();
+    setSystemAppsLoaded(false);
+    // Rechargement selon l'état courant des filtres
+    const includeSystem = activeFilters.includes("system");
+    await AppListService.getAppsProgressive((result) => {
+      const sorted = [...result].sort((a, b) => {
+        if (a.isSystemApp !== b.isSystemApp) return a.isSystemApp ? 1 : -1;
+        return (a.appName ?? "").localeCompare(b.appName ?? "");
+      });
+      setApps(sorted);
+      if (includeSystem) setSystemAppsLoaded(true);
+    }, includeSystem);
+    const rules = await StorageService.getRules();
+    setBlockedApps(
+      new Set(rules.filter((r) => r.isBlocked).map((r) => r.packageName)),
+    );
     setRefreshing(false);
-  }, []);
+  }, [activeFilters]);
 
   const toggleVpn = useCallback(async () => {
     if (vpnActive) {
@@ -179,7 +224,6 @@ export default function HomeScreen() {
     }
   }, [vpnActive]);
 
-  // Optimistic toggle : met à jour l'UI immédiatement, persiste en background
   const toggleAppBlock = useCallback(
     async (packageName: string) => {
       setBlockedApps((prev) => {
@@ -196,9 +240,20 @@ export default function HomeScreen() {
     [blockedApps],
   );
 
-  // ── Filtrage memoïsé
+  const handleFilterChange = useCallback((filters: FilterKey[]) => {
+    setActiveFilters(filters);
+  }, []);
+
+  // ── Filtrage memoïsé ──────────────────────────────────────────────────────
   const filteredApps = useMemo(() => {
     let list = apps;
+
+    // Filtre système : si pas activé, exclure les apps système
+    // (même si elles sont chargées après un refresh)
+    if (!activeFilters.includes("system")) {
+      list = list.filter((a) => !a.isSystemApp);
+    }
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -207,15 +262,11 @@ export default function HomeScreen() {
           a.packageName.toLowerCase().includes(q),
       );
     }
-    if (activeFilters.includes("system")) {
-      list = list.filter((a) => a.isSystemApp);
-    } else if (activeFilters.length > 0) {
-      list = list.filter((a) => !a.isSystemApp);
-    }
     if (activeFilters.includes("blocked"))
       list = list.filter((a) => blockedApps.has(a.packageName));
     if (activeFilters.includes("allowed"))
       list = list.filter((a) => !blockedApps.has(a.packageName));
+
     return list;
   }, [apps, searchQuery, activeFilters, blockedApps]);
 
@@ -223,7 +274,6 @@ export default function HomeScreen() {
     (item: InstalledApp) => item.packageName,
     [],
   );
-
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({
       length: CARD_H,
@@ -251,21 +301,26 @@ export default function HomeScreen() {
     [blockedApps, vpnActive, toggleAppBlock],
   );
 
-  // ── Skeleton pendant le chargement meta
   if (loadState === "meta") return <HomeScreenSkeleton />;
+
+  const userAppsCount = apps.filter((a) => !a.isSystemApp).length;
+  const displayedCount = filteredApps.length;
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
 
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.title}>NetOff</Text>
             <Text style={styles.subtitle}>
-              {filteredApps.length} apps · {blockedApps.size} bloquée
-              {blockedApps.size !== 1 ? "s" : ""}
+              {displayedCount} app{displayedCount !== 1 ? "s" : ""} ·{" "}
+              {blockedApps.size} bloquée{blockedApps.size !== 1 ? "s" : ""}
+              {systemAppsLoading && (
+                <Text style={styles.subtitleLoading}> · ⚙ chargement…</Text>
+              )}
             </Text>
           </View>
 
@@ -298,11 +353,13 @@ export default function HomeScreen() {
           query={searchQuery}
           onQueryChange={setSearchQuery}
           activeFilters={activeFilters}
-          onFilterChange={setActiveFilters}
+          onFilterChange={handleFilterChange}
+          systemAppsLoaded={systemAppsLoaded}
+          systemAppsLoading={systemAppsLoading}
         />
       </View>
 
-      {/* ── Bannière VPN inactif ─────────────────────────────────────────────── */}
+      {/* Bannière VPN inactif */}
       {!vpnActive && (
         <TouchableOpacity
           style={styles.vpnWarning}
@@ -319,7 +376,16 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      {/* ── Liste ────────────────────────────────────────────────────────────── */}
+      {/* Bannière chargement système */}
+      {systemAppsLoading && (
+        <View style={styles.systemLoadingBanner}>
+          <Text style={styles.systemLoadingText}>
+            ⚙ Chargement des apps système…
+          </Text>
+        </View>
+      )}
+
+      {/* Liste */}
       <FlatList
         data={filteredApps}
         renderItem={renderItem}
@@ -331,12 +397,11 @@ export default function HomeScreen() {
           { paddingBottom: insets.bottom + 24 },
         ]}
         showsVerticalScrollIndicator={false}
-        // Perf FlatList
         initialNumToRender={16}
         maxToRenderPerBatch={16}
         updateCellsBatchingPeriod={40}
         windowSize={13}
-        removeClippedSubviews={false} // évite les bugs de hauteur sur Android
+        removeClippedSubviews={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -347,12 +412,16 @@ export default function HomeScreen() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>◌</Text>
-            <Text style={styles.emptyText}>Aucune application trouvée</Text>
+            <Text style={styles.emptyText}>
+              {activeFilters.includes("system") && systemAppsLoading
+                ? "Chargement en cours…"
+                : "Aucune application trouvée"}
+            </Text>
           </View>
         }
       />
 
-      {/* ── FAB ─────────────────────────────────────────────────────────────── */}
+      {/* FAB */}
       <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + 16 }]}
         onPress={() => router.push("/settings")}
@@ -367,7 +436,6 @@ export default function HomeScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
-
   header: {
     paddingHorizontal: 22,
     paddingBottom: 16,
@@ -393,7 +461,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     fontWeight: "500",
   },
-  subtitleLoading: { color: "#2A2A42" },
+  subtitleLoading: { color: "#8880C0" },
 
   vpnBtn: {
     flexDirection: "row",
@@ -438,10 +506,22 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
+  systemLoadingBanner: {
+    marginHorizontal: 22,
+    marginTop: 8,
+    marginBottom: 2,
+    borderRadius: 10,
+    backgroundColor: "#141230",
+    borderWidth: 1,
+    borderColor: "#2A2450",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  systemLoadingText: { fontSize: 12, color: "#8880C0", fontWeight: "500" },
+
   flatList: { flex: 1 },
   list: { paddingHorizontal: 22, paddingTop: 12 },
 
-  // height: 76 = padding 14×2 + icône 48 ; +7 marginBottom = 83 = CARD_H
   appCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -477,6 +557,7 @@ const styles = StyleSheet.create({
   },
   iconSystem: { backgroundColor: "#141422" },
   iconLetter: { fontSize: 20, fontWeight: "700", color: "#7B6EF6" },
+
   blockedBadge: {
     position: "absolute",
     top: -3,
@@ -491,6 +572,20 @@ const styles = StyleSheet.create({
     borderColor: "#080810",
   },
   blockedBadgeText: { fontSize: 7, color: "#FFF", fontWeight: "900" },
+  systemBadge: {
+    position: "absolute",
+    bottom: -3,
+    right: -3,
+    width: 15,
+    height: 15,
+    borderRadius: 7,
+    backgroundColor: "#141230",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#2A2450",
+  },
+  systemBadgeText: { fontSize: 7, color: "#8880C0" },
 
   appInfo: { flex: 1, marginRight: 12 },
   appName: {

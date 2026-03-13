@@ -1,18 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Easing,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TextStyle,
-    TouchableOpacity,
-    View,
-    ViewStyle,
+  Animated,
+  Easing,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TextStyle,
+  TouchableOpacity,
+  View,
+  ViewStyle,
 } from "react-native";
 import { Text } from "react-native-paper";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 export type FilterKey = "system" | "blocked" | "allowed" | "all";
 
 export interface FilterOption {
@@ -26,9 +25,10 @@ interface Props {
   onQueryChange: (q: string) => void;
   activeFilters: FilterKey[];
   onFilterChange: (filters: FilterKey[]) => void;
+  systemAppsLoaded: boolean; // ← le HomeScreen indique si les apps système sont chargées
+  systemAppsLoading?: boolean; // ← en cours de chargement
 }
 
-// ─── Filter definitions ───────────────────────────────────────────────────────
 const FILTERS: FilterOption[] = [
   { key: "all", label: "Tout", icon: "◈" },
   { key: "allowed", label: "Autorisées", icon: "●" },
@@ -36,24 +36,40 @@ const FILTERS: FilterOption[] = [
   { key: "system", label: "Système", icon: "⚙" },
 ];
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function SearchAndFilters({
   query,
   onQueryChange,
   activeFilters,
   onFilterChange,
+  systemAppsLoaded,
+  systemAppsLoading,
 }: Props) {
   const [focused, setFocused] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // Animations
   const focusBorder = useRef(new Animated.Value(0)).current;
   const focusGlow = useRef(new Animated.Value(0)).current;
   const filtersHeight = useRef(new Animated.Value(0)).current;
   const filtersOpacity = useRef(new Animated.Value(0)).current;
   const chevronRot = useRef(new Animated.Value(0)).current;
+  const spinAnim = useRef(new Animated.Value(0)).current;
 
-  // ── Focus animation
+  // spin pour le loader système
+  useEffect(() => {
+    if (systemAppsLoading) {
+      Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ).start();
+    } else {
+      spinAnim.stopAnimation();
+      spinAnim.setValue(0);
+    }
+  }, [systemAppsLoading]);
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(focusBorder, {
@@ -70,11 +86,10 @@ export default function SearchAndFilters({
     ]).start();
   }, [focused]);
 
-  // ── Filters expand animation
   useEffect(() => {
     Animated.parallel([
       Animated.timing(filtersHeight, {
-        toValue: filtersOpen ? 40 : 0,
+        toValue: filtersOpen ? 44 : 0,
         duration: 260,
         easing: filtersOpen
           ? Easing.out(Easing.back(1.2))
@@ -111,6 +126,10 @@ export default function SearchAndFilters({
     inputRange: [0, 1],
     outputRange: ["0deg", "180deg"],
   });
+  const spinDeg = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
 
   const toggleFilter = (key: FilterKey) => {
     if (key === "all") {
@@ -127,16 +146,14 @@ export default function SearchAndFilters({
 
   return (
     <View style={styles.wrapper}>
-      {/* ── Search Row ── */}
+      {/* Search Row */}
       <View style={styles.searchRow}>
-        {/* Search field */}
         <Animated.View
           style={[
             styles.searchContainer,
             { borderColor, backgroundColor: bgColor },
           ]}
         >
-          {/* Glow layer */}
           <Animated.View
             style={[
               styles.glowLayer,
@@ -144,13 +161,11 @@ export default function SearchAndFilters({
             ]}
             pointerEvents="none"
           />
-
           <Text
             style={[styles.searchIcon, focused && styles.searchIconFocused]}
           >
             ⌕
           </Text>
-
           <TextInput
             style={styles.searchInput}
             placeholder="Rechercher…"
@@ -160,11 +175,9 @@ export default function SearchAndFilters({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             returnKeyType="search"
-            clearButtonMode="never"
             autoCorrect={false}
             autoCapitalize="none"
           />
-
           {query.length > 0 && (
             <TouchableOpacity
               onPress={() => onQueryChange("")}
@@ -178,7 +191,6 @@ export default function SearchAndFilters({
           )}
         </Animated.View>
 
-        {/* Filter toggle pill */}
         <TouchableOpacity
           style={[styles.filterToggle, filtersOpen && styles.filterToggleOpen]}
           onPress={() => setFiltersOpen((v) => !v)}
@@ -208,7 +220,7 @@ export default function SearchAndFilters({
         </TouchableOpacity>
       </View>
 
-      {/* ── Filters Panel (animated expand) ── */}
+      {/* Filters Panel */}
       <Animated.View
         style={[
           styles.filtersPanel,
@@ -229,30 +241,57 @@ export default function SearchAndFilters({
               f.key === "all"
                 ? activeFilters.length === 0
                 : activeFilters.includes(f.key);
+            const isSystemFilter = f.key === "system";
 
             return (
               <TouchableOpacity
                 key={f.key}
-                style={[styles.chip, isActive && chipActiveStyle(f.key)]}
+                style={[
+                  styles.chip,
+                  isActive && chipActiveStyle(f.key),
+                  isSystemFilter &&
+                    !systemAppsLoaded &&
+                    !isActive &&
+                    styles.chipDimmed,
+                ]}
                 onPress={() => toggleFilter(f.key)}
                 activeOpacity={0.7}
               >
-                <Text
-                  style={[
-                    styles.chipIcon,
-                    isActive && chipTextActiveStyle(f.key),
-                  ]}
-                >
-                  {f.icon}
-                </Text>
+                {/* Spinner si chargement système en cours */}
+                {isSystemFilter && systemAppsLoading ? (
+                  <Animated.Text
+                    style={[
+                      styles.chipIcon,
+                      { transform: [{ rotate: spinDeg }], color: "#8880C0" },
+                    ]}
+                  >
+                    ◌
+                  </Animated.Text>
+                ) : (
+                  <Text
+                    style={[
+                      styles.chipIcon,
+                      isActive && chipTextActiveStyle(f.key),
+                    ]}
+                  >
+                    {f.icon}
+                  </Text>
+                )}
                 <Text
                   style={[
                     styles.chipLabel,
                     isActive && chipTextActiveStyle(f.key),
                   ]}
                 >
-                  {f.label}
+                  {isSystemFilter && systemAppsLoading
+                    ? "Chargement…"
+                    : f.label}
                 </Text>
+                {/* Indicateur "non chargé" */}
+                {isSystemFilter &&
+                  !systemAppsLoaded &&
+                  !isActive &&
+                  !systemAppsLoading && <View style={styles.chipDot} />}
               </TouchableOpacity>
             );
           })}
@@ -262,7 +301,6 @@ export default function SearchAndFilters({
   );
 }
 
-// ─── Chip color maps ──────────────────────────────────────────────────────────
 const CHIP_COLORS: Record<
   FilterKey,
   { bg: string; border: string; text: string }
@@ -281,20 +319,9 @@ const chipTextActiveStyle = (key: FilterKey): TextStyle => ({
   color: CHIP_COLORS[key].text,
 });
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  wrapper: {
-    gap: 0,
-  },
-
-  // ── Search Row
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 0,
-  },
-
+  wrapper: { gap: 0 },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   searchContainer: {
     flex: 1,
     flexDirection: "row",
@@ -305,7 +332,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     position: "relative",
   },
-
   glowLayer: {
     position: "absolute",
     inset: -1,
@@ -315,28 +341,15 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 0,
   },
-
   searchIcon: {
     fontSize: 16,
     color: "#2E2E48",
     marginRight: 8,
     lineHeight: 20,
   },
-  searchIconFocused: {
-    color: "#7B6EF6",
-  },
-
-  searchInput: {
-    flex: 1,
-    color: "#E8E8F8",
-    fontSize: 14,
-    paddingVertical: 0,
-    fontWeight: "400",
-  },
-
-  clearBtn: {
-    marginLeft: 6,
-  },
+  searchIconFocused: { color: "#7B6EF6" },
+  searchInput: { flex: 1, color: "#E8E8F8", fontSize: 14, paddingVertical: 0 },
+  clearBtn: { marginLeft: 6 },
   clearIcon: {
     width: 18,
     height: 18,
@@ -345,13 +358,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  clearIconText: {
-    fontSize: 9,
-    color: "#8080A0",
-    fontWeight: "700",
-  },
-
-  // ── Filter toggle button
+  clearIconText: { fontSize: 9, color: "#8080A0", fontWeight: "700" },
   filterToggle: {
     flexDirection: "row",
     alignItems: "center",
@@ -364,10 +371,7 @@ const styles = StyleSheet.create({
     borderColor: "#1C1C2C",
     position: "relative",
   },
-  filterToggleOpen: {
-    backgroundColor: "#16103A",
-    borderColor: "#4A3F8A",
-  },
+  filterToggleOpen: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
   filterBadge: {
     position: "absolute",
     top: -5,
@@ -381,55 +385,41 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#080810",
   },
-  filterBadgeText: {
-    fontSize: 9,
-    color: "#FFF",
-    fontWeight: "800",
-  },
-  filterToggleIcon: {
-    fontSize: 15,
-    color: "#3A3A58",
-  },
-  filterToggleIconOpen: {
-    color: "#9B8FFF",
-  },
-  filterChevron: {
-    fontSize: 13,
-    color: "#3A3A58",
-    lineHeight: 16,
-  },
-
-  // ── Filters panel
-  filtersPanel: {
-    marginTop: 8,
-  },
+  filterBadgeText: { fontSize: 9, color: "#FFF", fontWeight: "800" },
+  filterToggleIcon: { fontSize: 15, color: "#3A3A58" },
+  filterToggleIconOpen: { color: "#9B8FFF" },
+  filterChevron: { fontSize: 13, color: "#3A3A58", lineHeight: 16 },
+  filtersPanel: { marginTop: 8 },
   filtersList: {
     paddingRight: 4,
     gap: 6,
     flexDirection: "row",
     alignItems: "center",
   },
-
-  // ── Chip
   chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
     paddingHorizontal: 11,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 20,
     backgroundColor: "#0E0E18",
     borderWidth: 1,
     borderColor: "#1C1C2C",
   },
-  chipIcon: {
-    fontSize: 10,
-    color: "#3A3A58",
-  },
+  chipDimmed: { opacity: 0.5 },
+  chipIcon: { fontSize: 10, color: "#3A3A58" },
   chipLabel: {
     fontSize: 12,
     color: "#3A3A58",
     fontWeight: "600",
     letterSpacing: 0.2,
+  },
+  chipDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#3A3460",
+    marginLeft: 2,
   },
 });

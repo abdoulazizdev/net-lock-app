@@ -1,3 +1,4 @@
+import ProfileService from "@/services/profile.service";
 import StorageService from "@/services/storage.service";
 import { Profile, ProfileSchedule } from "@/types";
 import { router } from "expo-router";
@@ -8,7 +9,6 @@ import {
   Easing,
   FlatList,
   Modal,
-  RefreshControl,
   StatusBar,
   StyleSheet,
   TextInput,
@@ -20,16 +20,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const DAYS_SHORT = ["D", "L", "M", "M", "J", "V", "S"];
 const PROFILE_COLORS = ["#3DDB8A", "#7B6EF6", "#4D9FFF", "#FFB84D", "#F06292"];
-
 const getColor = (id: string) =>
   PROFILE_COLORS[
     parseInt(id.replace(/\D/g, "").slice(-1) || "0", 10) % PROFILE_COLORS.length
   ];
-
 const fmtTime = (h: number, m: number) =>
   `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 
-// ─── Schedule badge ───────────────────────────────────────────────────────────
+// ─── Schedule badge ────────────────────────────────────────────────────────────
 function ScheduleBadge({ schedule }: { schedule: ProfileSchedule }) {
   return (
     <View style={badge.container}>
@@ -58,7 +56,7 @@ function ScheduleBadge({ schedule }: { schedule: ProfileSchedule }) {
   );
 }
 
-// ─── Profile card ─────────────────────────────────────────────────────────────
+// ─── Profile card ──────────────────────────────────────────────────────────────
 function ProfileCard({
   item,
   isActive,
@@ -66,6 +64,7 @@ function ProfileCard({
   onToggle,
   onDelete,
   onPress,
+  toggling,
 }: {
   item: Profile;
   isActive: boolean;
@@ -73,144 +72,120 @@ function ProfileCard({
   onToggle: () => void;
   onDelete: () => void;
   onPress: () => void;
+  toggling: boolean;
 }) {
-  const activeSchedules = item.schedules?.filter((s) => s.isActive) ?? [];
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  const handlePressIn = () =>
-    Animated.timing(scaleAnim, {
-      toValue: 0.97,
-      duration: 80,
-      useNativeDriver: true,
-    }).start();
-  const handlePressOut = () =>
-    Animated.timing(scaleAnim, {
-      toValue: 1,
-      duration: 120,
-      useNativeDriver: true,
-    }).start();
+  const activeSchedules = (item.schedules ?? []).filter((s) => s.isActive);
+  const blockedCount = (item.rules ?? []).filter((r) => r.isBlocked).length;
+  const hasSchedules = (item.schedules ?? []).length > 0;
 
   return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <TouchableOpacity
-        style={[card.container, isActive && { borderColor: color + "50" }]}
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        activeOpacity={1}
-      >
-        {/* Active left accent */}
-        {isActive && (
-          <View style={[card.accentBar, { backgroundColor: color }]} />
-        )}
-
-        {/* Top row */}
-        <View style={card.top}>
-          <View
-            style={[
-              card.avatar,
-              { backgroundColor: color + "18", borderColor: color + "40" },
-            ]}
-          >
-            <Text style={[card.avatarText, { color }]}>
-              {item.name.charAt(0).toUpperCase()}
-            </Text>
+    <View style={[card.container, isActive && { borderColor: color + "50" }]}>
+      {/* Top row */}
+      <View style={card.top}>
+        <View
+          style={[
+            card.avatar,
+            { backgroundColor: color + "18", borderColor: color + "40" },
+          ]}
+        >
+          <Text style={[card.avatarText, { color }]}>
+            {item.name.charAt(0).toUpperCase()}
+          </Text>
+        </View>
+        <View style={card.info}>
+          <View style={card.nameRow}>
+            <Text style={card.name}>{item.name}</Text>
+            {isActive && (
+              <View
+                style={[
+                  card.activeBadge,
+                  { backgroundColor: color + "20", borderColor: color },
+                ]}
+              >
+                <Text style={[card.activeBadgeText, { color }]}>● ACTIF</Text>
+              </View>
+            )}
           </View>
-          <View style={card.info}>
-            <View style={card.nameRow}>
-              <Text style={card.name}>{item.name}</Text>
-              {isActive && (
-                <View
-                  style={[
-                    card.activeBadge,
-                    { backgroundColor: color + "20", borderColor: color },
-                  ]}
-                >
-                  <View style={[card.activeDot, { backgroundColor: color }]} />
-                  <Text style={[card.activeBadgeText, { color }]}>ACTIF</Text>
-                </View>
-              )}
-            </View>
-            <Text style={card.desc} numberOfLines={1}>
-              {item.description || "Aucune description"}
+          <Text style={card.desc} numberOfLines={1}>
+            {item.description || "Aucune description"}
+          </Text>
+          <View style={card.metaRow}>
+            <Text style={card.meta}>{blockedCount} app(s) bloquée(s)</Text>
+            <Text style={card.metaDot}>·</Text>
+            <Text style={card.meta}>
+              {hasSchedules
+                ? `${activeSchedules.length} plage(s)`
+                : "Blocage immédiat"}
             </Text>
-            <View style={card.metaRow}>
-              <Text style={card.meta}>
-                {(item.rules ?? []).filter((r) => r.isBlocked).length} app(s)
-                bloquée(s)
-              </Text>
-              <Text style={card.metaDot}>·</Text>
-              <Text style={card.meta}>{activeSchedules.length} plage(s)</Text>
-            </View>
           </View>
         </View>
+      </View>
 
-        {/* Schedules preview */}
-        {activeSchedules.length > 0 && (
-          <View style={card.scheduleSection}>
-            <View style={card.scheduleLine} />
-            <View style={card.schedules}>
-              {activeSchedules.slice(0, 2).map((s) => (
-                <ScheduleBadge key={s.id} schedule={s} />
-              ))}
-              {activeSchedules.length > 2 && (
-                <View style={badge.more}>
-                  <Text style={badge.moreText}>
-                    +{activeSchedules.length - 2}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-        )}
-
-        {/* Actions */}
-        <View style={card.actions}>
-          <TouchableOpacity
-            style={[
-              card.actionBtn,
-              isActive
-                ? { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" }
-                : { backgroundColor: color + "15", borderColor: color + "50" },
-            ]}
-            onPress={onToggle}
-            activeOpacity={0.8}
-          >
-            <View
-              style={[
-                card.actionDot,
-                { backgroundColor: isActive ? "#D04070" : color },
-              ]}
-            />
-            <Text
-              style={[card.actionText, { color: isActive ? "#D04070" : color }]}
-            >
-              {isActive ? "Désactiver" : "Activer"}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={card.configBtn}
-            onPress={onPress}
-            activeOpacity={0.8}
-          >
-            <Text style={card.configBtnText}>Configurer →</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={card.deleteBtn}
-            onPress={onDelete}
-            activeOpacity={0.8}
-          >
-            <Text style={card.deleteBtnText}>⌫</Text>
-          </TouchableOpacity>
+      {/* Planification info si aucune plage */}
+      {!hasSchedules && isActive && (
+        <View style={card.immediateBanner}>
+          <View style={card.immediateDot} />
+          <Text style={card.immediateText}>
+            Profil actif · {blockedCount} app(s) bloquée(s) maintenant
+          </Text>
         </View>
-      </TouchableOpacity>
-    </Animated.View>
+      )}
+
+      {/* Schedules preview */}
+      {activeSchedules.length > 0 && (
+        <View style={card.scheduleSection}>
+          <View style={card.scheduleLine} />
+          <View style={card.schedules}>
+            {activeSchedules.slice(0, 2).map((s) => (
+              <ScheduleBadge key={s.id} schedule={s} />
+            ))}
+            {activeSchedules.length > 2 && (
+              <View style={badge.more}>
+                <Text style={badge.moreText}>
+                  +{activeSchedules.length - 2}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Actions */}
+      <View style={card.actions}>
+        <TouchableOpacity
+          style={[
+            card.actionBtn,
+            isActive
+              ? { backgroundColor: "#D0407015", borderColor: "#D0407050" }
+              : { backgroundColor: color + "15", borderColor: color + "50" },
+            toggling && card.actionBtnLoading,
+          ]}
+          onPress={onToggle}
+          disabled={toggling}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[card.actionText, { color: isActive ? "#D04070" : color }]}
+          >
+            {toggling ? "…" : isActive ? "Désactiver" : "Activer"}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={card.configBtn}
+          onPress={onPress}
+          activeOpacity={0.8}
+        >
+          <Text style={card.configBtnText}>⚙ Configurer</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={card.deleteBtn} onPress={onDelete}>
+          <Text style={card.deleteBtnText}>🗑</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
-// ─── Create Profile Modal ─────────────────────────────────────────────────────
+// ─── Create Profile Modal ──────────────────────────────────────────────────────
 function CreateModal({
   visible,
   onClose,
@@ -222,48 +197,20 @@ function CreateModal({
 }) {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
-  const [activeSuggestion, setActiveSuggestion] = useState<string | null>(null);
-  const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(400)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
-      Animated.parallel([
-        Animated.timing(opacityAnim, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 320,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
     } else {
       slideAnim.setValue(400);
-      opacityAnim.setValue(0);
-      setActiveSuggestion(null);
     }
   }, [visible]);
-
-  const handleClose = () => {
-    Animated.parallel([
-      Animated.timing(opacityAnim, {
-        toValue: 0,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 400,
-        duration: 220,
-        easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]).start(() => onClose());
-  };
 
   const handleCreate = () => {
     if (!name.trim()) return;
@@ -272,39 +219,29 @@ function CreateModal({
     setDesc("");
   };
 
-  const SUGGESTIONS = [
-    { name: "Enfant", desc: "Protéger les enfants", icon: "◎" },
-    { name: "Travail", desc: "Mode concentration", icon: "◈" },
-    { name: "Gaming", desc: "Sessions de jeu", icon: "◉" },
-    { name: "Nuit", desc: "Pas de distraction", icon: "◌" },
-  ];
-
   return (
     <Modal
       visible={visible}
       transparent
       animationType="none"
-      onRequestClose={handleClose}
+      onRequestClose={onClose}
     >
-      <Animated.View style={[createModal.overlay, { opacity: opacityAnim }]}>
+      <View style={createModal.overlay}>
         <TouchableOpacity
           style={{ flex: 1 }}
           activeOpacity={1}
-          onPress={handleClose}
+          onPress={onClose}
         />
         <Animated.View
           style={[
             createModal.sheet,
-            {
-              transform: [{ translateY: slideAnim }],
-              paddingBottom: insets.bottom + 16,
-            },
+            { transform: [{ translateY: slideAnim }] },
           ]}
         >
           <View style={createModal.handle} />
           <View style={createModal.header}>
             <Text style={createModal.title}>Nouveau profil</Text>
-            <TouchableOpacity onPress={handleClose}>
+            <TouchableOpacity onPress={onClose}>
               <View style={createModal.closeIcon}>
                 <Text style={createModal.closeIconText}>✕</Text>
               </View>
@@ -334,41 +271,23 @@ function CreateModal({
 
           <Text style={createModal.label}>SUGGESTIONS</Text>
           <View style={createModal.suggestions}>
-            {SUGGESTIONS.map((s) => {
-              const isActive = activeSuggestion === s.name;
-              return (
-                <TouchableOpacity
-                  key={s.name}
-                  style={[
-                    createModal.suggestion,
-                    isActive && createModal.suggestionActive,
-                  ]}
-                  onPress={() => {
-                    setActiveSuggestion(s.name);
-                    setName(s.name);
-                    setDesc(s.desc);
-                  }}
-                  activeOpacity={0.75}
-                >
-                  <Text
-                    style={[
-                      createModal.suggestionIcon,
-                      isActive && createModal.suggestionIconActive,
-                    ]}
-                  >
-                    {s.icon}
-                  </Text>
-                  <Text
-                    style={[
-                      createModal.suggestionText,
-                      isActive && createModal.suggestionTextActive,
-                    ]}
-                  >
-                    {s.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {[
+              { name: "👶 Enfant", desc: "Protéger les enfants" },
+              { name: "💼 Travail", desc: "Mode concentration" },
+              { name: "🎮 Gaming", desc: "Sessions de jeu" },
+              { name: "🌙 Nuit", desc: "Pas de distraction" },
+            ].map((s) => (
+              <TouchableOpacity
+                key={s.name}
+                style={createModal.suggestion}
+                onPress={() => {
+                  setName(s.name);
+                  setDesc(s.desc);
+                }}
+              >
+                <Text style={createModal.suggestionText}>{s.name}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
           <TouchableOpacity
@@ -383,18 +302,18 @@ function CreateModal({
             <Text style={createModal.createBtnText}>Créer le profil</Text>
           </TouchableOpacity>
         </Animated.View>
-      </Animated.View>
+      </View>
     </Modal>
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
+// ─── Main Screen ───────────────────────────────────────────────────────────────
 export default function ProfilesScreen() {
   const insets = useSafeAreaInsets();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [refreshing, setRefreshing] = useState(false); // ← nouveau
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -423,13 +342,6 @@ export default function ProfilesScreen() {
     }
   };
 
-  // ← nouveau : pull-to-refresh handler
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadProfiles();
-    setRefreshing(false);
-  }, []);
-
   const createProfile = async (name: string, desc: string) => {
     const newProfile: Profile = {
       id: `profile_${Date.now()}`,
@@ -456,24 +368,38 @@ export default function ProfilesScreen() {
         text: "Supprimer",
         style: "destructive",
         onPress: async () => {
-          await StorageService.deleteProfile(profileId);
           if (activeProfileId === profileId) {
-            await StorageService.setActiveProfile(null);
+            await ProfileService.deactivateProfile();
             setActiveProfileId(null);
           }
+          await StorageService.deleteProfile(profileId);
           await loadProfiles();
         },
       },
     ]);
   };
 
+  // ── Activation / désactivation ─────────────────────────────────────────────
+  // Utilise ProfileService qui garantit la sync VPN
   const toggleProfile = async (profileId: string) => {
-    if (activeProfileId === profileId) {
-      await StorageService.setActiveProfile(null);
-      setActiveProfileId(null);
-    } else {
-      await StorageService.setActiveProfile(profileId);
-      setActiveProfileId(profileId);
+    if (togglingId) return;
+    setTogglingId(profileId);
+    try {
+      if (activeProfileId === profileId) {
+        // Désactiver → tout autoriser
+        await ProfileService.deactivateProfile();
+        setActiveProfileId(null);
+      } else {
+        // Activer → applique les règles + sync VPN
+        await ProfileService.activateProfile(profileId);
+        setActiveProfileId(profileId);
+      }
+      await loadProfiles();
+    } catch (e) {
+      Alert.alert("Erreur", "Impossible de modifier le profil actif");
+      console.error("[ProfilesScreen] toggleProfile:", e);
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -483,6 +409,7 @@ export default function ProfilesScreen() {
         item={item}
         isActive={item.id === activeProfileId}
         color={getColor(item.id)}
+        toggling={togglingId === item.id}
         onToggle={() => toggleProfile(item.id)}
         onDelete={() => deleteProfile(item.id)}
         onPress={() =>
@@ -493,14 +420,13 @@ export default function ProfilesScreen() {
         }
       />
     ),
-    [activeProfileId],
+    [activeProfileId, togglingId],
   );
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
 
-      {/* ── Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Profils</Text>
@@ -514,27 +440,23 @@ export default function ProfilesScreen() {
           onPress={() => setShowModal(true)}
           activeOpacity={0.8}
         >
-          <Text style={styles.addBtnPlus}>+</Text>
-          <Text style={styles.addBtnText}>Nouveau</Text>
+          <Text style={styles.addBtnText}>+ Nouveau</Text>
         </TouchableOpacity>
       </View>
 
-      {/* ── List / Empty */}
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         {profiles.length === 0 ? (
           <View style={styles.empty}>
-            <View style={styles.emptyIconWrap}>
-              <Text style={styles.emptyIconText}>◎</Text>
-            </View>
+            <Text style={styles.emptyIcon}>🗂</Text>
             <Text style={styles.emptyTitle}>Aucun profil</Text>
             <Text style={styles.emptyText}>
-              Créez des profils pour regrouper des règles de blocage et les
-              activer automatiquement selon des plages horaires.
+              Créez des profils pour regrouper des règles de blocage. Sans
+              planification, le profil bloque immédiatement les apps
+              configurées.
             </Text>
             <TouchableOpacity
               style={styles.emptyBtn}
               onPress={() => setShowModal(true)}
-              activeOpacity={0.8}
             >
               <Text style={styles.emptyBtnText}>Créer un profil</Text>
             </TouchableOpacity>
@@ -546,27 +468,16 @@ export default function ProfilesScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={[
               styles.list,
-              { paddingBottom: insets.bottom + 20 },
+              { paddingBottom: insets.bottom + 100 },
             ]}
             showsVerticalScrollIndicator={false}
-            // ← pull-to-refresh
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor="#7B6EF6"
-                colors={["#7B6EF6", "#3DDB8A"]}
-                progressBackgroundColor="#0E0E18"
-              />
-            }
           />
         )}
       </Animated.View>
 
-      {/* ── FAB */}
       {profiles.length > 0 && (
         <TouchableOpacity
-          style={[styles.fab, { bottom: insets.bottom + 16 }]}
+          style={[styles.fab, { bottom: insets.bottom + 24 }]}
           onPress={() => setShowModal(true)}
           activeOpacity={0.85}
         >
@@ -583,7 +494,7 @@ export default function ProfilesScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
   header: {
@@ -607,46 +518,23 @@ const styles = StyleSheet.create({
     marginTop: 3,
     fontWeight: "500",
   },
-
   addBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
     backgroundColor: "#3DDB8A18",
     borderWidth: 1,
     borderColor: "#3DDB8A60",
     borderRadius: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  addBtnPlus: {
-    fontSize: 16,
-    color: "#3DDB8A",
-    fontWeight: "300",
-    lineHeight: 18,
-  },
   addBtnText: { color: "#3DDB8A", fontSize: 13, fontWeight: "700" },
-
   list: { paddingHorizontal: 20, paddingTop: 16 },
-
   empty: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 40,
   },
-  emptyIconWrap: {
-    width: 68,
-    height: 68,
-    borderRadius: 22,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  emptyIconText: { fontSize: 30, color: "#7B6EF6" },
+  emptyIcon: { fontSize: 52, marginBottom: 18 },
   emptyTitle: {
     fontSize: 20,
     fontWeight: "800",
@@ -669,33 +557,29 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   emptyBtnText: { color: "#3DDB8A", fontSize: 14, fontWeight: "700" },
-
   fab: {
     position: "absolute",
     right: 22,
-    width: 54,
-    height: 54,
-    borderRadius: 17,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: "#3DDB8A",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#7B6EF6",
+    shadowColor: "#3DDB8A",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 14,
     elevation: 10,
   },
   fabText: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: "300",
-    color: "#9B8FFF",
-    lineHeight: 30,
+    color: "#080810",
+    lineHeight: 32,
   },
 });
 
-// ─── Card styles ──────────────────────────────────────────────────────────────
 const card = StyleSheet.create({
   container: {
     backgroundColor: "#0E0E18",
@@ -704,27 +588,18 @@ const card = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: "#1C1C2C",
-    overflow: "hidden",
-  },
-  accentBar: {
-    position: "absolute",
-    left: 0,
-    top: 14,
-    bottom: 14,
-    width: 3,
-    borderRadius: 2,
   },
   top: { flexDirection: "row", alignItems: "center" },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 15,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
     marginRight: 14,
   },
-  avatarText: { fontSize: 21, fontWeight: "800" },
+  avatarText: { fontSize: 22, fontWeight: "800" },
   info: { flex: 1 },
   nameRow: {
     flexDirection: "row",
@@ -734,25 +609,41 @@ const card = StyleSheet.create({
   },
   name: { fontSize: 16, fontWeight: "700", color: "#F0F0FF" },
   activeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: 7,
+    borderRadius: 6,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: 2,
     borderWidth: 1,
   },
-  activeDot: { width: 5, height: 5, borderRadius: 3 },
-  activeBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
+  activeBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1 },
   desc: { fontSize: 12, color: "#3A3A58", marginBottom: 4 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   meta: { fontSize: 11, color: "#2A2A42", fontWeight: "500" },
   metaDot: { color: "#2A2A42", fontSize: 11 },
 
+  // Bannière "blocage immédiat" quand actif sans planification
+  immediateBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+    backgroundColor: "#0D221880",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#1E6A4650",
+  },
+  immediateDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#3DDB8A",
+  },
+  immediateText: { fontSize: 12, color: "#3DDB8A", fontWeight: "600" },
+
   scheduleSection: { marginTop: 14 },
   scheduleLine: { height: 1, backgroundColor: "#13131F", marginBottom: 12 },
   schedules: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-
   actions: {
     flexDirection: "row",
     gap: 8,
@@ -761,15 +652,12 @@ const card = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
     borderRadius: 10,
     borderWidth: 1,
     paddingVertical: 10,
+    alignItems: "center",
   },
-  actionDot: { width: 6, height: 6, borderRadius: 3 },
+  actionBtnLoading: { opacity: 0.5 },
   actionText: { fontSize: 13, fontWeight: "700" },
   configBtn: {
     flex: 1,
@@ -791,10 +679,9 @@ const card = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#2A1520",
   },
-  deleteBtnText: { fontSize: 13, color: "#5A2030" },
+  deleteBtnText: { fontSize: 16 },
 });
 
-// ─── Badge styles ─────────────────────────────────────────────────────────────
 const badge = StyleSheet.create({
   container: {
     backgroundColor: "#14141E",
@@ -832,7 +719,6 @@ const badge = StyleSheet.create({
   moreText: { fontSize: 11, color: "#3A3A58", fontWeight: "700" },
 });
 
-// ─── Create modal styles ──────────────────────────────────────────────────────
 const createModal = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -843,10 +729,9 @@ const createModal = StyleSheet.create({
     backgroundColor: "#0E0E18",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 0,
+    padding: 24,
+    paddingBottom: 40,
     borderWidth: 1,
-    borderBottomWidth: 0,
     borderColor: "#1C1C2C",
   },
   handle: {
@@ -855,7 +740,6 @@ const createModal = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "#2A2A3C",
     alignSelf: "center",
-    marginTop: 12,
     marginBottom: 22,
   },
   header: {
@@ -879,7 +763,6 @@ const createModal = StyleSheet.create({
     alignItems: "center",
   },
   closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-
   label: {
     fontSize: 10,
     fontWeight: "700",
@@ -898,7 +781,6 @@ const createModal = StyleSheet.create({
     marginBottom: 18,
   },
   inputMulti: { height: 70, textAlignVertical: "top" },
-
   suggestions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -906,22 +788,14 @@ const createModal = StyleSheet.create({
     marginBottom: 24,
   },
   suggestion: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
     backgroundColor: "#14141E",
     borderRadius: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 9,
     borderWidth: 1,
     borderColor: "#1C1C2C",
   },
-  suggestionActive: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
-  suggestionIcon: { fontSize: 13, color: "#3A3A58" },
-  suggestionIconActive: { color: "#9B8FFF" },
   suggestionText: { color: "#5A5A80", fontSize: 13, fontWeight: "600" },
-  suggestionTextActive: { color: "#9B8FFF" },
-
   createBtn: {
     backgroundColor: "#3DDB8A",
     borderRadius: 14,

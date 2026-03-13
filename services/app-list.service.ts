@@ -3,94 +3,122 @@ import { InstalledApp } from "../types";
 
 const { AppListModule } = NativeModules;
 
-// ─── Cache L1 in-memory ───────────────────────────────────────────────────────
-// Un seul cache : la liste complète avec icônes telle que retournée par le natif.
-// Les icônes ne sont PAS mises en cache sur disque (trop volumineuses).
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let _cache: InstalledApp[] | null = null;
-let _cacheTs = 0;
-function isFresh() {
-  return _cache !== null && Date.now() - _cacheTs < CACHE_TTL_MS;
+
+// Cache séparé : apps utilisateur / apps complètes (avec système)
+let _cacheUser: InstalledApp[] | null = null;
+let _cacheAll: InstalledApp[] | null = null;
+let _cacheTsUser = 0;
+let _cacheTsAll = 0;
+
+function isFresh(ts: number) {
+  return Date.now() - ts < CACHE_TTL_MS;
 }
 
 class AppListService {
   // ── Appel natif brut ───────────────────────────────────────────────────────
-  // Retourne la liste complète avec icônes, depuis le cache si dispo.
-  async getInstalledApps(): Promise<InstalledApp[]> {
-    if (isFresh()) return _cache!;
-
+  private async _fetchAll(): Promise<InstalledApp[]> {
+    if (_cacheAll && isFresh(_cacheTsAll)) return _cacheAll;
     try {
       if (Platform.OS === "android" && AppListModule) {
         const raw = await AppListModule.getInstalledApps();
-        _cache = raw.map((app: any) => ({
+        _cacheAll = raw.map((app: any) => ({
           packageName: app.packageName,
-          appName: app.appName,
+          appName: app.appName ?? app.packageName,
           isSystemApp: app.isSystemApp ?? false,
           icon: app.icon ?? null,
         }));
-        _cacheTs = Date.now();
-        return _cache!;
+        _cacheTsAll = Date.now();
+        // Mettre à jour le cache user aussi
+        _cacheUser = _cacheAll!.filter((a) => !a.isSystemApp);
+        _cacheTsUser = Date.now();
+        return _cacheAll!;
       }
     } catch (e) {
-      console.error("[AppListService] getInstalledApps:", e);
+      console.error("[AppListService] _fetchAll:", e);
     }
-    return this._getMock();
+    return this._getMock(true);
   }
 
-  // ── Chargement progressif pour les écrans ─────────────────────────────────
-  // Étape 1 : retourne immédiatement la liste SANS icônes (noms seulement)
-  //           pour afficher la liste le plus vite possible.
-  // Étape 2 : appelle onReady() avec la liste complète (avec icônes).
-  //
-  // Si le cache est chaud, onReady() est appelé immédiatement avec les icônes.
-  // Si non, la liste sans icônes est retournée pendant que l'appel natif tourne.
+  // ── Apps utilisateur uniquement (défaut) ──────────────────────────────────
+  async getUserApps(): Promise<InstalledApp[]> {
+    if (_cacheUser && isFresh(_cacheTsUser)) return _cacheUser;
+    const all = await this._fetchAll();
+    return all.filter((a) => !a.isSystemApp);
+  }
+
+  // ── Toutes les apps (avec système) ────────────────────────────────────────
+  async getAllApps(): Promise<InstalledApp[]> {
+    return this._fetchAll();
+  }
+
+  // ── Chargement progressif ─────────────────────────────────────────────────
+  // includeSystem = false → liste user rapide
+  // includeSystem = true  → tout charger (peut prendre quelques secondes)
   async getAppsProgressive(
     onReady: (withIcons: InstalledApp[]) => void,
+    includeSystem = false,
   ): Promise<InstalledApp[]> {
-    // Cache chaud → tout disponible immédiatement
-    if (isFresh()) {
-      onReady(_cache!);
-      return _cache!;
+    // Cache chaud → immédiat
+    if (includeSystem && _cacheAll && isFresh(_cacheTsAll)) {
+      onReady(_cacheAll);
+      return _cacheAll;
+    }
+    if (!includeSystem && _cacheUser && isFresh(_cacheTsUser)) {
+      onReady(_cacheUser);
+      return _cacheUser;
     }
 
-    // Pas de cache → on retourne d'abord les noms sans icônes
-    // puis on charge tout en arrière-plan
-    let noIconsList: InstalledApp[] = [];
     try {
       if (Platform.OS === "android" && AppListModule) {
         const raw = await AppListModule.getInstalledApps();
         const full: InstalledApp[] = raw.map((app: any) => ({
           packageName: app.packageName,
-          appName: app.appName,
+          appName: app.appName ?? app.packageName,
           isSystemApp: app.isSystemApp ?? false,
           icon: app.icon ?? null,
         }));
-        _cache = full;
-        _cacheTs = Date.now();
-        onReady(full);
-        return full;
+        _cacheAll = full;
+        _cacheTsAll = Date.now();
+        _cacheUser = full.filter((a) => !a.isSystemApp);
+        _cacheTsUser = Date.now();
+
+        const result = includeSystem ? full : _cacheUser;
+        onReady(result);
+        return result;
       }
     } catch (e) {
       console.error("[AppListService] getAppsProgressive:", e);
     }
-    const mock = this._getMock();
+
+    const mock = this._getMock(includeSystem);
     onReady(mock);
     return mock;
   }
 
   // ── Utilitaires ───────────────────────────────────────────────────────────
+  async getInstalledApps(): Promise<InstalledApp[]> {
+    return this._fetchAll();
+  }
+
   async getAppByPackage(packageName: string): Promise<InstalledApp | null> {
-    const apps = await this.getInstalledApps();
+    const apps = await this._fetchAll();
     return apps.find((a) => a.packageName === packageName) ?? null;
   }
 
   async getNonSystemApps(): Promise<InstalledApp[]> {
-    return (await this.getInstalledApps()).filter((a) => !a.isSystemApp);
+    return this.getUserApps();
   }
 
-  async searchApps(query: string): Promise<InstalledApp[]> {
+  async searchApps(
+    query: string,
+    includeSystem = false,
+  ): Promise<InstalledApp[]> {
     const q = query.toLowerCase();
-    return (await this.getInstalledApps()).filter(
+    const apps = includeSystem
+      ? await this._fetchAll()
+      : await this.getUserApps();
+    return apps.filter(
       (a) =>
         a.appName.toLowerCase().includes(q) ||
         a.packageName.toLowerCase().includes(q),
@@ -98,13 +126,15 @@ class AppListService {
   }
 
   invalidateCache(): void {
-    _cache = null;
-    _cacheTs = 0;
+    _cacheUser = null;
+    _cacheAll = null;
+    _cacheTsUser = 0;
+    _cacheTsAll = 0;
   }
 
   // ── Mock ──────────────────────────────────────────────────────────────────
-  private _getMock(): InstalledApp[] {
-    return [
+  private _getMock(includeSystem: boolean): InstalledApp[] {
+    const userApps: InstalledApp[] = [
       {
         packageName: "com.android.chrome",
         appName: "Chrome",
@@ -165,6 +195,8 @@ class AppListService {
         isSystemApp: false,
         icon: null,
       },
+    ];
+    const systemApps: InstalledApp[] = [
       {
         packageName: "com.android.settings",
         appName: "Paramètres",
@@ -177,7 +209,14 @@ class AppListService {
         isSystemApp: true,
         icon: null,
       },
+      {
+        packageName: "com.google.android.gms",
+        appName: "Services Google",
+        isSystemApp: true,
+        icon: null,
+      },
     ];
+    return includeSystem ? [...userApps, ...systemApps] : userApps;
   }
 }
 
