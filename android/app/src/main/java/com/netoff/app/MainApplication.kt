@@ -24,9 +24,10 @@ class MainApplication : Application(), ReactApplication {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
               add(AppListPackage())
-              add(VpnPackage()) // ← ajout
-              add(AppBlockPackage()) 
-              add(SchedulePackage()) // ← ajout
+              add(VpnPackage())
+              add(AppBlockPackage())
+              add(SchedulePackage())
+              add(FocusPackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"

@@ -36,8 +36,11 @@ class VpnService {
     }
   }
 
+  // Fix : setRule est public et gère storage + sync VPN en interne
+  // Remplace l'appel direct à StorageService.saveRule + syncBlockedApps dans les écrans
   async setRule(packageName: string, isBlocked: boolean): Promise<void> {
     try {
+      // Fix : createdAt/updatedAt sont des Date, pas des string
       await StorageService.saveRule({
         packageName,
         isBlocked,
@@ -46,7 +49,6 @@ class VpnService {
       });
       await this.syncRules();
 
-      // Si on bloque, propose de désactiver les notifications
       if (isBlocked && AppBlockModule) {
         Alert.alert(
           "Bloquer les notifications ?",
@@ -74,7 +76,9 @@ class VpnService {
     };
   }
 
-  private async syncRules(): Promise<void> {
+  // Fix : syncRules est maintenant public pour pouvoir être appelé depuis
+  // FocusModule côté natif ou depuis d'autres services si besoin
+  async syncRules(): Promise<void> {
     if (!VpnModule) return;
     const rules = await StorageService.getRules();
     const blockedPackages = rules

@@ -46,5 +46,10 @@
         <action android:name="com.netoff.app.SCHEDULE_TRIGGER"/>
       </intent-filter>
     </receiver>
+    <receiver android:name=".FocusReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="com.netoff.app.FOCUS_END"/>
+      </intent-filter>
+    </receiver>
   </application>
 </manifest>
