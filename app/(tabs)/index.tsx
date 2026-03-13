@@ -123,6 +123,9 @@ export default function HomeScreen() {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
+    // Lire l'état VPN persisté immédiatement pour éviter le flash "OFF"
+    // au mount (avant que isVpnActive() async ne réponde)
+    VpnService.isVpnActive().then(setVpnActive);
     loadInitial();
     checkFocus();
     const sub = AppState.addEventListener("change", (state) => {

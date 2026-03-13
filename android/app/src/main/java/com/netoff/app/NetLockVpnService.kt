@@ -4,142 +4,158 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.os.Handler
+import android.os.Looper
 import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.net.InetAddress
+import java.io.IOException
 import java.nio.ByteBuffer
 
 class NetLockVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var packetThread: Thread? = null
+    private var drainThread: Thread? = null
 
     companion object {
         var blockedPackages: HashSet<String> = hashSetOf()
-        const val PREFS     = "netoff_vpn"
+        const val PREFS      = "netoff_vpn"
         const val KEY_ACTIVE = "vpn_was_active"
-        var serviceRunning: Boolean = false
+        var serviceRunning   = false
 
-        // Mapping packageName → UID (rempli lors de addDisallowedApplication)
-        // On logge à partir des UIDs interceptés dans le tunnel
-        private var uidToPackage: MutableMap<Int, String> = mutableMapOf()
+        @Volatile var isVpnEstablished = false
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            "START" -> {
+        if (intent == null) {
+            // Redémarrage START_STICKY
+            val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_ACTIVE, false)) startVpn()
+            return START_STICKY
+        }
+        when (intent.action) {
+            "START"        -> {
                 startVpn()
                 getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit().putBoolean(KEY_ACTIVE, true).apply()
             }
-            "STOP" -> {
-                stopVpn()
-                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit().putBoolean(KEY_ACTIVE, false).apply()
-            }
-            "UPDATE_RULES" -> restartWithNewRules()
+            "STOP"         -> stopVpnExplicit()
+            "UPDATE_RULES" -> if (isVpnEstablished) startVpn()
         }
         return START_STICKY
     }
 
     private fun startVpn() {
-        // Construire le mapping uid → packageName pour les apps bloquées
-        uidToPackage.clear()
-        val pm = packageManager
-        for (pkg in blockedPackages) {
-            try {
-                val uid = pm.getApplicationInfo(pkg, 0).uid
-                uidToPackage[uid] = pkg
-            } catch (_: Exception) {}
-        }
-
-        val builder = Builder()
-            .setSession("NetOff VPN")
-            .addAddress("10.0.0.1", 32)
-            .addRoute("0.0.0.0", 0)
-
-        for (pkg in blockedPackages) {
-            try { builder.addDisallowedApplication(pkg) } catch (_: Exception) {}
-        }
-
-        vpnInterface?.close()
-        packetThread?.interrupt()
-        vpnInterface = builder.establish()
-        serviceRunning = vpnInterface != null
-
-        // Thread de lecture des paquets pour logger les tentatives bloquées
-        vpnInterface?.let { iface ->
-            packetThread = Thread {
-                val buf = ByteBuffer.allocate(32767)
-                val inputStream = FileInputStream(iface.fileDescriptor)
-                while (!Thread.currentThread().isInterrupted) {
-                    try {
-                        val len = inputStream.read(buf.array())
-                        if (len > 0) {
-                            buf.limit(len)
-                            logPacket(buf)
-                            buf.clear()
-                        }
-                    } catch (_: Exception) { break }
-                }
-            }.also { it.isDaemon = true; it.start() }
-        }
-
-        NetOffWidget.forceUpdate(this)
-    }
-
-    /**
-     * Extrait l'UID source du paquet IP et logge la tentative bloquée.
-     * Les paquets qui arrivent dans le tunnel sont ceux des apps non-bloquées
-     * (addDisallowedApplication = laisser passer). Les apps bloquées ne
-     * peuvent pas envoyer de paquets → on logge "blocked" pour chaque app
-     * dans blockedPackages au moment où elle tente une connexion via le
-     * mécanisme de détection d'activité réseau.
-     *
-     * Approche simplifiée : on logge "blocked" pour les packages bloqués
-     * quand UPDATE_RULES est reçu (confirmé par le système), et "allowed"
-     * pour ceux qui passent dans le tunnel.
-     */
-    private fun logPacket(buf: ByteBuffer) {
-        // Lecture simplifiée de l'en-tête IPv4 pour obtenir l'IP source
-        // Version 4 = premier nibble = 4
-        if (buf.limit() < 20) return
-        val version = (buf.get(0).toInt() shr 4) and 0xF
-        if (version != 4) return
-
-        // Pour chaque paquet qui passe → app autorisée
-        // On ne peut pas détecter les apps bloquées depuis le tunnel (elles
-        // n'envoient pas de paquets). On logge depuis VpnModule.setBlockedApps.
-    }
-
-    fun logBlockedAttempt(packageName: String) {
-        ConnectionLogModule.appendLog(this, packageName, "blocked")
-    }
-
-    fun logAllowedAttempt(packageName: String) {
-        ConnectionLogModule.appendLog(this, packageName, "allowed")
-    }
-
-    private fun stopVpn() {
-        packetThread?.interrupt()
-        packetThread = null
+        // Arrêter proprement l'ancien tunnel avant d'en créer un nouveau
+        drainThread?.interrupt()
+        drainThread = null
         vpnInterface?.close()
         vpnInterface = null
-        serviceRunning = false
+        isVpnEstablished = false
+        serviceRunning   = false
+
+        try {
+            val builder = Builder()
+                .setSession("NetOff VPN")
+                .addAddress("10.0.0.1", 32)
+                .addRoute("0.0.0.0", 0)
+                .addDnsServer("8.8.8.8")
+                .setBlocking(true) // lecture bloquante — plus simple et stable
+
+            if (blockedPackages.isEmpty()) {
+                // Aucune app bloquée : on ajoute uniquement notre app
+                // pour éviter une boucle infinie
+                try { builder.addAllowedApplication(packageName) } catch (_: Exception) {}
+            } else {
+                // MODE WHITELIST : seules les apps bloquées entrent dans le tunnel
+                // Leur trafic est absorbé (non forwardé) → pas d'internet
+                // Les autres apps bypassent complètement → internet normal
+                var addedCount = 0
+                for (pkg in blockedPackages) {
+                    try {
+                        builder.addAllowedApplication(pkg)
+                        addedCount++
+                    } catch (_: Exception) {}
+                }
+                // Si aucune app n'a pu être ajoutée (ex: toutes désinstallées)
+                // on ajoute notre propre app pour que le tunnel soit valide
+                if (addedCount == 0) {
+                    try { builder.addAllowedApplication(packageName) } catch (_: Exception) {}
+                }
+            }
+
+            val iface = builder.establish()
+            if (iface == null) {
+                // establish() retourne null si :
+                // - permission VPN pas accordée
+                // - autre app VPN active
+                // On ne crashe pas, on signale juste l'échec
+                isVpnEstablished = false
+                serviceRunning   = false
+                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean(KEY_ACTIVE, false).apply()
+                return
+            }
+
+            vpnInterface     = iface
+            isVpnEstablished = true
+            serviceRunning   = true
+
+            // Thread qui draine les paquets entrants
+            // Sans ce drain, le buffer TUN se remplit et Android envoie SIGPIPE
+            val fd = iface.fileDescriptor
+            drainThread = Thread {
+                val buf = ByteArray(32767)
+                val stream = FileInputStream(fd)
+                try {
+                    while (!Thread.currentThread().isInterrupted) {
+                        // setBlocking(true) → read() bloque jusqu'à un paquet
+                        // On lit et on jette — pas de forward → app bloquée
+                        val len = stream.read(buf)
+                        if (len < 0) break // fd fermé proprement
+                    }
+                } catch (_: IOException) {
+                    // fd fermé par stopVpn() ou onDestroy() — normal
+                } catch (_: InterruptedException) {
+                    // Thread interrompu volontairement
+                } finally {
+                    Thread.currentThread().interrupt()
+                }
+            }
+            drainThread!!.isDaemon = true
+            drainThread!!.name = "NetOff-VPN-Drain"
+            drainThread!!.start()
+
+        } catch (e: Exception) {
+            isVpnEstablished = false
+            serviceRunning   = false
+            vpnInterface?.close()
+            vpnInterface = null
+        }
+
         NetOffWidget.forceUpdate(this)
     }
 
-    private fun restartWithNewRules() {
-        if (vpnInterface != null) startVpn()
+    private fun stopVpnExplicit() {
+        drainThread?.interrupt()
+        drainThread      = null
+        vpnInterface?.close()
+        vpnInterface     = null
+        isVpnEstablished = false
+        serviceRunning   = false
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_ACTIVE, false).apply()
+        stopSelf()
+        NetOffWidget.forceUpdate(this)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        packetThread?.interrupt()
+        drainThread?.interrupt()
+        drainThread      = null
         vpnInterface?.close()
-        serviceRunning = false
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_ACTIVE, false).apply()
+        vpnInterface     = null
+        isVpnEstablished = false
+        serviceRunning   = false
+        // PAS d'écriture false ici — géré uniquement par STOP explicite
         NetOffWidget.forceUpdate(this)
     }
 }
