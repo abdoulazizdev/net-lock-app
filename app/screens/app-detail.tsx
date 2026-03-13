@@ -23,7 +23,6 @@ import { AppRule, InstalledApp, Schedule } from "@/types";
 
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
-// ─── Animated progress bar ────────────────────────────────────────────────────
 function ProgressBar({
   pct,
   color,
@@ -67,7 +66,6 @@ function ProgressBar({
   );
 }
 
-// ─── Time Picker ──────────────────────────────────────────────────────────────
 function TimePicker({
   hour,
   minute,
@@ -136,7 +134,6 @@ const tp = StyleSheet.create({
   itemTextActive: { color: "#9B8FFF", fontWeight: "800" },
 });
 
-// ─── Schedule Card ────────────────────────────────────────────────────────────
 function ScheduleCard({
   schedule,
   onEdit,
@@ -163,9 +160,7 @@ function ScheduleCard({
       onPress={onEdit}
       activeOpacity={0.75}
     >
-      {/* left accent */}
       <View style={[styles.scheduleAccent, { backgroundColor: accentColor }]} />
-
       <View style={styles.scheduleLeft}>
         <View style={styles.scheduleTopRow}>
           <View
@@ -188,13 +183,11 @@ function ScheduleCard({
             </View>
           )}
         </View>
-
         <Text style={styles.scheduleTime}>
           {ScheduleService.formatTime(schedule.startHour, schedule.startMinute)}
           <Text style={styles.scheduleTimeSep}> → </Text>
           {ScheduleService.formatTime(schedule.endHour, schedule.endMinute)}
         </Text>
-
         <View style={styles.daysRow}>
           {DAYS.map((d, i) => {
             const active = schedule.days.includes(i);
@@ -219,7 +212,6 @@ function ScheduleCard({
           })}
         </View>
       </View>
-
       <View style={styles.scheduleRight}>
         <TouchableOpacity
           style={[
@@ -248,7 +240,6 @@ function ScheduleCard({
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function AppDetailScreen() {
   const insets = useSafeAreaInsets();
   const { packageName } = useLocalSearchParams<{ packageName: string }>();
@@ -258,7 +249,6 @@ export default function AppDetailScreen() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Modal state
   const [showModal, setShowModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [formLabel, setFormLabel] = useState("");
@@ -321,21 +311,26 @@ export default function AppDetailScreen() {
     }
   }, [showModal]);
 
+  // ── Tout en parallèle ──────────────────────────────────────────────────────
   const loadAll = async () => {
     try {
       setLoading(true);
-      const appData = await AppListService.getAppByPackage(packageName);
+      const [appData, existingRule, allStats, loadedSchedules] =
+        await Promise.all([
+          AppListService.getAppByPackage(packageName),
+          StorageService.getRuleByPackage(packageName),
+          StorageService.getStats(),
+          ScheduleService.getSchedules(packageName),
+        ]);
       setApp(appData);
-      const existingRule = await StorageService.getRuleByPackage(packageName);
       setRule(existingRule);
-      const allStats = await StorageService.getStats();
       const appStats = allStats.find((s) => s.packageName === packageName);
       if (appStats)
         setStats({
           blocked: appStats.blockedAttempts,
           allowed: appStats.allowedAttempts,
         });
-      setSchedules(await ScheduleService.getSchedules(packageName));
+      setSchedules(loadedSchedules);
     } catch (e) {
       console.error("Erreur chargement:", e);
     } finally {
@@ -431,12 +426,10 @@ export default function AppDetailScreen() {
     await ScheduleService.deleteSchedule(id);
     setSchedules(await ScheduleService.getSchedules(packageName));
   };
-
   const toggleSchedule = async (id: string) => {
     await ScheduleService.toggleSchedule(id);
     setSchedules(await ScheduleService.getSchedules(packageName));
   };
-
   const toggleDay = (day: number) =>
     setFormDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
@@ -453,7 +446,6 @@ export default function AppDetailScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
 
-      {/* ── Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -463,7 +455,6 @@ export default function AppDetailScreen() {
           <Text style={styles.backArrow}>←</Text>
           <Text style={styles.backText}>Retour</Text>
         </TouchableOpacity>
-
         <View style={styles.heroSection}>
           {app?.icon ? (
             <Image
@@ -487,7 +478,6 @@ export default function AppDetailScreen() {
         </View>
       </View>
 
-      {/* ── Scroll content */}
       <Animated.ScrollView
         style={{ opacity: fadeAnim }}
         contentContainerStyle={[
@@ -496,7 +486,6 @@ export default function AppDetailScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Access control */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
           <Text style={styles.sectionLabel}>CONTRÔLE D'ACCÈS</Text>
           <View
@@ -505,16 +494,12 @@ export default function AppDetailScreen() {
               isBlocked ? styles.controlCardBlocked : styles.controlCardAllowed,
             ]}
           >
-            {isBlocked && (
-              <View
-                style={[styles.controlAccent, { backgroundColor: "#D04070" }]}
-              />
-            )}
-            {!isBlocked && (
-              <View
-                style={[styles.controlAccent, { backgroundColor: "#3DDB8A" }]}
-              />
-            )}
+            <View
+              style={[
+                styles.controlAccent,
+                { backgroundColor: isBlocked ? "#D04070" : "#3DDB8A" },
+              ]}
+            />
             <View style={{ flex: 1 }}>
               <Text style={styles.controlTitle}>
                 {isBlocked ? "Internet bloqué" : "Internet autorisé"}
@@ -543,7 +528,6 @@ export default function AppDetailScreen() {
           </View>
         </Animated.View>
 
-        {/* Stats */}
         <Animated.View
           style={[styles.section, { transform: [{ translateY: slideAnim }] }]}
         >
@@ -583,13 +567,11 @@ export default function AppDetailScreen() {
               </View>
             </View>
           </View>
-
           {total > 0 && (
             <View style={{ marginTop: 10, marginBottom: 14 }}>
               <ProgressBar pct={blockedPct} color="#D04070" track="#0D2218" />
             </View>
           )}
-
           <TouchableOpacity
             style={styles.simulateBtn}
             onPress={simulateAttempt}
@@ -600,7 +582,6 @@ export default function AppDetailScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Schedule */}
         <Animated.View
           style={[styles.section, { transform: [{ translateY: slideAnim }] }]}
         >
@@ -615,7 +596,6 @@ export default function AppDetailScreen() {
               <Text style={styles.addBtnText}>Ajouter</Text>
             </TouchableOpacity>
           </View>
-
           {schedules.length === 0 ? (
             <View style={styles.emptySchedule}>
               <View style={styles.emptyIconWrap}>
@@ -648,7 +628,6 @@ export default function AppDetailScreen() {
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* ── Schedule Modal */}
       <Modal
         visible={showModal}
         transparent
@@ -661,7 +640,6 @@ export default function AppDetailScreen() {
             activeOpacity={1}
             onPress={closeModal}
           />
-
           <Animated.View
             style={[
               modalStyles.sheet,
@@ -672,7 +650,6 @@ export default function AppDetailScreen() {
             ]}
           >
             <View style={modalStyles.handle} />
-
             <View style={modalStyles.sheetHeader}>
               <Text style={modalStyles.sheetTitle}>
                 {editingSchedule ? "Modifier" : "Nouvelle planification"}
@@ -686,9 +663,7 @@ export default function AppDetailScreen() {
                 </View>
               </TouchableOpacity>
             </View>
-
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Action toggle */}
               <Text style={modalStyles.fieldLabel}>ACTION</Text>
               <View style={modalStyles.actionRow}>
                 {(["block", "allow"] as const).map((a) => {
@@ -728,8 +703,6 @@ export default function AppDetailScreen() {
                   );
                 })}
               </View>
-
-              {/* Time blocks */}
               <View style={modalStyles.timeRow}>
                 {(["start", "end"] as const).map((target, idx) => {
                   const h = target === "start" ? formStartHour : formEndHour;
@@ -764,7 +737,6 @@ export default function AppDetailScreen() {
                   );
                 })}
               </View>
-
               {showTimePicker && (
                 <View style={modalStyles.timePickerWrap}>
                   <Text style={modalStyles.timePickerTitle}>
@@ -800,8 +772,6 @@ export default function AppDetailScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-
-              {/* Days */}
               <Text style={modalStyles.fieldLabel}>JOURS</Text>
               <View style={modalStyles.daysRow}>
                 {DAYS.map((d, i) => {
@@ -828,7 +798,6 @@ export default function AppDetailScreen() {
                   );
                 })}
               </View>
-
               <View style={modalStyles.shortcutsRow}>
                 {[
                   { label: "Semaine", days: [1, 2, 3, 4, 5] },
@@ -846,7 +815,6 @@ export default function AppDetailScreen() {
                 ))}
               </View>
             </ScrollView>
-
             <TouchableOpacity
               style={modalStyles.saveBtn}
               onPress={saveSchedule}
@@ -863,11 +831,8 @@ export default function AppDetailScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
-
-  // ── Header
   header: {
     paddingHorizontal: 22,
     paddingBottom: 24,
@@ -882,7 +847,6 @@ const styles = StyleSheet.create({
   },
   backArrow: { fontSize: 18, color: "#9B8FFF", lineHeight: 20 },
   backText: { fontSize: 14, color: "#9B8FFF", fontWeight: "600" },
-
   heroSection: { alignItems: "center" },
   heroIcon: { width: 80, height: 80, borderRadius: 22, marginBottom: 12 },
   heroIconPlaceholder: {
@@ -919,8 +883,6 @@ const styles = StyleSheet.create({
     borderColor: "#1C1C2C",
   },
   sysBadgeText: { fontSize: 11, color: "#3A3A58", fontWeight: "600" },
-
-  // ── Scroll
   scroll: { paddingHorizontal: 22, paddingTop: 22 },
   section: { marginBottom: 26 },
   sectionLabel: {
@@ -936,8 +898,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-
-  // ── Control card
   controlCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -978,8 +938,6 @@ const styles = StyleSheet.create({
   bigThumb: { width: 22, height: 22, borderRadius: 11 },
   bigThumbAllowed: { backgroundColor: "#3DDB8A", alignSelf: "flex-end" },
   bigThumbBlocked: { backgroundColor: "#4A2030", alignSelf: "flex-start" },
-
-  // ── Stats
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 2 },
   statCard: {
     flex: 1,
@@ -1002,8 +960,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-
-  // ── Simulate button
   simulateBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1017,8 +973,6 @@ const styles = StyleSheet.create({
   },
   simulateBtnIcon: { fontSize: 14, color: "#3A3A58" },
   simulateBtnText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
-
-  // ── Add button
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1037,8 +991,6 @@ const styles = StyleSheet.create({
     fontWeight: "300",
   },
   addBtnText: { fontSize: 12, color: "#9B8FFF", fontWeight: "700" },
-
-  // ── Schedule cards
   scheduleCard: {
     flexDirection: "row",
     backgroundColor: "#0E0E18",
@@ -1094,7 +1046,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.8,
   },
-
   scheduleTime: {
     fontSize: 22,
     fontWeight: "800",
@@ -1103,7 +1054,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   scheduleTimeSep: { color: "#3A3A58", fontWeight: "400" },
-
   daysRow: { flexDirection: "row", gap: 4 },
   dayChip: {
     paddingHorizontal: 6,
@@ -1114,7 +1064,6 @@ const styles = StyleSheet.create({
     borderColor: "#1C1C2C",
   },
   dayChipText: { fontSize: 9, color: "#2E2E44", fontWeight: "700" },
-
   scheduleRight: { alignItems: "center", gap: 10, paddingLeft: 12 },
   scheduleToggle: {
     width: 40,
@@ -1140,8 +1089,6 @@ const styles = StyleSheet.create({
     borderColor: "#2A1520",
   },
   scheduleDeleteIcon: { fontSize: 13, color: "#5A2030" },
-
-  // ── Empty schedule
   emptySchedule: {
     backgroundColor: "#0E0E18",
     borderRadius: 16,
@@ -1186,7 +1133,6 @@ const styles = StyleSheet.create({
   emptyBtnText: { color: "#9B8FFF", fontSize: 13, fontWeight: "700" },
 });
 
-// ─── Modal styles ─────────────────────────────────────────────────────────────
 const modalStyles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -1234,7 +1180,6 @@ const modalStyles = StyleSheet.create({
     alignItems: "center",
   },
   closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-
   fieldLabel: {
     fontSize: 10,
     fontWeight: "700",
@@ -1242,7 +1187,6 @@ const modalStyles = StyleSheet.create({
     letterSpacing: 1.8,
     marginBottom: 10,
   },
-
   actionRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
   actionChip: {
     flex: 1,
@@ -1263,7 +1207,6 @@ const modalStyles = StyleSheet.create({
     backgroundColor: "#2A2A3A",
   },
   actionChipText: { fontSize: 14, fontWeight: "700", color: "#3A3A58" },
-
   timeRow: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -1291,7 +1234,6 @@ const modalStyles = StyleSheet.create({
     color: "#E8E8F8",
     letterSpacing: 1,
   },
-
   timePickerWrap: {
     backgroundColor: "#080810",
     borderRadius: 14,
@@ -1317,7 +1259,6 @@ const modalStyles = StyleSheet.create({
     borderColor: "#4A3F8A",
   },
   confirmBtnText: { color: "#9B8FFF", fontSize: 14, fontWeight: "700" },
-
   daysRow: { flexDirection: "row", gap: 6, marginBottom: 10, flexWrap: "wrap" },
   dayChip: {
     paddingHorizontal: 11,
@@ -1330,7 +1271,6 @@ const modalStyles = StyleSheet.create({
   dayChipActive: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
   dayChipText: { fontSize: 12, color: "#3A3A58", fontWeight: "700" },
   dayChipTextActive: { color: "#9B8FFF" },
-
   shortcutsRow: { flexDirection: "row", gap: 8, marginBottom: 22 },
   shortcut: {
     flex: 1,
@@ -1342,7 +1282,6 @@ const modalStyles = StyleSheet.create({
     borderColor: "#1C1C2C",
   },
   shortcutText: { fontSize: 11, color: "#3A3A58", fontWeight: "600" },
-
   saveBtn: {
     backgroundColor: "#7B6EF6",
     borderRadius: 14,

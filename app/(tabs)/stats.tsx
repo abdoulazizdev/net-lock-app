@@ -1,10 +1,11 @@
 import AppListService from "@/services/app-list.service";
 import StorageService from "@/services/storage.service";
 import { AppStats } from "@/types";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  RefreshControl,
   StatusBar,
   StyleSheet,
   TouchableOpacity,
@@ -116,6 +117,7 @@ export default function StatsScreen() {
   const [stats, setStats] = useState<StatWithName[]>([]);
   const [totalBlocked, setTotalBlocked] = useState(0);
   const [totalAllowed, setTotalAllowed] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -140,7 +142,7 @@ export default function StatsScreen() {
     ]).start();
   }, [stats]);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const raw = await StorageService.getStats();
       const withNames = await Promise.all(
@@ -166,12 +168,18 @@ export default function StatsScreen() {
     } catch (error) {
       console.error("Erreur stats:", error);
     }
-  };
+  }, []);
 
-  const clearStats = async () => {
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadStats();
+    setRefreshing(false);
+  }, [loadStats]);
+
+  const clearStats = useCallback(async () => {
     await StorageService.clearStats();
     await loadStats();
-  };
+  }, [loadStats]);
 
   const total = totalBlocked + totalAllowed;
   const blockedPct = total > 0 ? totalBlocked / total : 0;
@@ -207,6 +215,15 @@ export default function StatsScreen() {
           { paddingBottom: insets.bottom + 40 },
         ]}
         style={{ opacity: fadeAnim }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#7B6EF6"
+            colors={["#7B6EF6"]}
+            progressBackgroundColor="#0E0E18"
+          />
+        }
       >
         {/* ── Overview cards */}
         <Animated.View
