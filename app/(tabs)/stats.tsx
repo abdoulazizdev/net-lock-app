@@ -1,11 +1,15 @@
 import AppListService from "@/services/app-list.service";
-import StorageService from "@/services/storage.service";
-import { AppStats } from "@/types";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import ConnectionLogService, {
+  AppLogStats,
+  LogEntry,
+  LogSummary,
+} from "@/services/connection-log.service";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
-  Easing,
-  RefreshControl,
+  FlatList,
+  ScrollView,
   StatusBar,
   StyleSheet,
   TouchableOpacity,
@@ -14,335 +18,440 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-interface StatWithName extends AppStats {
-  appName: string;
+type Tab = "overview" | "history" | "apps";
+
+interface LogEntryWithName extends LogEntry {
+  appName?: string;
+}
+interface AppStatWithName extends AppLogStats {
+  appName?: string;
 }
 
-// ─── Animated progress bar ────────────────────────────────────────────────────
-function ProgressBar({
-  pct,
-  color,
-  trackColor,
-  height = 5,
-}: {
-  pct: number;
-  color: string;
-  trackColor: string;
-  height?: number;
-}) {
-  const widthAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(widthAnim, {
-      toValue: pct,
-      duration: 700,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [pct]);
-
-  const width = widthAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "100%"],
-  });
-
-  return (
-    <View
-      style={[
-        barStyles.track,
-        { backgroundColor: trackColor, height, borderRadius: height },
-      ]}
-    >
-      <Animated.View
-        style={[
-          barStyles.fill,
-          { width, backgroundColor: color, height, borderRadius: height },
-        ]}
-      />
-    </View>
-  );
-}
-
-const barStyles = StyleSheet.create({
-  track: { overflow: "hidden", width: "100%" },
-  fill: {},
-});
-
-// ─── Stat row card ────────────────────────────────────────────────────────────
-function StatCard({ stat }: { stat: StatWithName }) {
-  const appTotal = stat.blockedAttempts + stat.allowedAttempts;
-  const pct = appTotal > 0 ? stat.blockedAttempts / appTotal : 0;
-  const initial = (stat.appName ?? "?").charAt(0).toUpperCase();
-
-  return (
-    <View style={styles.statCard}>
-      <View style={styles.statRow}>
-        <View style={styles.statIconWrap}>
-          <Text style={styles.statIconText}>{initial}</Text>
-        </View>
-
-        <View style={styles.statMeta}>
-          <Text style={styles.statAppName} numberOfLines={1}>
-            {stat.appName}
-          </Text>
-          <Text style={styles.statPackage} numberOfLines={1}>
-            {stat.packageName}
-          </Text>
-        </View>
-
-        <View style={styles.statCounts}>
-          <View style={styles.countChip}>
-            <View style={[styles.countDot, { backgroundColor: "#D04070" }]} />
-            <Text style={[styles.countText, { color: "#D04070" }]}>
-              {stat.blockedAttempts}
-            </Text>
-          </View>
-          <View style={styles.countChip}>
-            <View style={[styles.countDot, { backgroundColor: "#3DDB8A" }]} />
-            <Text style={[styles.countText, { color: "#3DDB8A" }]}>
-              {stat.allowedAttempts}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <ProgressBar pct={pct} color="#D04070" trackColor="#0D2218" height={3} />
-    </View>
-  );
-}
-
-// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function StatsScreen() {
   const insets = useSafeAreaInsets();
-  const [stats, setStats] = useState<StatWithName[]>([]);
-  const [totalBlocked, setTotalBlocked] = useState(0);
-  const [totalAllowed, setTotalAllowed] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
-
+  const [tab, setTab] = useState<Tab>("overview");
+  const [summary, setSummary] = useState<LogSummary>({
+    totalBlocked: 0,
+    totalAllowed: 0,
+    totalEvents: 0,
+    perApp: [],
+  });
+  const [logs, setLogs] = useState<LogEntryWithName[]>([]);
+  const [appStats, setAppStats] = useState<AppStatWithName[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [appNames, setAppNames] = useState<Map<string, string>>(new Map());
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const tabAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    loadStats();
+    loadAll();
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 450,
+    Animated.sequence([
+      Animated.timing(tabAnim, {
+        toValue: 0,
+        duration: 120,
         useNativeDriver: true,
       }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 450,
-        easing: Easing.out(Easing.cubic),
+      Animated.timing(tabAnim, {
+        toValue: 1,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start();
-  }, [stats]);
+  }, [tab]);
 
-  const loadStats = useCallback(async () => {
+  const loadAll = async () => {
+    setLoading(true);
     try {
-      const raw = await StorageService.getStats();
-      const withNames = await Promise.all(
-        raw.map(async (s) => {
-          const app = await AppListService.getAppByPackage(s.packageName);
-          const appName =
-            app?.appName ||
-            s.packageName.split(".").pop() ||
-            s.packageName ||
-            "?";
-          return { ...s, appName };
-        }),
-      );
-      const sorted = withNames.sort(
-        (a, b) =>
-          b.blockedAttempts +
-          b.allowedAttempts -
-          (a.blockedAttempts + a.allowedAttempts),
-      );
-      setStats(sorted);
-      setTotalBlocked(raw.reduce((sum, s) => sum + s.blockedAttempts, 0));
-      setTotalAllowed(raw.reduce((sum, s) => sum + s.allowedAttempts, 0));
-    } catch (error) {
-      console.error("Erreur stats:", error);
+      const [s, l] = await Promise.all([
+        ConnectionLogService.getStats(),
+        ConnectionLogService.getLogs(300),
+      ]);
+      setSummary(s);
+
+      // Charger les noms d'apps en arrière-plan
+      const pkgs = [
+        ...new Set([
+          ...l.map((e) => e.packageName),
+          ...s.perApp.map((a) => a.packageName),
+        ]),
+      ];
+      resolveAppNames(pkgs).then((names) => {
+        setAppNames(names);
+        setLogs(l.map((e) => ({ ...e, appName: names.get(e.packageName) })));
+        setAppStats(
+          s.perApp.map((a) => ({ ...a, appName: names.get(a.packageName) })),
+        );
+      });
+
+      setLogs(l);
+      setAppStats(s.perApp);
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  };
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadStats();
-    setRefreshing(false);
-  }, [loadStats]);
+  const resolveAppNames = async (
+    pkgs: string[],
+  ): Promise<Map<string, string>> => {
+    const map = new Map<string, string>();
+    await Promise.all(
+      pkgs.map(async (pkg) => {
+        try {
+          const app = await AppListService.getAppByPackage(pkg);
+          if (app) map.set(pkg, app.appName);
+        } catch {}
+      }),
+    );
+    return map;
+  };
 
-  const clearStats = useCallback(async () => {
-    await StorageService.clearStats();
-    await loadStats();
-  }, [loadStats]);
+  const handleClearLogs = () => {
+    Alert.alert(
+      "Effacer l'historique ?",
+      "Toutes les entrées de connexion seront supprimées. Action irréversible.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Effacer",
+          style: "destructive",
+          onPress: async () => {
+            await ConnectionLogService.clearLogs();
+            loadAll();
+          },
+        },
+      ],
+    );
+  };
 
-  const total = totalBlocked + totalAllowed;
-  const blockedPct = total > 0 ? totalBlocked / total : 0;
+  const displayName = (pkg: string, name?: string) =>
+    name || pkg.split(".").slice(-1)[0];
 
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080810" />
+  // ── Overview ──────────────────────────────────────────────────────────
+  const OverviewTab = () => {
+    const blockedPct =
+      summary.totalEvents > 0
+        ? Math.round((summary.totalBlocked / summary.totalEvents) * 100)
+        : 0;
 
-      {/* ── Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View>
-          <Text style={styles.headerTitle}>Statistiques</Text>
-          <Text style={styles.headerSubtitle}>
-            {stats.length} app{stats.length > 1 ? "s" : ""} tracée
-            {stats.length > 1 ? "s" : ""}
+    return (
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 32 }}
+      >
+        {/* Compteurs principaux */}
+        <View style={s.statsGrid}>
+          <View style={[s.statBig, s.statBigBlocked]}>
+            <Text style={s.statBigNum}>{summary.totalBlocked}</Text>
+            <Text style={s.statBigLabel}>Tentatives bloquées</Text>
+            <View style={s.statBigBar}>
+              <View
+                style={[
+                  s.statBigFill,
+                  { width: `${blockedPct}%`, backgroundColor: "#D04070" },
+                ]}
+              />
+            </View>
+            <Text style={s.statBigPct}>{blockedPct}% du total</Text>
+          </View>
+          <View style={[s.statBig, s.statBigAllowed]}>
+            <Text style={[s.statBigNum, { color: "#3DDB8A" }]}>
+              {summary.totalAllowed}
+            </Text>
+            <Text style={s.statBigLabel}>Connexions autorisées</Text>
+            <View style={s.statBigBar}>
+              <View
+                style={[
+                  s.statBigFill,
+                  { width: `${100 - blockedPct}%`, backgroundColor: "#3DDB8A" },
+                ]}
+              />
+            </View>
+            <Text style={[s.statBigPct, { color: "#3DDB8A" }]}>
+              {100 - blockedPct}% du total
+            </Text>
+          </View>
+        </View>
+
+        {/* Total */}
+        <View style={s.totalCard}>
+          <Text style={s.totalNum}>{summary.totalEvents}</Text>
+          <Text style={s.totalLabel}>événements enregistrés</Text>
+        </View>
+
+        {/* Top apps bloquées */}
+        {appStats.length > 0 && (
+          <>
+            <Text style={s.sectionLabel}>TOP APPS BLOQUÉES</Text>
+            {appStats.slice(0, 5).map((app, i) => {
+              const total = app.blockedCount + app.allowedCount;
+              const pct =
+                total > 0 ? Math.round((app.blockedCount / total) * 100) : 0;
+              return (
+                <View key={app.packageName} style={s.topAppRow}>
+                  <View style={s.topRank}>
+                    <Text style={s.topRankText}>{i + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={s.topAppHeader}>
+                      <Text style={s.topAppName} numberOfLines={1}>
+                        {displayName(app.packageName, app.appName)}
+                      </Text>
+                      <Text style={s.topAppBlocked}>
+                        {app.blockedCount} bloquées
+                      </Text>
+                    </View>
+                    <View style={s.topBar}>
+                      <View style={[s.topBarFill, { width: `${pct}%` }]} />
+                    </View>
+                    <Text style={s.topAppPkg} numberOfLines={1}>
+                      {app.packageName}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
+
+        {summary.totalEvents === 0 && (
+          <View style={s.empty}>
+            <Text style={s.emptyIcon}>📊</Text>
+            <Text style={s.emptyTitle}>Aucun événement</Text>
+            <Text style={s.emptySub}>
+              L'historique se remplit automatiquement dès que le VPN est actif
+              et que des règles sont configurées.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+    );
+  };
+
+  // ── History ───────────────────────────────────────────────────────────
+  const grouped = ConnectionLogService.groupByDate(logs);
+
+  const HistoryTab = () => (
+    <FlatList
+      data={grouped}
+      keyExtractor={(item) => item.date}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 32 }}
+      ListEmptyComponent={
+        <View style={s.empty}>
+          <Text style={s.emptyIcon}>📋</Text>
+          <Text style={s.emptyTitle}>Aucun historique</Text>
+          <Text style={s.emptySub}>
+            Les tentatives de connexion apparaîtront ici une fois le VPN actif.
           </Text>
         </View>
-        {stats.length > 0 && (
-          <TouchableOpacity
-            style={styles.clearBtn}
-            onPress={clearStats}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.clearBtnText}>Effacer</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <Animated.ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingBottom: insets.bottom + 40 },
-        ]}
-        style={{ opacity: fadeAnim }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#7B6EF6"
-            colors={["#7B6EF6"]}
-            progressBackgroundColor="#0E0E18"
-          />
-        }
-      >
-        {/* ── Overview cards */}
-        <Animated.View
-          style={[
-            styles.overviewRow,
-            { transform: [{ translateY: slideAnim }] },
-          ]}
-        >
-          <View style={[styles.overviewCard, styles.cardBlocked]}>
-            <Text style={[styles.overviewNum, { color: "#D04070" }]}>
-              {totalBlocked}
-            </Text>
-            <View style={styles.overviewLabelRow}>
+      }
+      renderItem={({ item: group }) => (
+        <View>
+          <Text style={s.dateLabel}>{group.date}</Text>
+          {group.entries.map((entry, i) => {
+            const blocked = entry.action === "blocked";
+            return (
               <View
-                style={[styles.overviewDot, { backgroundColor: "#D04070" }]}
-              />
-              <Text style={styles.overviewLabel}>Bloquées</Text>
-            </View>
-          </View>
-
-          <View style={[styles.overviewCard, styles.cardAllowed]}>
-            <Text style={[styles.overviewNum, { color: "#3DDB8A" }]}>
-              {totalAllowed}
-            </Text>
-            <View style={styles.overviewLabelRow}>
-              <View
-                style={[styles.overviewDot, { backgroundColor: "#3DDB8A" }]}
-              />
-              <Text style={styles.overviewLabel}>Autorisées</Text>
-            </View>
-          </View>
-
-          <View style={[styles.overviewCard, styles.cardTotal]}>
-            <Text style={[styles.overviewNum, { color: "#9B8FFF" }]}>
-              {total}
-            </Text>
-            <View style={styles.overviewLabelRow}>
-              <View
-                style={[styles.overviewDot, { backgroundColor: "#9B8FFF" }]}
-              />
-              <Text style={styles.overviewLabel}>Total</Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* ── Blocking rate */}
-        {total > 0 && (
-          <Animated.View
-            style={[
-              styles.rateCard,
-              { transform: [{ translateY: slideAnim }] },
-            ]}
-          >
-            <View style={styles.rateHeader}>
-              <Text style={styles.rateLabel}>Taux de blocage</Text>
-              <Text style={styles.rateValue}>
-                {(blockedPct * 100).toFixed(1)}%
-              </Text>
-            </View>
-            <ProgressBar
-              pct={blockedPct}
-              color="#D04070"
-              trackColor="#0D2218"
-              height={6}
-            />
-            <View style={styles.rateFooter}>
-              <Text style={styles.rateFooterText}>
-                {totalBlocked} bloquées sur {total} tentatives
-              </Text>
-            </View>
-          </Animated.View>
-        )}
-
-        {/* ── Per-app section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>PAR APPLICATION</Text>
-
-          {stats.length === 0 ? (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIconWrap}>
-                <Text style={styles.emptyIconText}>◈</Text>
+                key={`${entry.packageName}-${entry.timestamp}-${i}`}
+                style={s.logRow}
+              >
+                <View
+                  style={[
+                    s.logDot,
+                    { backgroundColor: blocked ? "#D04070" : "#3DDB8A" },
+                  ]}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.logAppName} numberOfLines={1}>
+                    {displayName(entry.packageName, entry.appName)}
+                  </Text>
+                  <Text style={s.logPkg} numberOfLines={1}>
+                    {entry.packageName}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <View
+                    style={[
+                      s.logBadge,
+                      blocked ? s.logBadgeBlocked : s.logBadgeAllowed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        s.logBadgeText,
+                        { color: blocked ? "#D04070" : "#3DDB8A" },
+                      ]}
+                    >
+                      {blocked ? "Bloqué" : "Autorisé"}
+                    </Text>
+                  </View>
+                  <Text style={s.logTime}>
+                    {ConnectionLogService.formatTimeShort(entry.timestamp)}
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.emptyTitle}>Aucune statistique</Text>
-              <Text style={styles.emptySubtitle}>
-                Les statistiques apparaissent lorsque le VPN est actif et que
-                des connexions sont tentées.
+            );
+          })}
+        </View>
+      )}
+    />
+  );
+
+  // ── Apps tab ──────────────────────────────────────────────────────────
+  const AppsTab = () => (
+    <FlatList
+      data={appStats}
+      keyExtractor={(item) => item.packageName}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 32 }}
+      ListEmptyComponent={
+        <View style={s.empty}>
+          <Text style={s.emptyIcon}>📱</Text>
+          <Text style={s.emptyTitle}>Aucune donnée par app</Text>
+          <Text style={s.emptySub}>
+            Les statistiques par application s'accumuleront ici.
+          </Text>
+        </View>
+      }
+      renderItem={({ item: app }) => {
+        const total = app.blockedCount + app.allowedCount;
+        const pct =
+          total > 0 ? Math.round((app.blockedCount / total) * 100) : 0;
+        return (
+          <View style={s.appStatCard}>
+            <View style={s.appStatHeader}>
+              <View style={s.appStatIcon}>
+                <Text style={s.appStatIconText}>
+                  {displayName(app.packageName, app.appName)
+                    .charAt(0)
+                    .toUpperCase()}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.appStatName} numberOfLines={1}>
+                  {displayName(app.packageName, app.appName)}
+                </Text>
+                <Text style={s.appStatPkg} numberOfLines={1}>
+                  {app.packageName}
+                </Text>
+              </View>
+              <Text style={s.appStatLast}>
+                {ConnectionLogService.formatTime(app.lastAttempt)}
               </Text>
             </View>
-          ) : (
-            stats.map((stat) => <StatCard key={stat.packageName} stat={stat} />)
+            <View style={s.appStatCounts}>
+              <View style={s.appStatCount}>
+                <Text style={[s.appStatCountNum, { color: "#D04070" }]}>
+                  {app.blockedCount}
+                </Text>
+                <Text style={s.appStatCountLabel}>bloquées</Text>
+              </View>
+              <View style={s.appStatCount}>
+                <Text style={[s.appStatCountNum, { color: "#3DDB8A" }]}>
+                  {app.allowedCount}
+                </Text>
+                <Text style={s.appStatCountLabel}>autorisées</Text>
+              </View>
+              <View style={s.appStatCount}>
+                <Text style={s.appStatCountNum}>{total}</Text>
+                <Text style={s.appStatCountLabel}>total</Text>
+              </View>
+            </View>
+            {/* Barre de ratio bloqué/autorisé */}
+            <View style={s.appStatBar}>
+              <View
+                style={[s.appStatFillBlocked, { flex: app.blockedCount }]}
+              />
+              <View
+                style={[s.appStatFillAllowed, { flex: app.allowedCount }]}
+              />
+            </View>
+            <Text style={s.appStatPct}>{pct}% de tentatives bloquées</Text>
+          </View>
+        );
+      }}
+    />
+  );
+
+  return (
+    <View style={s.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#080810" />
+
+      {/* Header */}
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
+        <View style={s.headerRow}>
+          <View>
+            <Text style={s.headerTitle}>Statistiques</Text>
+            <Text style={s.headerSub}>
+              {summary.totalEvents > 0
+                ? `${summary.totalEvents} événements • ${summary.totalBlocked} bloqués`
+                : "Aucun événement enregistré"}
+            </Text>
+          </View>
+          {summary.totalEvents > 0 && (
+            <TouchableOpacity
+              style={s.clearBtn}
+              onPress={handleClearLogs}
+              activeOpacity={0.8}
+            >
+              <Text style={s.clearBtnText}>🗑</Text>
+            </TouchableOpacity>
           )}
         </View>
 
-        {/* ── Info banner */}
-        <View style={styles.infoBanner}>
-          <Text style={styles.infoIcon}>◎</Text>
-          <Text style={styles.infoText}>
-            En mode simulation, utilisez "Simuler une connexion" sur la page
-            d'une app pour générer des statistiques.
-          </Text>
+        {/* Tabs */}
+        <View style={s.tabs}>
+          {(
+            [
+              ["overview", "Vue d'ensemble"],
+              ["history", "Historique"],
+              ["apps", "Par app"],
+            ] as [Tab, string][]
+          ).map(([key, label]) => (
+            <TouchableOpacity
+              key={key}
+              style={[s.tab, tab === key && s.tabActive]}
+              onPress={() => setTab(key)}
+              activeOpacity={0.75}
+            >
+              <Text style={[s.tabText, tab === key && s.tabTextActive]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      </Animated.ScrollView>
+      </View>
+
+      <Animated.View style={[{ flex: 1, opacity: tabAnim }, s.content]}>
+        {tab === "overview" && <OverviewTab />}
+        {tab === "history" && <HistoryTab />}
+        {tab === "apps" && <AppsTab />}
+      </Animated.View>
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
-
-  // ── Header
   header: {
     paddingHorizontal: 22,
-    paddingBottom: 18,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    paddingBottom: 0,
     borderBottomWidth: 1,
     borderBottomColor: "#13131F",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 16,
   },
   headerTitle: {
     fontSize: 34,
@@ -350,86 +459,92 @@ const styles = StyleSheet.create({
     color: "#F0F0FF",
     letterSpacing: -1.5,
   },
-  headerSubtitle: {
-    fontSize: 12,
+  headerSub: {
+    fontSize: 11,
     color: "#3A3A58",
     marginTop: 3,
-    letterSpacing: 0.4,
     fontWeight: "500",
   },
   clearBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 22,
-    backgroundColor: "#1E0E16",
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#14080A",
     borderWidth: 1,
-    borderColor: "#4A1A2A",
-  },
-  clearBtnText: {
-    color: "#D04070",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-
-  // ── Scroll
-  scroll: { paddingHorizontal: 22, paddingTop: 18 },
-
-  // ── Overview
-  overviewRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
-  overviewCard: {
-    flex: 1,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
+    borderColor: "#2A1520",
+    justifyContent: "center",
     alignItems: "center",
-    gap: 6,
   },
-  cardBlocked: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
-  cardAllowed: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
-  cardTotal: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
-  overviewNum: {
-    fontSize: 30,
-    fontWeight: "800",
-    letterSpacing: -1,
-  },
-  overviewLabelRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  overviewDot: { width: 5, height: 5, borderRadius: 3 },
-  overviewLabel: {
-    fontSize: 10,
-    color: "#3A3A58",
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-  },
+  clearBtnText: { fontSize: 16 },
+  content: { flex: 1, paddingHorizontal: 22, paddingTop: 18 },
 
-  // ── Rate card
-  rateCard: {
+  // Tabs
+  tabs: { flexDirection: "row", gap: 6, marginBottom: 0, paddingBottom: 16 },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
     backgroundColor: "#0E0E18",
-    borderRadius: 16,
-    padding: 18,
     borderWidth: 1,
     borderColor: "#1C1C2C",
-    marginBottom: 24,
-    gap: 10,
-  },
-  rateHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
   },
-  rateLabel: { fontSize: 13, color: "#5A5A80", fontWeight: "600" },
-  rateValue: {
-    fontSize: 20,
-    color: "#D04070",
-    fontWeight: "800",
-    letterSpacing: -0.5,
+  tabActive: { backgroundColor: "#16103A", borderColor: "#7B6EF6" },
+  tabText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#3A3A58",
+    letterSpacing: 0.3,
   },
-  rateFooter: { marginTop: 2 },
-  rateFooterText: { fontSize: 11, color: "#2E2E48", fontWeight: "500" },
+  tabTextActive: { color: "#9B8FFF" },
 
-  // ── Section
-  section: { marginBottom: 20 },
+  // Overview
+  statsGrid: { flexDirection: "row", gap: 12, marginBottom: 12 },
+  statBig: { flex: 1, borderRadius: 16, borderWidth: 1, padding: 16 },
+  statBigBlocked: { backgroundColor: "#0E0A0C", borderColor: "#251520" },
+  statBigAllowed: { backgroundColor: "#0A0E0C", borderColor: "#152518" },
+  statBigNum: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#D04070",
+    marginBottom: 4,
+    letterSpacing: -1,
+  },
+  statBigLabel: {
+    fontSize: 10,
+    color: "#3A3A58",
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  statBigBar: {
+    height: 3,
+    backgroundColor: "#1C1C2C",
+    borderRadius: 2,
+    marginBottom: 6,
+  },
+  statBigFill: { height: 3, borderRadius: 2 },
+  statBigPct: { fontSize: 10, color: "#D04070", fontWeight: "700" },
+  totalCard: {
+    backgroundColor: "#0E0E18",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  totalNum: {
+    fontSize: 40,
+    fontWeight: "800",
+    color: "#F0F0FF",
+    letterSpacing: -2,
+  },
+  totalLabel: {
+    fontSize: 12,
+    color: "#3A3A58",
+    marginTop: 4,
+    fontWeight: "600",
+  },
   sectionLabel: {
     fontSize: 10,
     fontWeight: "700",
@@ -437,89 +552,153 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginBottom: 12,
   },
-
-  // ── Stat card
-  statCard: {
-    backgroundColor: "#0E0E18",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 7,
+  topAppRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+  },
+  topRank: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: "#14141E",
     borderWidth: 1,
     borderColor: "#1C1C2C",
-    gap: 10,
-  },
-  statRow: { flexDirection: "row", alignItems: "center" },
-  statIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
-    backgroundColor: "#16162A",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: "#2A2A40",
   },
-  statIconText: { fontSize: 15, fontWeight: "800", color: "#7B6EF6" },
-  statMeta: { flex: 1 },
-  statAppName: {
-    fontSize: 14,
+  topRankText: { fontSize: 12, fontWeight: "800", color: "#3A3A58" },
+  topAppHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  topAppName: { fontSize: 13, fontWeight: "700", color: "#E8E8F8", flex: 1 },
+  topAppBlocked: { fontSize: 12, color: "#D04070", fontWeight: "700" },
+  topBar: {
+    height: 4,
+    backgroundColor: "#1C1C2C",
+    borderRadius: 2,
+    marginBottom: 4,
+  },
+  topBarFill: { height: 4, backgroundColor: "#D04070", borderRadius: 2 },
+  topAppPkg: { fontSize: 9, color: "#2E2E48" },
+
+  // History
+  dateLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#2E2E48",
+    letterSpacing: 1.5,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  logRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#0E0E18",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+    padding: 12,
+    marginBottom: 6,
+  },
+  logDot: { width: 8, height: 8, borderRadius: 4 },
+  logAppName: {
+    fontSize: 13,
     fontWeight: "600",
     color: "#E8E8F8",
     marginBottom: 2,
-    letterSpacing: -0.2,
   },
-  statPackage: { fontSize: 10, color: "#2E2E44", fontFamily: "monospace" },
-  statCounts: { alignItems: "flex-end", gap: 4 },
-  countChip: { flexDirection: "row", alignItems: "center", gap: 4 },
-  countDot: { width: 5, height: 5, borderRadius: 3 },
-  countText: { fontSize: 12, fontWeight: "700" },
+  logPkg: { fontSize: 10, color: "#2E2E48" },
+  logBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 4,
+  },
+  logBadgeBlocked: { backgroundColor: "#14080A", borderColor: "#2A1520" },
+  logBadgeAllowed: { backgroundColor: "#0A140A", borderColor: "#1A3A1A" },
+  logBadgeText: { fontSize: 10, fontWeight: "700" },
+  logTime: { fontSize: 10, color: "#2E2E48" },
 
-  // ── Empty
-  emptyState: {
+  // Apps
+  appStatCard: {
     backgroundColor: "#0E0E18",
     borderRadius: 16,
-    padding: 32,
     borderWidth: 1,
     borderColor: "#1C1C2C",
-    alignItems: "center",
+    padding: 16,
+    marginBottom: 10,
   },
-  emptyIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 18,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
+  appStatHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+  },
+  appStatIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#16161E",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
   },
-  emptyIconText: { fontSize: 26, color: "#7B6EF6" },
-  emptyTitle: {
-    fontSize: 16,
+  appStatIconText: { fontSize: 17, fontWeight: "700", color: "#5A5A80" },
+  appStatName: {
+    fontSize: 14,
     fontWeight: "700",
     color: "#E8E8F8",
+    marginBottom: 2,
+  },
+  appStatPkg: { fontSize: 10, color: "#2E2E48" },
+  appStatLast: { fontSize: 10, color: "#3A3A58" },
+  appStatCounts: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 10,
+  },
+  appStatCount: { alignItems: "center" },
+  appStatCountNum: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#F0F0FF",
+    letterSpacing: -0.5,
+  },
+  appStatCountLabel: {
+    fontSize: 9,
+    color: "#3A3A58",
+    fontWeight: "600",
+    letterSpacing: 1,
+  },
+  appStatBar: {
+    flexDirection: "row",
+    height: 4,
+    borderRadius: 2,
+    overflow: "hidden",
+    marginBottom: 6,
+  },
+  appStatFillBlocked: { backgroundColor: "#D04070" },
+  appStatFillAllowed: { backgroundColor: "#3DDB8A" },
+  appStatPct: { fontSize: 10, color: "#3A3A58", textAlign: "right" },
+
+  // Empty
+  empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
+  emptyIcon: { fontSize: 44, marginBottom: 14 },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#3A3A58",
     marginBottom: 8,
   },
-  emptySubtitle: {
-    fontSize: 13,
-    color: "#3A3A58",
+  emptySub: {
+    fontSize: 12,
+    color: "#2E2E48",
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: 18,
   },
-
-  // ── Info banner
-  infoBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    backgroundColor: "#0E0E18",
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-  },
-  infoIcon: { fontSize: 14, color: "#3A3A58", marginTop: 1 },
-  infoText: { flex: 1, fontSize: 12, color: "#3A3A58", lineHeight: 19 },
 });

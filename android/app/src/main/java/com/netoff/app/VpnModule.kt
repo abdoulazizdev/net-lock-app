@@ -1,60 +1,32 @@
 package com.netoff.app
 
-import android.app.Activity
+import android.content.Context
 import android.content.Intent
-import android.net.VpnService
+import android.os.Build
 import com.facebook.react.bridge.*
 
-class VpnModule(private val reactContext: ReactApplicationContext)
-    : ReactContextBaseJavaModule(reactContext), ActivityEventListener {
-
-    companion object {
-        const val VPN_REQUEST_CODE = 1001
-    }
-
-    init {
-        reactContext.addActivityEventListener(this)
-    }
+class VpnModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
     override fun getName() = "VpnModule"
 
     @ReactMethod
     fun startVpn(promise: Promise) {
-        val activity = reactContext.currentActivity ?: run {
-            promise.reject("ERROR", "No activity")
-            return
-        }
-        val intent = VpnService.prepare(reactContext)
-        if (intent != null) {
-            pendingPromise = promise
-            activity.startActivityForResult(intent, VPN_REQUEST_CODE)
-        } else {
-            startVpnService()
+        try {
+            val intent = Intent(reactContext, NetLockVpnService::class.java).apply { action = "START" }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                reactContext.startForegroundService(intent)
+            else
+                reactContext.startService(intent)
             promise.resolve(true)
-        }
+        } catch (e: Exception) { promise.reject("VPN_ERROR", e.message, e) }
     }
 
     @ReactMethod
     fun stopVpn(promise: Promise) {
-        val intent = Intent(reactContext, NetLockVpnService::class.java)
-        intent.action = "STOP"
-        reactContext.startService(intent)
-        promise.resolve(true)
-    }
-
-    @ReactMethod
-    fun setBlockedApps(packages: ReadableArray, promise: Promise) {
-        NetLockVpnService.blockedPackages.clear()
-        for (i in 0 until packages.size()) {
-            val pkg = packages.getString(i) ?: continue
-            NetLockVpnService.blockedPackages.add(pkg)
-        }
-        if (NetLockVpnService.serviceRunning) {
-            val intent = Intent(reactContext, NetLockVpnService::class.java)
-            intent.action = "UPDATE_RULES"
-            reactContext.startService(intent)
-        }
-        promise.resolve(true)
+        try {
+            reactContext.startService(Intent(reactContext, NetLockVpnService::class.java).apply { action = "STOP" })
+            promise.resolve(true)
+        } catch (e: Exception) { promise.reject("VPN_ERROR", e.message, e) }
     }
 
     @ReactMethod
@@ -63,32 +35,34 @@ class VpnModule(private val reactContext: ReactApplicationContext)
     }
 
     @ReactMethod
-    fun getBlockedApps(promise: Promise) {
-        val array = WritableNativeArray()
-        NetLockVpnService.blockedPackages.forEach { array.pushString(it) }
-        promise.resolve(array)
-    }
-
-    private var pendingPromise: Promise? = null
-
-    private fun startVpnService() {
-        val intent = Intent(reactContext, NetLockVpnService::class.java)
-        intent.action = "START"
-        reactContext.startService(intent)
-    }
-
-    // ✅ Signature correcte pour React Native nouvelle architecture
-    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode == VPN_REQUEST_CODE) {
-            if (resultCode == Activity.RESULT_OK) {
-                startVpnService()
-                pendingPromise?.resolve(true)
-            } else {
-                pendingPromise?.reject("DENIED", "Permission VPN refusée")
+    fun setBlockedApps(packages: ReadableArray, promise: Promise) {
+        try {
+            val set = HashSet<String>()
+            for (i in 0 until packages.size()) {
+                val pkg = packages.getString(i) ?: continue
+                set.add(pkg)
             }
-            pendingPromise = null
-        }
+
+            // Logger les nouvelles apps bloquées
+            val newlyBlocked = set - NetLockVpnService.blockedPackages
+            val newlyAllowed = NetLockVpnService.blockedPackages - set
+            for (pkg in newlyBlocked)
+                ConnectionLogModule.appendLog(reactContext, pkg, "blocked")
+            for (pkg in newlyAllowed)
+                ConnectionLogModule.appendLog(reactContext, pkg, "allowed")
+
+            NetLockVpnService.blockedPackages = set
+            reactContext.startService(
+                Intent(reactContext, NetLockVpnService::class.java).apply { action = "UPDATE_RULES" }
+            )
+            promise.resolve(true)
+        } catch (e: Exception) { promise.reject("VPN_ERROR", e.message, e) }
     }
 
-    override fun onNewIntent(intent: Intent) {}
+    @ReactMethod
+    fun getBlockedApps(promise: Promise) {
+        val arr = Arguments.createArray()
+        NetLockVpnService.blockedPackages.forEach { arr.pushString(it) }
+        promise.resolve(arr)
+    }
 }
