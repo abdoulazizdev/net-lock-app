@@ -12,15 +12,18 @@ import {
 } from "react-native";
 import { Text } from "react-native-paper";
 
+type Mode = "pin" | "bio" | "both";
+
 export default function AuthScreen() {
+  const [mode, setMode] = useState<Mode>("pin");
+  const [step, setStep] = useState<"pin" | "confirm">("pin");
+  const [isFirstTime, setIsFirstTime] = useState(false);
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
-  const [isFirstTime, setIsFirstTime] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<"pin" | "confirm">("pin");
   const [showPin, setShowPin] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioLabel, setBioLabel] = useState("Biométrie");
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -35,15 +38,43 @@ export default function AuthScreen() {
 
   const init = async () => {
     const config = await StorageService.getAuthConfig();
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    const bioAvail = hasHardware && isEnrolled;
-    setIsFirstTime(!config.isPinEnabled && !config.isBiometricEnabled);
-    setBiometricEnabled(config.isBiometricEnabled);
-    setBiometricAvailable(bioAvail);
-    if (config.isBiometricEnabled && bioAvail && config.isPinEnabled) {
-      setTimeout(() => triggerBiometric(), 400);
+    const hasHW = await LocalAuthentication.hasHardwareAsync();
+    const enrolled = await LocalAuthentication.isEnrolledAsync();
+    const bioOk = hasHW && enrolled;
+    setBioAvailable(bioOk);
+
+    if (bioOk) {
+      const types =
+        await LocalAuthentication.supportedAuthenticationTypesAsync();
+      if (
+        types.includes(
+          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+        )
+      )
+        setBioLabel("Face ID");
+      else if (
+        types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
+      )
+        setBioLabel("Empreinte");
+      else setBioLabel("PIN téléphone");
     }
+
+    const pinOn = config.isPinEnabled;
+    const bioOn = config.isBiometricEnabled && bioOk;
+
+    if (!pinOn && !bioOn) {
+      // Premier lancement — création du PIN
+      setIsFirstTime(true);
+      setMode("pin");
+      return;
+    }
+
+    if (pinOn && bioOn) setMode("both");
+    else if (bioOn) setMode("bio");
+    else setMode("pin");
+
+    // Lance la bio automatiquement si disponible
+    if (bioOn) setTimeout(() => triggerBio(), 400);
   };
 
   const navigate = () => router.replace("/(tabs)");
@@ -72,11 +103,14 @@ export default function AuthScreen() {
       }),
     ]).start();
 
-  const triggerBiometric = async () => {
+  const triggerBio = async () => {
     try {
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Déverrouiller NetOff",
-        fallbackLabel: "Utiliser le PIN",
+        fallbackLabel:
+          mode === "both"
+            ? "Utiliser le PIN applicatif"
+            : "Utiliser le PIN du téléphone",
         cancelLabel: "Annuler",
       });
       if (result.success) navigate();
@@ -117,9 +151,9 @@ export default function AuthScreen() {
       navigate();
     } else {
       setLoading(true);
-      const isValid = await StorageService.verifyPin(pin);
+      const valid = await StorageService.verifyPin(pin);
       setLoading(false);
-      if (isValid) navigate();
+      if (valid) navigate();
       else {
         shake();
         setPin("");
@@ -128,147 +162,180 @@ export default function AuthScreen() {
     }
   };
 
+  // ── Détermine ce qu'on affiche ────────────────────────────────────────────
+  // "bio" seul → on n'affiche pas le pavé, juste le bouton bio
+  // "pin" seul ou "both" → on affiche le pavé (avec bouton bio en bas si "both")
+  const showPad = mode === "pin" || mode === "both" || isFirstTime;
+  const showBioButton =
+    (mode === "bio" || mode === "both") && bioAvailable && !isFirstTime;
+
   return (
-    <View style={styles.container}>
+    <View style={st.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
-      <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
-        <View style={styles.logo}>
-          <View style={styles.logoIconWrap}>
-            <Text style={styles.logoIconText}>🛡️</Text>
+      <Animated.View style={[st.content, { opacity: fadeAnim }]}>
+        {/* Logo */}
+        <View style={st.logo}>
+          <View style={st.logoWrap}>
+            <Text style={st.logoEmoji}>🛡️</Text>
           </View>
-          <Text style={styles.logoTitle}>NetOff</Text>
+          <Text style={st.logoTitle}>NetOff</Text>
         </View>
 
-        <Text style={styles.title}>
+        {/* Titre */}
+        <Text style={st.title}>
           {isFirstTime
             ? step === "pin"
               ? "Créer votre PIN"
               : "Confirmer le PIN"
-            : "Déverrouiller"}
+            : mode === "bio"
+              ? "Déverrouiller"
+              : "Déverrouiller"}
         </Text>
-        <Text style={styles.subtitle}>
+        <Text style={st.subtitle}>
           {isFirstTime
             ? step === "pin"
               ? "Choisissez un PIN de 4 à 6 chiffres"
               : "Saisissez à nouveau votre PIN"
-            : "Entrez votre code PIN"}
+            : mode === "bio"
+              ? `Utilisez votre ${bioLabel} pour accéder à l'app`
+              : mode === "both"
+                ? `PIN applicatif ou ${bioLabel}`
+                : "Entrez votre code PIN applicatif"}
         </Text>
 
+        {/* Étapes premier lancement */}
         {isFirstTime && (
-          <View style={styles.steps}>
+          <View style={st.steps}>
             <View
-              style={[
-                styles.step,
-                step === "pin" ? styles.stepActive : styles.stepDone,
-              ]}
+              style={[st.step, step === "pin" ? st.stepActive : st.stepDone]}
             />
             <View
               style={[
-                styles.step,
-                step === "confirm" ? styles.stepActive : styles.stepInactive,
+                st.step,
+                step === "confirm" ? st.stepActive : st.stepInactive,
               ]}
             />
           </View>
         )}
 
-        {/* Indicateur PIN */}
-        <Animated.View
-          style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
-        >
-          {showPin ? (
-            <Text style={styles.pinText}>{currentPin || "·  ·  ·  ·"}</Text>
-          ) : (
-            [0, 1, 2, 3, 4, 5].map((i) => (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  i < currentPin.length ? styles.dotFilled : styles.dotEmpty,
-                ]}
-              />
-            ))
-          )}
-        </Animated.View>
-
-        {/* Bouton afficher/masquer */}
-        <TouchableOpacity
-          style={styles.eyeBtn}
-          onPress={() => setShowPin((v) => !v)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.eyeText}>
-            {showPin ? "🙈  Masquer" : "👁  Voir le code"}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Pavé numérique */}
-        <View style={styles.pad}>
-          {[
-            ["1", ""],
-            ["2", "ABC"],
-            ["3", "DEF"],
-            ["4", "GHI"],
-            ["5", "JKL"],
-            ["6", "MNO"],
-            ["7", "PQRS"],
-            ["8", "TUV"],
-            ["9", "WXYZ"],
-          ].map(([d, s]) => (
-            <TouchableOpacity
-              key={d}
-              style={styles.padBtn}
-              onPress={() => handleDigit(d)}
-              activeOpacity={0.6}
-            >
-              <Text style={styles.padBtnText}>{d}</Text>
-              {s ? <Text style={styles.padBtnSub}>{s}</Text> : null}
-            </TouchableOpacity>
-          ))}
-          <View style={styles.padBtn} />
+        {/* Mode bio seul : grand bouton central */}
+        {mode === "bio" && !isFirstTime && (
           <TouchableOpacity
-            style={styles.padBtn}
-            onPress={() => handleDigit("0")}
-            activeOpacity={0.6}
-          >
-            <Text style={styles.padBtnText}>0</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.padBtn}
-            onPress={handleDelete}
-            activeOpacity={0.6}
-          >
-            <Text style={styles.padDeleteText}>⌫</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={[
-            styles.submitBtn,
-            currentPin.length < 4 && styles.submitBtnDisabled,
-          ]}
-          onPress={handleSubmit}
-          disabled={loading || currentPin.length < 4}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.submitBtnText}>
-            {loading
-              ? "..."
-              : isFirstTime
-                ? step === "pin"
-                  ? "Suivant →"
-                  : "Créer le PIN"
-                : "Déverrouiller"}
-          </Text>
-        </TouchableOpacity>
-
-        {!isFirstTime && biometricEnabled && biometricAvailable && (
-          <TouchableOpacity
-            style={styles.biometricBtn}
-            onPress={triggerBiometric}
+            style={st.bioBigBtn}
+            onPress={triggerBio}
             activeOpacity={0.8}
           >
-            <Text style={styles.biometricIcon}>👆</Text>
-            <Text style={styles.biometricText}>Utiliser la biométrie</Text>
+            <Text style={st.bioBigIcon}>👆</Text>
+            <Text style={st.bioBigLabel}>Appuyer pour {bioLabel}</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Pavé numérique */}
+        {showPad && (
+          <>
+            <Animated.View
+              style={[st.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
+            >
+              {showPin ? (
+                <Text style={st.pinText}>{currentPin || "·  ·  ·  ·"}</Text>
+              ) : (
+                [0, 1, 2, 3, 4, 5].map((i) => (
+                  <View
+                    key={i}
+                    style={[
+                      st.dot,
+                      i < currentPin.length ? st.dotFilled : st.dotEmpty,
+                    ]}
+                  />
+                ))
+              )}
+            </Animated.View>
+            <TouchableOpacity
+              style={st.eyeBtn}
+              onPress={() => setShowPin((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={st.eyeText}>
+                {showPin ? "🙈  Masquer" : "👁  Voir le code"}
+              </Text>
+            </TouchableOpacity>
+            <View style={st.pad}>
+              {[
+                ["1", ""],
+                ["2", "ABC"],
+                ["3", "DEF"],
+                ["4", "GHI"],
+                ["5", "JKL"],
+                ["6", "MNO"],
+                ["7", "PQRS"],
+                ["8", "TUV"],
+                ["9", "WXYZ"],
+              ].map(([d, sub]) => (
+                <TouchableOpacity
+                  key={d}
+                  style={st.padBtn}
+                  onPress={() => handleDigit(d)}
+                  activeOpacity={0.6}
+                >
+                  <Text style={st.padBtnText}>{d}</Text>
+                  {sub ? <Text style={st.padBtnSub}>{sub}</Text> : null}
+                </TouchableOpacity>
+              ))}
+              <View style={st.padBtn} />
+              <TouchableOpacity
+                style={st.padBtn}
+                onPress={() => handleDigit("0")}
+                activeOpacity={0.6}
+              >
+                <Text style={st.padBtnText}>0</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={st.padBtn}
+                onPress={handleDelete}
+                activeOpacity={0.6}
+              >
+                <Text style={st.padDeleteText}>⌫</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={[st.submitBtn, currentPin.length < 4 && st.submitBtnOff]}
+              onPress={handleSubmit}
+              disabled={loading || currentPin.length < 4}
+              activeOpacity={0.8}
+            >
+              <Text style={st.submitBtnText}>
+                {loading
+                  ? "..."
+                  : isFirstTime
+                    ? step === "pin"
+                      ? "Suivant →"
+                      : "Créer le PIN"
+                    : "Déverrouiller"}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* Bouton bio secondaire (mode "both") */}
+        {showBioButton && mode === "both" && (
+          <TouchableOpacity
+            style={st.bioSecondaryBtn}
+            onPress={triggerBio}
+            activeOpacity={0.8}
+          >
+            <Text style={st.bioSecondaryIcon}>👆</Text>
+            <Text style={st.bioSecondaryText}>Utiliser {bioLabel}</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Bouton bio plein écran si mode bio seul */}
+        {showBioButton && mode === "bio" && (
+          <TouchableOpacity
+            style={st.bioRetryBtn}
+            onPress={triggerBio}
+            activeOpacity={0.8}
+          >
+            <Text style={st.bioRetryText}>Réessayer</Text>
           </TouchableOpacity>
         )}
       </Animated.View>
@@ -276,11 +343,11 @@ export default function AuthScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
   content: { alignItems: "center", paddingHorizontal: 32 },
-  logo: { alignItems: "center", marginBottom: 32 },
-  logoIconWrap: {
+  logo: { alignItems: "center", marginBottom: 28 },
+  logoWrap: {
     width: 72,
     height: 72,
     borderRadius: 22,
@@ -291,7 +358,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  logoIconText: { fontSize: 34 },
+  logoEmoji: { fontSize: 34 },
   logoTitle: {
     fontSize: 26,
     fontWeight: "800",
@@ -308,7 +375,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 13,
     color: "#3A3A58",
-    marginBottom: 24,
+    marginBottom: 20,
     textAlign: "center",
     lineHeight: 20,
   },
@@ -317,6 +384,28 @@ const styles = StyleSheet.create({
   stepActive: { backgroundColor: "#7B6EF6" },
   stepDone: { backgroundColor: "#3DDB8A" },
   stepInactive: { backgroundColor: "#1C1C2C" },
+
+  // Bio seul : grand bouton central
+  bioBigBtn: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: "#16103A",
+    borderWidth: 2,
+    borderColor: "#4A3F8A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginVertical: 32,
+  },
+  bioBigIcon: { fontSize: 52, marginBottom: 8 },
+  bioBigLabel: {
+    fontSize: 11,
+    color: "#7B6EF6",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+
+  // PIN pad
   dotsRow: {
     flexDirection: "row",
     gap: 14,
@@ -338,14 +427,14 @@ const styles = StyleSheet.create({
     color: "#7B6EF6",
     letterSpacing: 8,
   },
-  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 24 },
+  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 20 },
   eyeText: { fontSize: 12, color: "#3A3A58", fontWeight: "600" },
   pad: {
     flexDirection: "row",
     flexWrap: "wrap",
     width: 280,
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 16,
   },
   padBtn: {
     width: 88,
@@ -370,11 +459,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  submitBtnDisabled: { backgroundColor: "#7B6EF620" },
+  submitBtnOff: { backgroundColor: "#7B6EF620" },
   submitBtnText: { color: "#F0F0FF", fontSize: 16, fontWeight: "800" },
-  biometricBtn: {
+
+  // Bio secondaire (mode "both")
+  bioSecondaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -384,7 +475,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1C1C2C",
     paddingHorizontal: 20,
+    marginTop: 4,
   },
-  biometricIcon: { fontSize: 18 },
-  biometricText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
+  bioSecondaryIcon: { fontSize: 18 },
+  bioSecondaryText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
+
+  // Bio retry (mode "bio" seul)
+  bioRetryBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    backgroundColor: "#0E0E18",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+  },
+  bioRetryText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
 });

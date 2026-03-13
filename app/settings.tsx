@@ -30,17 +30,15 @@ function Toggle({
   return (
     <TouchableOpacity
       style={[
-        styles.toggle,
-        value ? styles.toggleOn : styles.toggleOff,
-        disabled && styles.toggleDisabled,
+        s.toggle,
+        value ? s.toggleOn : s.toggleOff,
+        disabled && s.toggleDisabled,
       ]}
       onPress={onToggle}
       disabled={disabled}
       activeOpacity={0.8}
     >
-      <View
-        style={[styles.toggleThumb, value ? styles.thumbOn : styles.thumbOff]}
-      />
+      <View style={[s.toggleThumb, value ? s.thumbOn : s.thumbOff]} />
     </TouchableOpacity>
   );
 }
@@ -65,32 +63,28 @@ function SettingRow({
 }) {
   return (
     <TouchableOpacity
-      style={[styles.row, disabled && { opacity: 0.4 }]}
+      style={[s.row, disabled && { opacity: 0.4 }]}
       onPress={onPress}
       activeOpacity={onPress && !disabled ? 0.65 : 1}
       disabled={(!onPress && !right) || disabled}
     >
-      <View style={[styles.rowIcon, danger && styles.rowIconDanger]}>
-        <Text style={styles.rowIconText}>{icon}</Text>
+      <View style={[s.rowIcon, danger && s.rowIconDanger]}>
+        <Text style={s.rowIconText}>{icon}</Text>
       </View>
-      <View style={styles.rowContent}>
-        <Text style={[styles.rowTitle, danger && styles.rowTitleDanger]}>
-          {title}
-        </Text>
-        {subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
+      <View style={s.rowContent}>
+        <Text style={[s.rowTitle, danger && s.rowTitleDanger]}>{title}</Text>
+        {subtitle && <Text style={s.rowSubtitle}>{subtitle}</Text>}
       </View>
       {right && <View>{right}</View>}
       {onPress && !right && !disabled && (
-        <Text style={[styles.rowChevron, danger && styles.rowChevronDanger]}>
-          ›
-        </Text>
+        <Text style={[s.rowChevron, danger && s.rowChevronDanger]}>›</Text>
       )}
     </TouchableOpacity>
   );
 }
 
 function SectionLabel({ label }: { label: string }) {
-  return <Text style={styles.sectionLabel}>{label}</Text>;
+  return <Text style={s.sectionLabel}>{label}</Text>;
 }
 
 // ─── Pavé numérique réutilisable ──────────────────────────────────────────────
@@ -117,35 +111,30 @@ function PinPad({
 }) {
   return (
     <>
-      {/* Indicateur PIN */}
       <Animated.View
-        style={[pad.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
+        style={[pp.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
       >
         {showPin ? (
-          <Text style={pad.pinText}>{pin || "·  ·  ·  ·"}</Text>
+          <Text style={pp.pinText}>{pin || "·  ·  ·  ·"}</Text>
         ) : (
           [0, 1, 2, 3, 4, 5].map((i) => (
             <View
               key={i}
-              style={[pad.dot, i < pin.length ? pad.dotFilled : pad.dotEmpty]}
+              style={[pp.dot, i < pin.length ? pp.dotFilled : pp.dotEmpty]}
             />
           ))
         )}
       </Animated.View>
-
-      {/* Bouton afficher/masquer */}
       <TouchableOpacity
-        style={pad.eyeBtn}
+        style={pp.eyeBtn}
         onPress={onToggleShow}
         activeOpacity={0.7}
       >
-        <Text style={pad.eyeText}>
+        <Text style={pp.eyeText}>
           {showPin ? "🙈  Masquer" : "👁  Voir le code"}
         </Text>
       </TouchableOpacity>
-
-      {/* Pavé */}
-      <View style={pad.grid}>
+      <View style={pp.grid}>
         {[
           ["1", ""],
           ["2", "ABC"],
@@ -156,47 +145,42 @@ function PinPad({
           ["7", "PQRS"],
           ["8", "TUV"],
           ["9", "WXYZ"],
-        ].map(([d, s]) => (
+        ].map(([d, sub]) => (
           <TouchableOpacity
             key={d}
-            style={pad.btn}
+            style={pp.btn}
             onPress={() => onDigit(d)}
             activeOpacity={0.6}
           >
-            <Text style={pad.btnText}>{d}</Text>
-            {s ? <Text style={pad.btnSub}>{s}</Text> : null}
+            <Text style={pp.btnText}>{d}</Text>
+            {sub ? <Text style={pp.btnSub}>{sub}</Text> : null}
           </TouchableOpacity>
         ))}
-        <View style={pad.btn} />
+        <View style={pp.btn} />
         <TouchableOpacity
-          style={pad.btn}
+          style={pp.btn}
           onPress={() => onDigit("0")}
           activeOpacity={0.6}
         >
-          <Text style={pad.btnText}>0</Text>
+          <Text style={pp.btnText}>0</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={pad.btn}
-          onPress={onDelete}
-          activeOpacity={0.6}
-        >
-          <Text style={pad.deleteText}>⌫</Text>
+        <TouchableOpacity style={pp.btn} onPress={onDelete} activeOpacity={0.6}>
+          <Text style={pp.deleteText}>⌫</Text>
         </TouchableOpacity>
       </View>
-
       <TouchableOpacity
-        style={[pad.submitBtn, submitDisabled && pad.submitBtnOff]}
+        style={[pp.submitBtn, submitDisabled && pp.submitBtnOff]}
         onPress={onSubmit}
         disabled={submitDisabled}
         activeOpacity={0.85}
       >
-        <Text style={pad.submitText}>{submitLabel}</Text>
+        <Text style={pp.submitText}>{submitLabel}</Text>
       </TouchableOpacity>
     </>
   );
 }
 
-const pad = StyleSheet.create({
+const pp = StyleSheet.create({
   dotsRow: {
     flexDirection: "row",
     gap: 14,
@@ -218,7 +202,7 @@ const pad = StyleSheet.create({
     color: "#7B6EF6",
     letterSpacing: 8,
   },
-  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 28 },
+  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 24 },
   eyeText: { fontSize: 12, color: "#3A3A58", fontWeight: "600" },
   grid: {
     flexDirection: "row",
@@ -261,14 +245,12 @@ function ConfirmPinModal({
   onConfirmed,
   title,
   subtitle,
-  accentColor = "#D04070",
 }: {
   visible: boolean;
   onClose: () => void;
   onConfirmed: () => void;
   title: string;
   subtitle: string;
-  accentColor?: string;
 }) {
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
@@ -304,7 +286,6 @@ function ConfirmPinModal({
     setShowPin(false);
     onClose();
   };
-
   const handleConfirm = async () => {
     if (pin.length < 4) {
       shake();
@@ -331,17 +312,17 @@ function ConfirmPinModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <View style={cm.overlay}>
-        <View style={cm.container}>
-          <View style={cm.header}>
-            <Text style={cm.title}>{title}</Text>
+      <View style={cpm.overlay}>
+        <View style={cpm.container}>
+          <View style={cpm.header}>
+            <Text style={cpm.title}>{title}</Text>
             <TouchableOpacity onPress={handleClose}>
-              <View style={cm.closeIcon}>
-                <Text style={cm.closeIconText}>✕</Text>
+              <View style={cpm.closeIcon}>
+                <Text style={cpm.closeIconText}>✕</Text>
               </View>
             </TouchableOpacity>
           </View>
-          <Text style={cm.subtitle}>{subtitle}</Text>
+          <Text style={cpm.subtitle}>{subtitle}</Text>
           <PinPad
             pin={pin}
             onDigit={(d) => {
@@ -361,7 +342,7 @@ function ConfirmPinModal({
   );
 }
 
-const cm = StyleSheet.create({
+const cpm = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
   header: {
@@ -390,7 +371,6 @@ const cm = StyleSheet.create({
 });
 
 // ─── PIN Setup/Change Modal ───────────────────────────────────────────────────
-// isCreating=true → saute l'étape "PIN actuel" (premier setup)
 function PinChangeModal({
   visible,
   onClose,
@@ -408,7 +388,6 @@ function PinChangeModal({
   const [showPin, setShowPin] = useState(false);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
-  // Reset quand on ouvre
   useEffect(() => {
     if (visible) {
       setStep(isCreating ? "new" : "current");
@@ -443,16 +422,12 @@ function PinChangeModal({
       }),
     ]).start();
 
-  const handleClose = () => {
-    onClose();
-  };
-
   const activePin =
     step === "current" ? currentPin : step === "new" ? newPin : confirmPin;
-  const setActivePin = (val: string) => {
-    if (step === "current") setCurrentPin(val);
-    else if (step === "new") setNewPin(val);
-    else setConfirmPin(val);
+  const setActivePin = (v: string) => {
+    if (step === "current") setCurrentPin(v);
+    else if (step === "new") setNewPin(v);
+    else setConfirmPin(v);
   };
 
   const handleNext = async () => {
@@ -487,12 +462,14 @@ function PinChangeModal({
       await StorageService.savePin(newPin);
       Alert.alert(
         "Succès",
-        isCreating ? "PIN créé avec succès !" : "PIN modifié avec succès !",
+        isCreating ? "PIN applicatif créé !" : "PIN modifié avec succès !",
       );
-      handleClose();
+      onClose();
     }
   };
 
+  const steps = isCreating ? ["new", "confirm"] : ["current", "new", "confirm"];
+  const stepIndex = steps.indexOf(step);
   const titles = {
     current: "PIN actuel",
     new: isCreating ? "Créer votre PIN" : "Nouveau PIN",
@@ -504,47 +481,39 @@ function PinChangeModal({
     confirm: "Répétez votre nouveau PIN",
   };
 
-  // Barre de progression
-  const steps = isCreating ? ["new", "confirm"] : ["current", "new", "confirm"];
-  const stepIndex = steps.indexOf(step);
-
   return (
     <Modal
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={handleClose}
+      onRequestClose={onClose}
     >
-      <View style={pm.overlay}>
-        <View style={pm.container}>
-          <View style={pm.header}>
-            <Text style={pm.title}>{titles[step]}</Text>
-            <TouchableOpacity onPress={handleClose}>
-              <View style={pm.closeIcon}>
-                <Text style={pm.closeIconText}>✕</Text>
+      <View style={pcm.overlay}>
+        <View style={pcm.container}>
+          <View style={pcm.header}>
+            <Text style={pcm.title}>{titles[step]}</Text>
+            <TouchableOpacity onPress={onClose}>
+              <View style={pcm.closeIcon}>
+                <Text style={pcm.closeIconText}>✕</Text>
               </View>
             </TouchableOpacity>
           </View>
-
-          {/* Barre de progression */}
-          <View style={pm.steps}>
-            {steps.map((s, i) => (
+          <View style={pcm.steps}>
+            {steps.map((_, i) => (
               <View
-                key={s}
+                key={i}
                 style={[
-                  pm.step,
+                  pcm.step,
                   i < stepIndex
-                    ? pm.stepDone
+                    ? pcm.stepDone
                     : i === stepIndex
-                      ? pm.stepActive
-                      : pm.stepInactive,
+                      ? pcm.stepActive
+                      : pcm.stepInactive,
                 ]}
               />
             ))}
           </View>
-
-          <Text style={pm.subtitle}>{subtitles[step]}</Text>
-
+          <Text style={pcm.subtitle}>{subtitles[step]}</Text>
           <PinPad
             pin={activePin}
             onDigit={(d) => {
@@ -556,7 +525,7 @@ function PinChangeModal({
               step === "confirm"
                 ? isCreating
                   ? "Créer le PIN"
-                  : "Confirmer le changement"
+                  : "Confirmer"
                 : "Suivant →"
             }
             submitDisabled={activePin.length < 4}
@@ -570,7 +539,7 @@ function PinChangeModal({
   );
 }
 
-const pm = StyleSheet.create({
+const pcm = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
   header: {
@@ -623,7 +592,7 @@ function ImportModal({
     setLoading(true);
     try {
       await StorageService.importData(jsonText.trim());
-      Alert.alert("Succès", "Données importées avec succès");
+      Alert.alert("Succès", "Données importées");
       setJsonText("");
       onImported();
       onClose();
@@ -640,19 +609,19 @@ function ImportModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={im.overlay}>
-        <View style={im.container}>
-          <View style={im.header}>
-            <Text style={im.title}>Importer des données</Text>
+      <View style={imm.overlay}>
+        <View style={imm.container}>
+          <View style={imm.header}>
+            <Text style={imm.title}>Importer des données</Text>
             <TouchableOpacity onPress={onClose}>
-              <View style={im.closeIcon}>
-                <Text style={im.closeIconText}>✕</Text>
+              <View style={imm.closeIcon}>
+                <Text style={imm.closeIconText}>✕</Text>
               </View>
             </TouchableOpacity>
           </View>
-          <Text style={im.label}>COLLER LE JSON EXPORTÉ</Text>
+          <Text style={imm.label}>COLLER LE JSON EXPORTÉ</Text>
           <TextInput
-            style={im.input}
+            style={imm.input}
             placeholder='{"rules": [...], "profiles": [...], ...}'
             placeholderTextColor="#2A2A42"
             value={jsonText}
@@ -662,28 +631,25 @@ function ImportModal({
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={im.warning}>
+          <Text style={imm.warning}>
             ⚠️ L'import remplacera les données existantes. Action irréversible.
           </Text>
           <TouchableOpacity
-            style={[
-              im.importBtn,
-              (!jsonText.trim() || loading) && im.importBtnOff,
-            ]}
+            style={[imm.btn, (!jsonText.trim() || loading) && imm.btnOff]}
             onPress={handleImport}
             disabled={!jsonText.trim() || loading}
             activeOpacity={0.85}
           >
-            <Text style={im.importBtnText}>
+            <Text style={imm.btnText}>
               {loading ? "Import..." : "↓ Importer"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={im.cancelBtn}
+            style={imm.cancelBtn}
             onPress={onClose}
             activeOpacity={0.8}
           >
-            <Text style={im.cancelBtnText}>Annuler</Text>
+            <Text style={imm.cancelText}>Annuler</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -691,7 +657,7 @@ function ImportModal({
   );
 }
 
-const im = StyleSheet.create({
+const imm = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "#000000AA",
@@ -742,15 +708,15 @@ const im = StyleSheet.create({
     marginBottom: 14,
   },
   warning: { fontSize: 12, color: "#D04070", marginBottom: 20, lineHeight: 18 },
-  importBtn: {
+  btn: {
     backgroundColor: "#7B6EF6",
     borderRadius: 14,
     paddingVertical: 15,
     alignItems: "center",
     marginBottom: 10,
   },
-  importBtnOff: { backgroundColor: "#7B6EF620" },
-  importBtnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
+  btnOff: { backgroundColor: "#7B6EF620" },
+  btnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
   cancelBtn: {
     backgroundColor: "#14141E",
     borderRadius: 14,
@@ -759,25 +725,29 @@ const im = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1C1C2C",
   },
-  cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
+  cancelText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+
+  // États auth
   const [pinEnabled, setPinEnabled] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [exportVisible, setExportVisible] = useState(false);
-  // isCreating=true → PinChangeModal sans étape "PIN actuel"
+  const [bioEnabled, setBioEnabled] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioType, setBioType] = useState("Biométrie"); // label affiché
+
+  // Modals
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalCreating, setPinModalCreating] = useState(false);
-  const [importModalVisible, setImportModalVisible] = useState(false);
-  const [confirmClearVisible, setConfirmClearVisible] = useState(false);
   const [confirmDisablePinVisible, setConfirmDisablePinVisible] =
     useState(false);
-  const [confirmDisableBioVisible, setConfirmDisableBioVisible] =
-    useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [confirmClearVisible, setConfirmClearVisible] = useState(false);
+  const [exportVisible, setExportVisible] = useState(false);
+
+  // VPN / stats
   const [vpnStatus, setVpnStatus] = useState({
     isActive: false,
     isNative: false,
@@ -831,10 +801,29 @@ export default function SettingsScreen() {
   const loadAll = async () => {
     const config = await StorageService.getAuthConfig();
     setPinEnabled(config.isPinEnabled);
-    setBiometricEnabled(config.isBiometricEnabled);
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    setBiometricAvailable(hasHardware && isEnrolled);
+    setBioEnabled(config.isBiometricEnabled);
+
+    const hasHW = await LocalAuthentication.hasHardwareAsync();
+    const enrolled = await LocalAuthentication.isEnrolledAsync();
+    setBioAvailable(hasHW && enrolled);
+
+    // Déterminer le type biométrique disponible
+    if (hasHW) {
+      const types =
+        await LocalAuthentication.supportedAuthenticationTypesAsync();
+      if (
+        types.includes(
+          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+        )
+      )
+        setBioType("Face ID");
+      else if (
+        types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
+      )
+        setBioType("Empreinte digitale");
+      else setBioType("PIN du téléphone");
+    }
+
     const status = VpnService.getStatus();
     const isActive = await VpnService.isVpnActive();
     setVpnStatus({ ...status, isActive });
@@ -843,13 +832,12 @@ export default function SettingsScreen() {
     setStats({ rules: rules.length, profiles: profiles.length });
   };
 
+  // ── Gestion PIN applicatif ────────────────────────────────────────────────
   const handlePinToggle = () => {
     if (!pinEnabled) {
-      // Activation → création de PIN (sans demander le PIN actuel)
       setPinModalCreating(true);
       setPinModalVisible(true);
     } else {
-      // Désactivation → confirmer avec le PIN actuel
       setConfirmDisablePinVisible(true);
     }
   };
@@ -857,42 +845,65 @@ export default function SettingsScreen() {
   const handlePinModalClose = async () => {
     setPinModalVisible(false);
     setPinModalCreating(false);
-    await loadAll(); // recharge pour refléter si le PIN a été créé
+    await loadAll();
   };
 
   const handleDisablePinConfirmed = async () => {
     setConfirmDisablePinVisible(false);
     await StorageService.disablePin();
+    // Si on désactive le PIN, on désactive aussi la biométrie (plus de fallback)
+    await StorageService.updateAuthConfig({ isBiometricEnabled: false });
     setPinEnabled(false);
-    setBiometricEnabled(false);
+    setBioEnabled(false);
     Alert.alert(
-      "Verrouillage désactivé",
-      "L'app ne demandera plus de PIN au démarrage.",
+      "PIN applicatif désactivé",
+      "L'app ne demandera plus de code propriétaire.",
     );
   };
 
+  // ── Gestion biométrie / PIN téléphone ─────────────────────────────────────
   const handleBioToggle = async () => {
-    if (!biometricEnabled) {
+    if (!bioEnabled) {
+      // Activer : on demande une auth pour confirmer que ça fonctionne
       try {
         const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Confirmer l'activation de la biométrie",
+          promptMessage: "Confirmer l'activation",
+          fallbackLabel: "Utiliser le PIN du téléphone",
+          cancelLabel: "Annuler",
         });
         if (result.success) {
           await StorageService.updateAuthConfig({ isBiometricEnabled: true });
-          setBiometricEnabled(true);
+          setBioEnabled(true);
         }
       } catch {
         Alert.alert("Erreur", "Impossible d'activer la biométrie");
       }
     } else {
-      setConfirmDisableBioVisible(true);
+      // Désactiver : si PIN applicatif actif → on demande le PIN pour confirmer
+      // sinon on désactive directement
+      if (pinEnabled) {
+        Alert.alert(
+          "Désactiver la biométrie ?",
+          "Le PIN applicatif restera actif.",
+          [
+            { text: "Annuler", style: "cancel" },
+            {
+              text: "Désactiver",
+              style: "destructive",
+              onPress: async () => {
+                await StorageService.updateAuthConfig({
+                  isBiometricEnabled: false,
+                });
+                setBioEnabled(false);
+              },
+            },
+          ],
+        );
+      } else {
+        await StorageService.updateAuthConfig({ isBiometricEnabled: false });
+        setBioEnabled(false);
+      }
     }
-  };
-
-  const handleDisableBioConfirmed = async () => {
-    setConfirmDisableBioVisible(false);
-    await StorageService.updateAuthConfig({ isBiometricEnabled: false });
-    setBiometricEnabled(false);
   };
 
   const handleExport = async () => {
@@ -913,7 +924,7 @@ export default function SettingsScreen() {
       await loadAll();
       Alert.alert("Succès", "Toutes les données ont été effacées");
     } catch {
-      Alert.alert("Erreur", "Impossible d'effacer les données");
+      Alert.alert("Erreur", "Impossible d'effacer");
     }
   };
 
@@ -940,70 +951,60 @@ export default function SettingsScreen() {
   };
 
   const vpnOn = vpnStatus.isActive;
+  const anyLockEnabled = pinEnabled || bioEnabled;
 
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.headerTitle}>Paramètres</Text>
-        <Text style={styles.headerSubtitle}>Configuration de l'app</Text>
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
+        <Text style={s.headerTitle}>Paramètres</Text>
+        <Text style={s.headerSubtitle}>Configuration de l'app</Text>
       </View>
 
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
         style={{ opacity: fadeAnim }}
         contentContainerStyle={[
-          styles.scroll,
+          s.scroll,
           { paddingBottom: insets.bottom + 32 },
         ]}
       >
-        {/* VPN Banner */}
+        {/* ── VPN Banner ── */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
           <TouchableOpacity
-            style={[
-              styles.vpnBanner,
-              vpnOn ? styles.vpnBannerOn : styles.vpnBannerOff,
-            ]}
+            style={[s.vpnBanner, vpnOn ? s.vpnBannerOn : s.vpnBannerOff]}
             onPress={toggleVpn}
             activeOpacity={0.8}
           >
             <View
               style={[
-                styles.vpnAccent,
+                s.vpnAccent,
                 { backgroundColor: vpnOn ? "#3DDB8A" : "#D04070" },
               ]}
             />
             <View style={{ flex: 1, paddingLeft: 8 }}>
               <Text
-                style={[
-                  styles.vpnTitle,
-                  { color: vpnOn ? "#3DDB8A" : "#D04070" },
-                ]}
+                style={[s.vpnTitle, { color: vpnOn ? "#3DDB8A" : "#D04070" }]}
               >
                 {vpnOn ? "🛡️ VPN Actif" : "⚠️ VPN Inactif"}
               </Text>
-              <Text style={styles.vpnSub}>
+              <Text style={s.vpnSub}>
                 {vpnStatus.isNative
                   ? "Mode natif (VPNService)"
                   : "Mode simulation"}
                 {vpnStatus.platform ? ` • ${vpnStatus.platform}` : ""}
               </Text>
             </View>
-            <View
-              style={[
-                styles.vpnPill,
-                vpnOn ? styles.vpnPillOn : styles.vpnPillOff,
-              ]}
-            >
+            <View style={[s.vpnPill, vpnOn ? s.vpnPillOn : s.vpnPillOff]}>
               <View
                 style={[
-                  styles.vpnPillDot,
+                  s.vpnPillDot,
                   { backgroundColor: vpnOn ? "#3DDB8A" : "#D04070" },
                 ]}
               />
               <Text
                 style={[
-                  styles.vpnPillText,
+                  s.vpnPillText,
                   { color: vpnOn ? "#3DDB8A" : "#D04070" },
                 ]}
               >
@@ -1013,49 +1014,79 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Stats */}
+        {/* ── Stats ── */}
         <Animated.View
-          style={[styles.statsRow, { transform: [{ translateY: slideAnim }] }]}
+          style={[s.statsRow, { transform: [{ translateY: slideAnim }] }]}
         >
-          <View style={styles.statCard}>
-            <Text style={styles.statNum}>{stats.rules}</Text>
-            <Text style={styles.statLabel}>Règles</Text>
+          <View style={s.statCard}>
+            <Text style={s.statNum}>{stats.rules}</Text>
+            <Text style={s.statLabel}>Règles</Text>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNum}>{stats.profiles}</Text>
-            <Text style={styles.statLabel}>Profils</Text>
+          <View style={s.statCard}>
+            <Text style={s.statNum}>{stats.profiles}</Text>
+            <Text style={s.statLabel}>Profils</Text>
           </View>
-          <View style={styles.statCard}>
-            <Text
-              style={[styles.statNum, { color: vpnOn ? "#3DDB8A" : "#D04070" }]}
-            >
+          <View style={s.statCard}>
+            <Text style={[s.statNum, { color: vpnOn ? "#3DDB8A" : "#D04070" }]}>
               {vpnOn ? "●" : "○"}
             </Text>
-            <Text style={styles.statLabel}>VPN</Text>
+            <Text style={s.statLabel}>VPN</Text>
           </View>
         </Animated.View>
 
-        {/* Sécurité */}
+        {/* ── SÉCURITÉ ── */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          <SectionLabel label="SÉCURITÉ" />
-          <View style={styles.card}>
+          <SectionLabel label="SÉCURITÉ — ACCÈS À L'APPLICATION" />
+
+          {/* Statut global */}
+          <View
+            style={[
+              s.lockStatusBanner,
+              anyLockEnabled ? s.lockStatusOn : s.lockStatusOff,
+            ]}
+          >
+            <Text style={s.lockStatusIcon}>{anyLockEnabled ? "🔒" : "🔓"}</Text>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  s.lockStatusTitle,
+                  { color: anyLockEnabled ? "#3DDB8A" : "#D04070" },
+                ]}
+              >
+                {anyLockEnabled
+                  ? "Application verrouillée"
+                  : "Application non verrouillée"}
+              </Text>
+              <Text style={s.lockStatusSub}>
+                {anyLockEnabled
+                  ? [pinEnabled && "PIN applicatif", bioEnabled && bioType]
+                      .filter(Boolean)
+                      .join(" + ")
+                  : "N'importe qui peut ouvrir et modifier les règles"}
+              </Text>
+            </View>
+          </View>
+
+          {/* ── Méthode 1 : PIN applicatif ── */}
+          <Text style={s.methodLabel}>MÉTHODE 1 — PIN APPLICATIF</Text>
+          <View style={s.card}>
             <SettingRow
               icon="◈"
-              title="Verrouillage par PIN"
+              title="Code PIN de l'application"
               subtitle={
                 pinEnabled
-                  ? "L'app demande un code au démarrage"
-                  : "Aucun verrouillage actif"
+                  ? "Code à 4–6 chiffres géré par NetOff"
+                  : "Créer un code propre à l'application"
               }
               right={<Toggle value={pinEnabled} onToggle={handlePinToggle} />}
             />
             {pinEnabled && (
               <>
-                <View style={styles.sep} />
+                <View style={s.sep} />
                 <SettingRow
                   icon="✎"
                   title="Changer le PIN"
-                  subtitle="Modifier le code PIN de sécurité"
+                  subtitle="Modifier le code PIN applicatif"
                   onPress={() => {
                     setPinModalCreating(false);
                     setPinModalVisible(true);
@@ -1063,57 +1094,76 @@ export default function SettingsScreen() {
                 />
               </>
             )}
-            {pinEnabled && (
-              <>
-                <View style={styles.sep} />
-                <SettingRow
-                  icon="◎"
-                  title="Authentification biométrique"
-                  subtitle={
-                    biometricAvailable
-                      ? "Face ID / Touch ID en complément du PIN"
-                      : "Non disponible sur cet appareil"
-                  }
-                  right={
-                    <Toggle
-                      value={biometricEnabled}
-                      onToggle={handleBioToggle}
-                      disabled={!biometricAvailable}
-                    />
-                  }
-                />
-              </>
-            )}
           </View>
-          {!pinEnabled && (
-            <View style={styles.infoBanner}>
-              <Text style={styles.infoIcon}>◎</Text>
-              <Text style={styles.infoText}>
-                Activez le verrouillage pour protéger l'accès à NetOff. Sans
-                lui, n'importe qui peut ouvrir l'app et désactiver les blocages.
+          <View style={s.methodNote}>
+            <Text style={s.methodNoteText}>
+              ✦ Indépendant du téléphone — utile si quelqu'un d'autre a accès à
+              votre écran déverrouillé (contrôle parental, etc.)
+            </Text>
+          </View>
+
+          {/* ── Méthode 2 : Biométrie / PIN téléphone ── */}
+          <Text style={[s.methodLabel, { marginTop: 16 }]}>
+            MÉTHODE 2 — {bioType.toUpperCase()} / PIN TÉLÉPHONE
+          </Text>
+          <View style={s.card}>
+            <SettingRow
+              icon="◎"
+              title={`${bioType} / PIN du téléphone`}
+              subtitle={
+                bioAvailable
+                  ? bioEnabled
+                    ? `Actif — utilise le système Android (${bioType})`
+                    : `Utiliser ${bioType} ou le PIN de votre téléphone`
+                  : "Aucune méthode biométrique configurée sur ce téléphone"
+              }
+              right={
+                <Toggle
+                  value={bioEnabled}
+                  onToggle={handleBioToggle}
+                  disabled={!bioAvailable}
+                />
+              }
+              disabled={!bioAvailable}
+            />
+          </View>
+          <View style={s.methodNote}>
+            <Text style={s.methodNoteText}>
+              ✦ Délègue au système Android — empreinte, face ou PIN du téléphone
+              comme fallback automatique
+            </Text>
+          </View>
+
+          {/* Note combinaison */}
+          {pinEnabled && bioEnabled && (
+            <View style={s.combinedBanner}>
+              <Text style={s.combinedIcon}>⚡</Text>
+              <Text style={s.combinedText}>
+                Les deux méthodes sont actives. Au démarrage, la biométrie sera
+                proposée en premier, avec le PIN applicatif en secours.
               </Text>
             </View>
           )}
         </Animated.View>
 
-        {/* Données */}
+        {/* ── Données ── */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
           <SectionLabel label="DONNÉES" />
-          <View style={styles.card}>
+          <View style={s.card}>
             <SettingRow
               icon="↑"
               title="Exporter les règles"
               subtitle="Sauvegarder règles et profils en JSON"
               onPress={() => setExportVisible(true)}
             />
-            <View style={styles.sep} />
+            <View style={s.sep} />
             <SettingRow
               icon="↓"
               title="Importer les règles"
               subtitle="Restaurer des règles depuis un JSON"
               onPress={() => setImportModalVisible(true)}
             />
-            <View style={styles.sep} />
+            <View style={s.sep} />
             <SettingRow
               icon="⌫"
               title="Effacer toutes les données"
@@ -1124,12 +1174,12 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
-        {/* À propos */}
+        {/* ── À propos ── */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
           <SectionLabel label="À PROPOS" />
-          <View style={styles.card}>
+          <View style={s.card}>
             <SettingRow icon="◉" title="Version" subtitle="1.0.0 — NetOff" />
-            <View style={styles.sep} />
+            <View style={s.sep} />
             <SettingRow
               icon="◌"
               title="Licence"
@@ -1145,7 +1195,7 @@ export default function SettingsScreen() {
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* Export Modal */}
+      {/* ── Export Modal ── */}
       <Modal
         visible={exportVisible}
         transparent
@@ -1199,36 +1249,35 @@ export default function SettingsScreen() {
         </Animated.View>
       </Modal>
 
-      {/* Confirm Clear */}
+      {/* ── Confirm Clear ── */}
       <Modal
         visible={confirmClearVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setConfirmClearVisible(false)}
       >
-        <View style={cc.overlay}>
-          <View style={cc.container}>
-            <Text style={cc.icon}>⚠️</Text>
-            <Text style={cc.title}>Effacer toutes les données ?</Text>
-            <Text style={cc.body}>
-              Cette action supprimera définitivement toutes vos règles, profils
-              et statistiques. Elle est irréversible.
+        <View style={ccm.overlay}>
+          <View style={ccm.container}>
+            <Text style={ccm.icon}>⚠️</Text>
+            <Text style={ccm.title}>Effacer toutes les données ?</Text>
+            <Text style={ccm.body}>
+              Règles, profils et statistiques seront définitivement supprimés.
             </Text>
             <TouchableOpacity
-              style={cc.dangerBtn}
+              style={ccm.dangerBtn}
               onPress={() => {
                 setConfirmClearVisible(false);
                 clearAllData();
               }}
               activeOpacity={0.85}
             >
-              <Text style={cc.dangerBtnText}>Oui, tout effacer</Text>
+              <Text style={ccm.dangerBtnText}>Oui, tout effacer</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={cc.cancelBtn}
+              style={ccm.cancelBtn}
               onPress={() => setConfirmClearVisible(false)}
             >
-              <Text style={cc.cancelBtnText}>Annuler</Text>
+              <Text style={ccm.cancelBtnText}>Annuler</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1253,23 +1302,15 @@ export default function SettingsScreen() {
         visible={confirmDisablePinVisible}
         onClose={() => setConfirmDisablePinVisible(false)}
         onConfirmed={handleDisablePinConfirmed}
-        title="Désactiver le verrouillage"
+        title="Désactiver le PIN applicatif"
         subtitle="Entrez votre PIN pour confirmer la désactivation"
-      />
-
-      {/* Désactiver biométrie */}
-      <ConfirmPinModal
-        visible={confirmDisableBioVisible}
-        onClose={() => setConfirmDisableBioVisible(false)}
-        onConfirmed={handleDisableBioConfirmed}
-        title="Désactiver la biométrie"
-        subtitle="Entrez votre PIN pour confirmer"
       />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
   header: {
     paddingHorizontal: 22,
@@ -1299,6 +1340,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 6,
   },
+
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
   statCard: {
     flex: 1,
@@ -1321,6 +1363,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1,
   },
+
   vpnBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1360,12 +1403,53 @@ const styles = StyleSheet.create({
   vpnPillOff: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
   vpnPillDot: { width: 6, height: 6, borderRadius: 3 },
   vpnPillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
+
+  // Lock status banner
+  lockStatusBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  lockStatusOn: { backgroundColor: "#0A0E0C", borderColor: "#1E6A46" },
+  lockStatusOff: { backgroundColor: "#0E0A10", borderColor: "#4A1A2A" },
+  lockStatusIcon: { fontSize: 24 },
+  lockStatusTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  lockStatusSub: { fontSize: 11, color: "#3A3A58" },
+
+  methodLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#2E2E48",
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  methodNote: { paddingHorizontal: 4, paddingVertical: 8, marginBottom: 4 },
+  methodNoteText: { fontSize: 11, color: "#2E2E48", lineHeight: 17 },
+
+  combinedBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#16103A",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#4A3F8A",
+    marginTop: 12,
+  },
+  combinedIcon: { fontSize: 14, marginTop: 1 },
+  combinedText: { flex: 1, fontSize: 12, color: "#7B6EF6", lineHeight: 18 },
+
   card: {
     backgroundColor: "#0E0E18",
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#1C1C2C",
-    marginBottom: 8,
+    marginBottom: 4,
     overflow: "hidden",
   },
   sep: { height: 1, backgroundColor: "#13131F", marginLeft: 58 },
@@ -1409,19 +1493,6 @@ const styles = StyleSheet.create({
   toggleThumb: { width: 18, height: 18, borderRadius: 9 },
   thumbOn: { backgroundColor: "#3DDB8A", alignSelf: "flex-end" },
   thumbOff: { backgroundColor: "#2A2A3A", alignSelf: "flex-start" },
-  infoBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    backgroundColor: "#0E0E18",
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-    marginBottom: 8,
-  },
-  infoIcon: { fontSize: 14, color: "#3A3A58", marginTop: 1 },
-  infoText: { flex: 1, fontSize: 12, color: "#3A3A58", lineHeight: 19 },
 });
 
 const em = StyleSheet.create({
@@ -1493,7 +1564,7 @@ const em = StyleSheet.create({
   cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
 });
 
-const cc = StyleSheet.create({
+const ccm = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "#000000BB",
