@@ -2,23 +2,23 @@ import { useAppInfo } from "@/hooks/useAppInfo";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Alert,
-    Animated,
-    Easing,
-    Keyboard,
-    Linking,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Animated,
+  Easing,
+  Keyboard,
+  Linking,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const CONTACT_EMAIL = "support@netoff.app";
+const CONTACT_EMAIL = "abdoulaziz.dev@gmail.com";
 
 const SUBJECTS = [
   { id: "bug", label: "🐛 Signaler un bug", color: "#D04070" },

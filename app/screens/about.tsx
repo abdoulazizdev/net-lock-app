@@ -14,6 +14,8 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+const CONTACT_EMAIL = "abdoulaziz.dev@gmail.com";
+
 // ─── Staggered fade-in hook ───────────────────────────────────────────────────
 function useStagger(count: number, delay = 55) {
   const anims = useRef(
@@ -431,31 +433,31 @@ export default function AboutScreen() {
             <LinkRow
               icon="◎"
               label="Politique de confidentialité"
-              onPress={() => Linking.openURL("https://example.com/privacy")}
+              onPress={() => {}}
             />
             <View style={styles.divider} />
             <LinkRow
               icon="◈"
               label="Conditions d'utilisation"
-              onPress={() => Linking.openURL("https://example.com/terms")}
+              onPress={() => {}}
             />
             <View style={styles.divider} />
             <LinkRow
               icon="◷"
               label="Signaler un problème"
-              onPress={() => Linking.openURL("mailto:support@netoff.app")}
+              onPress={() =>
+                Linking.openURL(
+                  `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("[NetOff] Signaler un problème")}`,
+                )
+              }
             />
             <View style={styles.divider} />
-            <LinkRow
-              icon="⊙"
-              label="Changelog"
-              onPress={() => Linking.openURL("https://example.com/changelog")}
-            />
+            <LinkRow icon="⊙" label="Changelog" onPress={() => {}} />
           </View>
         </Section>
 
         {/* ── Footer ────────────────────────────────────────────────────── */}
-        <Section anim={anims[9]}>
+        <Section anim={anims[10]}>
           <View style={styles.footer}>
             <Text style={styles.footerLogo}>◉ NetOff</Text>
             <Text style={styles.footerCopy}>
