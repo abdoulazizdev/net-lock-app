@@ -12,50 +12,43 @@ import {
 } from "react-native";
 import { Text } from "react-native-paper";
 
-type AuthScreenProps = {
-  onAuthenticated?: () => void;
-};
-
-export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
+export default function AuthScreen() {
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [isFirstTime, setIsFirstTime] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<"pin" | "confirm">("pin");
+  const [showPin, setShowPin] = useState(false);
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    checkAuthSetup();
-    checkBiometric();
+    init();
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 600,
+      duration: 500,
       useNativeDriver: true,
     }).start();
   }, []);
 
-  const navigate = () => {
-    if (onAuthenticated) {
-      onAuthenticated();
-    } else {
-      router.replace("/(tabs)");
+  const init = async () => {
+    const config = await StorageService.getAuthConfig();
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+    const bioAvail = hasHardware && isEnrolled;
+    setIsFirstTime(!config.isPinEnabled && !config.isBiometricEnabled);
+    setBiometricEnabled(config.isBiometricEnabled);
+    setBiometricAvailable(bioAvail);
+    if (config.isBiometricEnabled && bioAvail && config.isPinEnabled) {
+      setTimeout(() => triggerBiometric(), 400);
     }
   };
 
-  const checkAuthSetup = async () => {
-    const config = await StorageService.getAuthConfig();
-    setIsFirstTime(!config.isPinEnabled);
-  };
+  const navigate = () => router.replace("/(tabs)");
 
-  const checkBiometric = async () => {
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    setBiometricAvailable(hasHardware && isEnrolled);
-  };
-
-  const shake = () => {
+  const shake = () =>
     Animated.sequence([
       Animated.timing(shakeAnim, {
         toValue: 10,
@@ -78,35 +71,29 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         useNativeDriver: true,
       }),
     ]).start();
-  };
 
-  const handleBiometricAuth = async () => {
+  const triggerBiometric = async () => {
     try {
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "Authentification requise",
+        promptMessage: "Déverrouiller NetOff",
         fallbackLabel: "Utiliser le PIN",
+        cancelLabel: "Annuler",
       });
       if (result.success) navigate();
-    } catch {
-      Alert.alert("Erreur", "Échec de l'authentification biométrique");
-    }
+    } catch {}
   };
 
-  const handlePinPress = (digit: string) => {
-    const current = step === "pin" ? pin : confirmPin;
-    if (current.length >= 6) return;
-    if (step === "pin") setPin(pin + digit);
-    else setConfirmPin(confirmPin + digit);
-  };
+  const currentPin = step === "pin" ? pin : confirmPin;
+  const setCurrentPin = (v: string) =>
+    step === "pin" ? setPin(v) : setConfirmPin(v);
 
-  const handleDelete = () => {
-    if (step === "pin") setPin(pin.slice(0, -1));
-    else setConfirmPin(confirmPin.slice(0, -1));
+  const handleDigit = (d: string) => {
+    if (currentPin.length < 6) setCurrentPin(currentPin + d);
   };
+  const handleDelete = () => setCurrentPin(currentPin.slice(0, -1));
 
   const handleSubmit = async () => {
     if (loading) return;
-    const currentPin = step === "pin" ? pin : confirmPin;
     if (currentPin.length < 4) {
       shake();
       return;
@@ -115,6 +102,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     if (isFirstTime) {
       if (step === "pin") {
         setStep("confirm");
+        setShowPin(false);
         return;
       }
       if (pin !== confirmPin) {
@@ -131,9 +119,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       setLoading(true);
       const isValid = await StorageService.verifyPin(pin);
       setLoading(false);
-      if (isValid) {
-        navigate();
-      } else {
+      if (isValid) navigate();
+      else {
         shake();
         setPin("");
         Alert.alert("PIN incorrect", "Veuillez réessayer");
@@ -141,40 +128,14 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     }
   };
 
-  const currentPin = step === "pin" ? pin : confirmPin;
-
-  const PinDots = () => (
-    <View style={styles.dotsRow}>
-      {[0, 1, 2, 3, 4, 5].map((i) => (
-        <View
-          key={i}
-          style={[
-            styles.dot,
-            i < currentPin.length ? styles.dotFilled : styles.dotEmpty,
-          ]}
-        />
-      ))}
-    </View>
-  );
-
-  const PadButton = ({ digit, sub }: { digit: string; sub?: string }) => (
-    <TouchableOpacity
-      style={styles.padBtn}
-      onPress={() => handlePinPress(digit)}
-      activeOpacity={0.6}
-    >
-      <Text style={styles.padBtnText}>{digit}</Text>
-      {sub && <Text style={styles.padBtnSub}>{sub}</Text>}
-    </TouchableOpacity>
-  );
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
-
+      <StatusBar barStyle="light-content" backgroundColor="#080810" />
       <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
         <View style={styles.logo}>
-          <Text style={styles.logoIcon}>🛡️</Text>
+          <View style={styles.logoIconWrap}>
+            <Text style={styles.logoIconText}>🛡️</Text>
+          </View>
           <Text style={styles.logoTitle}>NetOff</Text>
         </View>
 
@@ -193,34 +154,84 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             : "Entrez votre code PIN"}
         </Text>
 
-        <Animated.View style={{ transform: [{ translateX: shakeAnim }] }}>
-          <PinDots />
+        {isFirstTime && (
+          <View style={styles.steps}>
+            <View
+              style={[
+                styles.step,
+                step === "pin" ? styles.stepActive : styles.stepDone,
+              ]}
+            />
+            <View
+              style={[
+                styles.step,
+                step === "confirm" ? styles.stepActive : styles.stepInactive,
+              ]}
+            />
+          </View>
+        )}
+
+        {/* Indicateur PIN */}
+        <Animated.View
+          style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
+        >
+          {showPin ? (
+            <Text style={styles.pinText}>{currentPin || "·  ·  ·  ·"}</Text>
+          ) : (
+            [0, 1, 2, 3, 4, 5].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  i < currentPin.length ? styles.dotFilled : styles.dotEmpty,
+                ]}
+              />
+            ))
+          )}
         </Animated.View>
 
+        {/* Bouton afficher/masquer */}
+        <TouchableOpacity
+          style={styles.eyeBtn}
+          onPress={() => setShowPin((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.eyeText}>
+            {showPin ? "🙈  Masquer" : "👁  Voir le code"}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Pavé numérique */}
         <View style={styles.pad}>
           {[
             ["1", ""],
             ["2", "ABC"],
             ["3", "DEF"],
-          ].map(([d, s]) => (
-            <PadButton key={d} digit={d} sub={s} />
-          ))}
-          {[
             ["4", "GHI"],
             ["5", "JKL"],
             ["6", "MNO"],
-          ].map(([d, s]) => (
-            <PadButton key={d} digit={d} sub={s} />
-          ))}
-          {[
             ["7", "PQRS"],
             ["8", "TUV"],
             ["9", "WXYZ"],
           ].map(([d, s]) => (
-            <PadButton key={d} digit={d} sub={s} />
+            <TouchableOpacity
+              key={d}
+              style={styles.padBtn}
+              onPress={() => handleDigit(d)}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.padBtnText}>{d}</Text>
+              {s ? <Text style={styles.padBtnSub}>{s}</Text> : null}
+            </TouchableOpacity>
           ))}
           <View style={styles.padBtn} />
-          <PadButton digit="0" />
+          <TouchableOpacity
+            style={styles.padBtn}
+            onPress={() => handleDigit("0")}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.padBtnText}>0</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.padBtn}
             onPress={handleDelete}
@@ -250,14 +261,14 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           </Text>
         </TouchableOpacity>
 
-        {!isFirstTime && biometricAvailable && (
+        {!isFirstTime && biometricEnabled && biometricAvailable && (
           <TouchableOpacity
             style={styles.biometricBtn}
-            onPress={handleBiometricAuth}
+            onPress={triggerBiometric}
             activeOpacity={0.8}
           >
             <Text style={styles.biometricIcon}>👆</Text>
-            <Text style={styles.biometricText}>Biométrie</Text>
+            <Text style={styles.biometricText}>Utiliser la biométrie</Text>
           </TouchableOpacity>
         )}
       </Animated.View>
@@ -266,77 +277,114 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A0A0F", justifyContent: "center" },
+  container: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
   content: { alignItems: "center", paddingHorizontal: 32 },
-  logo: { alignItems: "center", marginBottom: 40 },
-  logoIcon: { fontSize: 48, marginBottom: 8 },
+  logo: { alignItems: "center", marginBottom: 32 },
+  logoIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#16103A",
+    borderWidth: 1,
+    borderColor: "#4A3F8A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  logoIconText: { fontSize: 34 },
   logoTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#F0F0FF",
     letterSpacing: -1,
   },
   title: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#F0F0FF",
     marginBottom: 6,
     textAlign: "center",
   },
   subtitle: {
-    fontSize: 14,
-    color: "#555",
-    marginBottom: 36,
+    fontSize: 13,
+    color: "#3A3A58",
+    marginBottom: 24,
     textAlign: "center",
+    lineHeight: 20,
   },
-  dotsRow: { flexDirection: "row", gap: 14, marginBottom: 48 },
+  steps: { flexDirection: "row", gap: 8, marginBottom: 20, width: 120 },
+  step: { flex: 1, height: 3, borderRadius: 2 },
+  stepActive: { backgroundColor: "#7B6EF6" },
+  stepDone: { backgroundColor: "#3DDB8A" },
+  stepInactive: { backgroundColor: "#1C1C2C" },
+  dotsRow: {
+    flexDirection: "row",
+    gap: 14,
+    marginBottom: 10,
+    minHeight: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   dot: { width: 14, height: 14, borderRadius: 7 },
   dotEmpty: {
     backgroundColor: "#1E1E2E",
     borderWidth: 1,
     borderColor: "#2E2E3E",
   },
-  dotFilled: { backgroundColor: "#00F5A0" },
+  dotFilled: { backgroundColor: "#7B6EF6" },
+  pinText: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#7B6EF6",
+    letterSpacing: 8,
+  },
+  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 24 },
+  eyeText: { fontSize: 12, color: "#3A3A58", fontWeight: "600" },
   pad: {
     flexDirection: "row",
     flexWrap: "wrap",
     width: 280,
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: 20,
   },
   padBtn: {
     width: 88,
-    height: 78,
+    height: 74,
     justifyContent: "center",
     alignItems: "center",
     borderRadius: 18,
-    margin: 4,
+    margin: 3,
   },
-  padBtnText: { fontSize: 26, fontWeight: "600", color: "#FFFFFF" },
+  padBtnText: { fontSize: 26, fontWeight: "600", color: "#F0F0FF" },
   padBtnSub: {
     fontSize: 9,
-    color: "#444",
+    color: "#3A3A58",
     fontWeight: "700",
     letterSpacing: 1.5,
     marginTop: 2,
   },
-  padDeleteText: { fontSize: 22, color: "#555" },
+  padDeleteText: { fontSize: 22, color: "#3A3A58" },
   submitBtn: {
     width: 280,
-    backgroundColor: "#00F5A0",
+    backgroundColor: "#7B6EF6",
     borderRadius: 16,
     padding: 16,
     alignItems: "center",
     marginBottom: 16,
   },
-  submitBtnDisabled: { backgroundColor: "#00F5A030" },
-  submitBtnText: { color: "#0A0A0F", fontSize: 16, fontWeight: "800" },
+  submitBtnDisabled: { backgroundColor: "#7B6EF620" },
+  submitBtnText: { color: "#F0F0FF", fontSize: 16, fontWeight: "800" },
   biometricBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#0E0E18",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+    paddingHorizontal: 20,
   },
-  biometricIcon: { fontSize: 20 },
-  biometricText: { color: "#555", fontSize: 14, fontWeight: "600" },
+  biometricIcon: { fontSize: 18 },
+  biometricText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
 });

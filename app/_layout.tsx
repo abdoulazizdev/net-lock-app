@@ -6,7 +6,6 @@ import {
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
 import { Provider as PaperProvider } from "react-native-paper";
 import "react-native-reanimated";
 
@@ -17,32 +16,29 @@ export const unstable_settings = { anchor: "(tabs)" };
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
 
+  // On rend le Stack immédiatement, puis on redirige depuis useEffect
+  // après que le layout soit monté — sinon router.replace() est ignoré
   useEffect(() => {
-    checkAuthStatus();
+    setReady(true);
   }, []);
 
-  const checkAuthStatus = async () => {
+  useEffect(() => {
+    if (!ready) return;
+    checkAuth();
+  }, [ready]);
+
+  const checkAuth = async () => {
     try {
       const config = await StorageService.getAuthConfig();
-      if (config.isPinEnabled) {
+      if (config.isPinEnabled || config.isBiometricEnabled) {
         router.replace("/auth");
       }
-    } catch (error) {
-      console.error("Erreur auth:", error);
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      console.error("Erreur auth:", e);
     }
   };
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#6200ee" />
-      </View>
-    );
-  }
 
   return (
     <PaperProvider>
@@ -53,15 +49,15 @@ export default function RootLayout() {
           <Stack.Screen name="profile-rules" options={{ headerShown: false }} />
           <Stack.Screen
             name="screens/app-detail"
-            options={{ title: "Détails de l'application" }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="screens/profile-detail"
             options={{ headerShown: false }}
           />
-          <Stack.Screen name="settings" options={{ title: "Paramètres" }} />
+          <Stack.Screen name="settings" options={{ headerShown: false }} />
         </Stack>
-        <StatusBar style="auto" />
+        <StatusBar style="light" />
       </ThemeProvider>
     </PaperProvider>
   );

@@ -53,6 +53,7 @@ function SettingRow({
   onPress,
   right,
   danger,
+  disabled,
 }: {
   icon: string;
   title: string;
@@ -60,13 +61,14 @@ function SettingRow({
   onPress?: () => void;
   right?: React.ReactNode;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <TouchableOpacity
-      style={styles.row}
+      style={[styles.row, disabled && { opacity: 0.4 }]}
       onPress={onPress}
-      activeOpacity={onPress ? 0.65 : 1}
-      disabled={!onPress && !right}
+      activeOpacity={onPress && !disabled ? 0.65 : 1}
+      disabled={(!onPress && !right) || disabled}
     >
       <View style={[styles.rowIcon, danger && styles.rowIconDanger]}>
         <Text style={styles.rowIconText}>{icon}</Text>
@@ -78,7 +80,7 @@ function SettingRow({
         {subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
       </View>
       {right && <View>{right}</View>}
-      {onPress && !right && (
+      {onPress && !right && !disabled && (
         <Text style={[styles.rowChevron, danger && styles.rowChevronDanger]}>
           ›
         </Text>
@@ -91,21 +93,189 @@ function SectionLabel({ label }: { label: string }) {
   return <Text style={styles.sectionLabel}>{label}</Text>;
 }
 
-// ─── PIN Change Modal ─────────────────────────────────────────────────────────
-function PinChangeModal({
+// ─── Pavé numérique réutilisable ──────────────────────────────────────────────
+function PinPad({
+  pin,
+  onDigit,
+  onDelete,
+  onSubmit,
+  submitLabel,
+  submitDisabled,
+  showPin,
+  onToggleShow,
+  shakeAnim,
+}: {
+  pin: string;
+  onDigit: (d: string) => void;
+  onDelete: () => void;
+  onSubmit: () => void;
+  submitLabel: string;
+  submitDisabled: boolean;
+  showPin: boolean;
+  onToggleShow: () => void;
+  shakeAnim: Animated.Value;
+}) {
+  return (
+    <>
+      {/* Indicateur PIN */}
+      <Animated.View
+        style={[pad.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
+      >
+        {showPin ? (
+          <Text style={pad.pinText}>{pin || "·  ·  ·  ·"}</Text>
+        ) : (
+          [0, 1, 2, 3, 4, 5].map((i) => (
+            <View
+              key={i}
+              style={[pad.dot, i < pin.length ? pad.dotFilled : pad.dotEmpty]}
+            />
+          ))
+        )}
+      </Animated.View>
+
+      {/* Bouton afficher/masquer */}
+      <TouchableOpacity
+        style={pad.eyeBtn}
+        onPress={onToggleShow}
+        activeOpacity={0.7}
+      >
+        <Text style={pad.eyeText}>
+          {showPin ? "🙈  Masquer" : "👁  Voir le code"}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Pavé */}
+      <View style={pad.grid}>
+        {[
+          ["1", ""],
+          ["2", "ABC"],
+          ["3", "DEF"],
+          ["4", "GHI"],
+          ["5", "JKL"],
+          ["6", "MNO"],
+          ["7", "PQRS"],
+          ["8", "TUV"],
+          ["9", "WXYZ"],
+        ].map(([d, s]) => (
+          <TouchableOpacity
+            key={d}
+            style={pad.btn}
+            onPress={() => onDigit(d)}
+            activeOpacity={0.6}
+          >
+            <Text style={pad.btnText}>{d}</Text>
+            {s ? <Text style={pad.btnSub}>{s}</Text> : null}
+          </TouchableOpacity>
+        ))}
+        <View style={pad.btn} />
+        <TouchableOpacity
+          style={pad.btn}
+          onPress={() => onDigit("0")}
+          activeOpacity={0.6}
+        >
+          <Text style={pad.btnText}>0</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={pad.btn}
+          onPress={onDelete}
+          activeOpacity={0.6}
+        >
+          <Text style={pad.deleteText}>⌫</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={[pad.submitBtn, submitDisabled && pad.submitBtnOff]}
+        onPress={onSubmit}
+        disabled={submitDisabled}
+        activeOpacity={0.85}
+      >
+        <Text style={pad.submitText}>{submitLabel}</Text>
+      </TouchableOpacity>
+    </>
+  );
+}
+
+const pad = StyleSheet.create({
+  dotsRow: {
+    flexDirection: "row",
+    gap: 14,
+    marginBottom: 10,
+    minHeight: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dot: { width: 14, height: 14, borderRadius: 7 },
+  dotEmpty: {
+    backgroundColor: "#1C1C2C",
+    borderWidth: 1,
+    borderColor: "#2A2A42",
+  },
+  dotFilled: { backgroundColor: "#7B6EF6" },
+  pinText: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#7B6EF6",
+    letterSpacing: 8,
+  },
+  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 28 },
+  eyeText: { fontSize: 12, color: "#3A3A58", fontWeight: "600" },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    width: 280,
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  btn: {
+    width: 88,
+    height: 72,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
+    margin: 3,
+  },
+  btnText: { fontSize: 26, fontWeight: "600", color: "#F0F0FF" },
+  btnSub: {
+    fontSize: 8,
+    color: "#3A3A58",
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  deleteText: { fontSize: 22, color: "#3A3A58" },
+  submitBtn: {
+    width: 280,
+    backgroundColor: "#7B6EF6",
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
+  },
+  submitBtnOff: { backgroundColor: "#7B6EF620" },
+  submitText: { color: "#F0F0FF", fontSize: 16, fontWeight: "800" },
+});
+
+// ─── Confirm PIN Modal ────────────────────────────────────────────────────────
+function ConfirmPinModal({
   visible,
   onClose,
+  onConfirmed,
+  title,
+  subtitle,
+  accentColor = "#D04070",
 }: {
   visible: boolean;
   onClose: () => void;
+  onConfirmed: () => void;
+  title: string;
+  subtitle: string;
+  accentColor?: string;
 }) {
-  const [step, setStep] = useState<"current" | "new" | "confirm">("current");
-  const [currentPin, setCurrentPin] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
+  const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
+  const [loading, setLoading] = useState(false);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
-  const shake = () => {
+  const shake = () =>
     Animated.sequence([
       Animated.timing(shakeAnim, {
         toValue: 8,
@@ -128,32 +298,161 @@ function PinChangeModal({
         useNativeDriver: true,
       }),
     ]).start();
-  };
-
-  const reset = () => {
-    setStep("current");
-    setCurrentPin("");
-    setNewPin("");
-    setConfirmPin("");
-  };
 
   const handleClose = () => {
-    reset();
+    setPin("");
+    setShowPin(false);
     onClose();
   };
 
-  const handleDigit = (d: string) => {
-    if (step === "current" && currentPin.length < 6)
-      setCurrentPin((p) => p + d);
-    else if (step === "new" && newPin.length < 6) setNewPin((p) => p + d);
-    else if (step === "confirm" && confirmPin.length < 6)
-      setConfirmPin((p) => p + d);
+  const handleConfirm = async () => {
+    if (pin.length < 4) {
+      shake();
+      return;
+    }
+    setLoading(true);
+    const valid = await StorageService.verifyPin(pin);
+    setLoading(false);
+    if (valid) {
+      setPin("");
+      setShowPin(false);
+      onConfirmed();
+    } else {
+      shake();
+      setPin("");
+      Alert.alert("PIN incorrect", "Veuillez réessayer");
+    }
   };
 
-  const handleDelete = () => {
-    if (step === "current") setCurrentPin((p) => p.slice(0, -1));
-    else if (step === "new") setNewPin((p) => p.slice(0, -1));
-    else setConfirmPin((p) => p.slice(0, -1));
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={handleClose}
+    >
+      <View style={cm.overlay}>
+        <View style={cm.container}>
+          <View style={cm.header}>
+            <Text style={cm.title}>{title}</Text>
+            <TouchableOpacity onPress={handleClose}>
+              <View style={cm.closeIcon}>
+                <Text style={cm.closeIconText}>✕</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+          <Text style={cm.subtitle}>{subtitle}</Text>
+          <PinPad
+            pin={pin}
+            onDigit={(d) => {
+              if (pin.length < 6) setPin((p) => p + d);
+            }}
+            onDelete={() => setPin((p) => p.slice(0, -1))}
+            onSubmit={handleConfirm}
+            submitLabel={loading ? "..." : "Confirmer"}
+            submitDisabled={loading || pin.length < 4}
+            showPin={showPin}
+            onToggleShow={() => setShowPin((v) => !v)}
+            shakeAnim={shakeAnim}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const cm = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
+  container: { alignItems: "center", paddingHorizontal: 32 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 12,
+  },
+  title: { fontSize: 20, fontWeight: "800", color: "#F0F0FF" },
+  closeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#1C1C2C",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeIconText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
+  subtitle: {
+    fontSize: 14,
+    color: "#3A3A58",
+    marginBottom: 28,
+    textAlign: "center",
+  },
+});
+
+// ─── PIN Setup/Change Modal ───────────────────────────────────────────────────
+// isCreating=true → saute l'étape "PIN actuel" (premier setup)
+function PinChangeModal({
+  visible,
+  onClose,
+  isCreating = false,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  isCreating?: boolean;
+}) {
+  const initialStep = isCreating ? "new" : "current";
+  const [step, setStep] = useState<"current" | "new" | "confirm">(initialStep);
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+
+  // Reset quand on ouvre
+  useEffect(() => {
+    if (visible) {
+      setStep(isCreating ? "new" : "current");
+      setCurrentPin("");
+      setNewPin("");
+      setConfirmPin("");
+      setShowPin(false);
+    }
+  }, [visible]);
+
+  const shake = () =>
+    Animated.sequence([
+      Animated.timing(shakeAnim, {
+        toValue: 8,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: -8,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 4,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 0,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+  const handleClose = () => {
+    onClose();
+  };
+
+  const activePin =
+    step === "current" ? currentPin : step === "new" ? newPin : confirmPin;
+  const setActivePin = (val: string) => {
+    if (step === "current") setCurrentPin(val);
+    else if (step === "new") setNewPin(val);
+    else setConfirmPin(val);
   };
 
   const handleNext = async () => {
@@ -166,15 +465,17 @@ function PinChangeModal({
       if (!valid) {
         shake();
         setCurrentPin("");
-        Alert.alert("Erreur", "PIN actuel incorrect");
+        Alert.alert("PIN incorrect", "Veuillez réessayer");
         return;
       }
+      setShowPin(false);
       setStep("new");
     } else if (step === "new") {
       if (newPin.length < 4) {
         shake();
         return;
       }
+      setShowPin(false);
       setStep("confirm");
     } else {
       if (newPin !== confirmPin) {
@@ -184,23 +485,28 @@ function PinChangeModal({
         return;
       }
       await StorageService.savePin(newPin);
-      Alert.alert("Succès", "PIN modifié avec succès");
+      Alert.alert(
+        "Succès",
+        isCreating ? "PIN créé avec succès !" : "PIN modifié avec succès !",
+      );
       handleClose();
     }
   };
 
-  const activePin =
-    step === "current" ? currentPin : step === "new" ? newPin : confirmPin;
   const titles = {
     current: "PIN actuel",
-    new: "Nouveau PIN",
+    new: isCreating ? "Créer votre PIN" : "Nouveau PIN",
     confirm: "Confirmer le PIN",
   };
   const subtitles = {
     current: "Entrez votre code actuel",
-    new: "Choisissez un nouveau PIN (4-6 chiffres)",
-    confirm: "Répétez le nouveau PIN",
+    new: "Choisissez un PIN de 4 à 6 chiffres",
+    confirm: "Répétez votre nouveau PIN",
   };
+
+  // Barre de progression
+  const steps = isCreating ? ["new", "confirm"] : ["current", "new", "confirm"];
+  const stepIndex = steps.indexOf(step);
 
   return (
     <Modal
@@ -209,108 +515,93 @@ function PinChangeModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <View style={pinModal.overlay}>
-        <View style={pinModal.container}>
-          <View style={pinModal.header}>
-            <Text style={pinModal.title}>{titles[step]}</Text>
+      <View style={pm.overlay}>
+        <View style={pm.container}>
+          <View style={pm.header}>
+            <Text style={pm.title}>{titles[step]}</Text>
             <TouchableOpacity onPress={handleClose}>
-              <View style={pinModal.closeIcon}>
-                <Text style={pinModal.closeIconText}>✕</Text>
+              <View style={pm.closeIcon}>
+                <Text style={pm.closeIconText}>✕</Text>
               </View>
             </TouchableOpacity>
           </View>
 
-          {/* Steps */}
-          <View style={pinModal.steps}>
-            {(["current", "new", "confirm"] as const).map((s, i) => (
+          {/* Barre de progression */}
+          <View style={pm.steps}>
+            {steps.map((s, i) => (
               <View
                 key={s}
                 style={[
-                  pinModal.step,
-                  step === s && pinModal.stepActive,
-                  (step === "new" && i === 0) || (step === "confirm" && i <= 1)
-                    ? pinModal.stepDone
-                    : null,
+                  pm.step,
+                  i < stepIndex
+                    ? pm.stepDone
+                    : i === stepIndex
+                      ? pm.stepActive
+                      : pm.stepInactive,
                 ]}
               />
             ))}
           </View>
 
-          <Text style={pinModal.subtitle}>{subtitles[step]}</Text>
+          <Text style={pm.subtitle}>{subtitles[step]}</Text>
 
-          {/* Dots */}
-          <Animated.View
-            style={[pinModal.dots, { transform: [{ translateX: shakeAnim }] }]}
-          >
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <View
-                key={i}
-                style={[
-                  pinModal.dot,
-                  i < activePin.length ? pinModal.dotFilled : pinModal.dotEmpty,
-                ]}
-              />
-            ))}
-          </Animated.View>
-
-          {/* Numpad */}
-          <View style={pinModal.pad}>
-            {[
-              ["1", ""],
-              ["2", "ABC"],
-              ["3", "DEF"],
-              ["4", "GHI"],
-              ["5", "JKL"],
-              ["6", "MNO"],
-              ["7", "PQRS"],
-              ["8", "TUV"],
-              ["9", "WXYZ"],
-            ].map(([d, s]) => (
-              <TouchableOpacity
-                key={d}
-                style={pinModal.padBtn}
-                onPress={() => handleDigit(d)}
-                activeOpacity={0.6}
-              >
-                <Text style={pinModal.padBtnText}>{d}</Text>
-                {s && <Text style={pinModal.padBtnSub}>{s}</Text>}
-              </TouchableOpacity>
-            ))}
-            <View style={pinModal.padBtn} />
-            <TouchableOpacity
-              style={pinModal.padBtn}
-              onPress={() => handleDigit("0")}
-              activeOpacity={0.6}
-            >
-              <Text style={pinModal.padBtnText}>0</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={pinModal.padBtn}
-              onPress={handleDelete}
-              activeOpacity={0.6}
-            >
-              <Text style={pinModal.padDelete}>⌫</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[
-              pinModal.nextBtn,
-              activePin.length < 4 && pinModal.nextBtnDisabled,
-            ]}
-            onPress={handleNext}
-            disabled={activePin.length < 4}
-            activeOpacity={0.85}
-          >
-            <Text style={pinModal.nextBtnText}>
-              {step === "confirm" ? "Confirmer le changement" : "Suivant →"}
-            </Text>
-          </TouchableOpacity>
+          <PinPad
+            pin={activePin}
+            onDigit={(d) => {
+              if (activePin.length < 6) setActivePin(activePin + d);
+            }}
+            onDelete={() => setActivePin(activePin.slice(0, -1))}
+            onSubmit={handleNext}
+            submitLabel={
+              step === "confirm"
+                ? isCreating
+                  ? "Créer le PIN"
+                  : "Confirmer le changement"
+                : "Suivant →"
+            }
+            submitDisabled={activePin.length < 4}
+            showPin={showPin}
+            onToggleShow={() => setShowPin((v) => !v)}
+            shakeAnim={shakeAnim}
+          />
         </View>
       </View>
     </Modal>
   );
 }
+
+const pm = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
+  container: { alignItems: "center", paddingHorizontal: 32 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 16,
+  },
+  title: { fontSize: 20, fontWeight: "800", color: "#F0F0FF" },
+  closeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#1C1C2C",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeIconText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
+  steps: { flexDirection: "row", gap: 8, width: "100%", marginBottom: 16 },
+  step: { flex: 1, height: 3, borderRadius: 2 },
+  stepActive: { backgroundColor: "#7B6EF6" },
+  stepDone: { backgroundColor: "#3DDB8A" },
+  stepInactive: { backgroundColor: "#1C1C2C" },
+  subtitle: {
+    fontSize: 14,
+    color: "#3A3A58",
+    marginBottom: 24,
+    textAlign: "center",
+  },
+});
 
 // ─── Import Modal ─────────────────────────────────────────────────────────────
 function ImportModal({
@@ -324,7 +615,6 @@ function ImportModal({
 }) {
   const [jsonText, setJsonText] = useState("");
   const [loading, setLoading] = useState(false);
-
   const handleImport = async () => {
     if (!jsonText.trim()) {
       Alert.alert("Erreur", "Collez le JSON à importer");
@@ -337,13 +627,12 @@ function ImportModal({
       setJsonText("");
       onImported();
       onClose();
-    } catch (e) {
-      Alert.alert("Erreur", "JSON invalide ou corrompu. Vérifiez le contenu.");
+    } catch {
+      Alert.alert("Erreur", "JSON invalide ou corrompu.");
     } finally {
       setLoading(false);
     }
   };
-
   return (
     <Modal
       visible={visible}
@@ -351,20 +640,19 @@ function ImportModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={importModal.overlay}>
-        <View style={importModal.container}>
-          <View style={importModal.header}>
-            <Text style={importModal.title}>Importer des données</Text>
+      <View style={im.overlay}>
+        <View style={im.container}>
+          <View style={im.header}>
+            <Text style={im.title}>Importer des données</Text>
             <TouchableOpacity onPress={onClose}>
-              <View style={importModal.closeIcon}>
-                <Text style={importModal.closeIconText}>✕</Text>
+              <View style={im.closeIcon}>
+                <Text style={im.closeIconText}>✕</Text>
               </View>
             </TouchableOpacity>
           </View>
-
-          <Text style={importModal.label}>COLLER LE JSON EXPORTÉ</Text>
+          <Text style={im.label}>COLLER LE JSON EXPORTÉ</Text>
           <TextInput
-            style={importModal.input}
+            style={im.input}
             placeholder='{"rules": [...], "profiles": [...], ...}'
             placeholderTextColor="#2A2A42"
             value={jsonText}
@@ -374,31 +662,28 @@ function ImportModal({
             autoCapitalize="none"
             autoCorrect={false}
           />
-
-          <Text style={importModal.warning}>
-            ⚠️ L'import remplacera les données existantes. Cette action est
-            irréversible.
+          <Text style={im.warning}>
+            ⚠️ L'import remplacera les données existantes. Action irréversible.
           </Text>
-
           <TouchableOpacity
             style={[
-              importModal.importBtn,
-              (!jsonText.trim() || loading) && importModal.importBtnDisabled,
+              im.importBtn,
+              (!jsonText.trim() || loading) && im.importBtnOff,
             ]}
             onPress={handleImport}
             disabled={!jsonText.trim() || loading}
             activeOpacity={0.85}
           >
-            <Text style={importModal.importBtnText}>
+            <Text style={im.importBtnText}>
               {loading ? "Import..." : "↓ Importer"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={importModal.cancelBtn}
+            style={im.cancelBtn}
             onPress={onClose}
             activeOpacity={0.8}
           >
-            <Text style={importModal.cancelBtnText}>Annuler</Text>
+            <Text style={im.cancelBtnText}>Annuler</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -406,15 +691,93 @@ function ImportModal({
   );
 }
 
+const im = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "#000000AA",
+    justifyContent: "flex-end",
+  },
+  container: {
+    backgroundColor: "#0E0E18",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  title: { fontSize: 19, fontWeight: "800", color: "#F0F0FF" },
+  closeIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "#1C1C2C",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
+  label: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#2E2E48",
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: "#14141E",
+    borderRadius: 12,
+    padding: 14,
+    color: "#F0F0FF",
+    fontSize: 12,
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+    height: 140,
+    textAlignVertical: "top",
+    fontFamily: "monospace",
+    marginBottom: 14,
+  },
+  warning: { fontSize: 12, color: "#D04070", marginBottom: 20, lineHeight: 18 },
+  importBtn: {
+    backgroundColor: "#7B6EF6",
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  importBtnOff: { backgroundColor: "#7B6EF620" },
+  importBtnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
+  cancelBtn: {
+    backgroundColor: "#14141E",
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+  },
+  cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
+});
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const [pinEnabled, setPinEnabled] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [exportVisible, setExportVisible] = useState(false);
+  // isCreating=true → PinChangeModal sans étape "PIN actuel"
   const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinModalCreating, setPinModalCreating] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [confirmClearVisible, setConfirmClearVisible] = useState(false);
+  const [confirmDisablePinVisible, setConfirmDisablePinVisible] =
+    useState(false);
+  const [confirmDisableBioVisible, setConfirmDisableBioVisible] =
+    useState(false);
   const [vpnStatus, setVpnStatus] = useState({
     isActive: false,
     isNative: false,
@@ -467,44 +830,75 @@ export default function SettingsScreen() {
 
   const loadAll = async () => {
     const config = await StorageService.getAuthConfig();
+    setPinEnabled(config.isPinEnabled);
     setBiometricEnabled(config.isBiometricEnabled);
-
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
     setBiometricAvailable(hasHardware && isEnrolled);
-
     const status = VpnService.getStatus();
     const isActive = await VpnService.isVpnActive();
     setVpnStatus({ ...status, isActive });
-
     const rules = await StorageService.getRules();
     const profiles = await StorageService.getProfiles();
     setStats({ rules: rules.length, profiles: profiles.length });
   };
 
-  const toggleBiometric = async (value: boolean) => {
-    try {
-      if (value) {
+  const handlePinToggle = () => {
+    if (!pinEnabled) {
+      // Activation → création de PIN (sans demander le PIN actuel)
+      setPinModalCreating(true);
+      setPinModalVisible(true);
+    } else {
+      // Désactivation → confirmer avec le PIN actuel
+      setConfirmDisablePinVisible(true);
+    }
+  };
+
+  const handlePinModalClose = async () => {
+    setPinModalVisible(false);
+    setPinModalCreating(false);
+    await loadAll(); // recharge pour refléter si le PIN a été créé
+  };
+
+  const handleDisablePinConfirmed = async () => {
+    setConfirmDisablePinVisible(false);
+    await StorageService.disablePin();
+    setPinEnabled(false);
+    setBiometricEnabled(false);
+    Alert.alert(
+      "Verrouillage désactivé",
+      "L'app ne demandera plus de PIN au démarrage.",
+    );
+  };
+
+  const handleBioToggle = async () => {
+    if (!biometricEnabled) {
+      try {
         const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Confirmer l'activation",
+          promptMessage: "Confirmer l'activation de la biométrie",
         });
         if (result.success) {
           await StorageService.updateAuthConfig({ isBiometricEnabled: true });
           setBiometricEnabled(true);
         }
-      } else {
-        await StorageService.updateAuthConfig({ isBiometricEnabled: false });
-        setBiometricEnabled(false);
+      } catch {
+        Alert.alert("Erreur", "Impossible d'activer la biométrie");
       }
-    } catch {
-      Alert.alert("Erreur", "Impossible de modifier la biométrie");
+    } else {
+      setConfirmDisableBioVisible(true);
     }
+  };
+
+  const handleDisableBioConfirmed = async () => {
+    setConfirmDisableBioVisible(false);
+    await StorageService.updateAuthConfig({ isBiometricEnabled: false });
+    setBiometricEnabled(false);
   };
 
   const handleExport = async () => {
     try {
       const jsonData = await StorageService.exportData();
-      await Share.share({ message: jsonData, title: "Export NetLock" });
+      await Share.share({ message: jsonData, title: "Export NetOff" });
       closeExportModal();
     } catch {
       Alert.alert("Erreur", "Impossible d'exporter");
@@ -550,8 +944,6 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
-
-      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Paramètres</Text>
         <Text style={styles.headerSubtitle}>Configuration de l'app</Text>
@@ -621,7 +1013,7 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Stats rapides */}
+        {/* Stats */}
         <Animated.View
           style={[styles.statsRow, { transform: [{ translateY: slideAnim }] }]}
         >
@@ -648,29 +1040,60 @@ export default function SettingsScreen() {
           <SectionLabel label="SÉCURITÉ" />
           <View style={styles.card}>
             <SettingRow
-              icon="◎"
-              title="Authentification biométrique"
-              subtitle={
-                biometricAvailable
-                  ? "Face ID / Touch ID"
-                  : "Non disponible sur cet appareil"
-              }
-              right={
-                <Toggle
-                  value={biometricEnabled}
-                  onToggle={() => toggleBiometric(!biometricEnabled)}
-                  disabled={!biometricAvailable}
-                />
-              }
-            />
-            <View style={styles.sep} />
-            <SettingRow
               icon="◈"
-              title="Changer le PIN"
-              subtitle="Modifier le code PIN de sécurité"
-              onPress={() => setPinModalVisible(true)}
+              title="Verrouillage par PIN"
+              subtitle={
+                pinEnabled
+                  ? "L'app demande un code au démarrage"
+                  : "Aucun verrouillage actif"
+              }
+              right={<Toggle value={pinEnabled} onToggle={handlePinToggle} />}
             />
+            {pinEnabled && (
+              <>
+                <View style={styles.sep} />
+                <SettingRow
+                  icon="✎"
+                  title="Changer le PIN"
+                  subtitle="Modifier le code PIN de sécurité"
+                  onPress={() => {
+                    setPinModalCreating(false);
+                    setPinModalVisible(true);
+                  }}
+                />
+              </>
+            )}
+            {pinEnabled && (
+              <>
+                <View style={styles.sep} />
+                <SettingRow
+                  icon="◎"
+                  title="Authentification biométrique"
+                  subtitle={
+                    biometricAvailable
+                      ? "Face ID / Touch ID en complément du PIN"
+                      : "Non disponible sur cet appareil"
+                  }
+                  right={
+                    <Toggle
+                      value={biometricEnabled}
+                      onToggle={handleBioToggle}
+                      disabled={!biometricAvailable}
+                    />
+                  }
+                />
+              </>
+            )}
           </View>
+          {!pinEnabled && (
+            <View style={styles.infoBanner}>
+              <Text style={styles.infoIcon}>◎</Text>
+              <Text style={styles.infoText}>
+                Activez le verrouillage pour protéger l'accès à NetOff. Sans
+                lui, n'importe qui peut ouvrir l'app et désactiver les blocages.
+              </Text>
+            </View>
+          )}
         </Animated.View>
 
         {/* Données */}
@@ -729,9 +1152,7 @@ export default function SettingsScreen() {
         animationType="none"
         onRequestClose={closeExportModal}
       >
-        <Animated.View
-          style={[exportModalStyles.overlay, { opacity: modalOpacity }]}
-        >
+        <Animated.View style={[em.overlay, { opacity: modalOpacity }]}>
           <TouchableOpacity
             style={{ flex: 1 }}
             activeOpacity={1}
@@ -739,102 +1160,115 @@ export default function SettingsScreen() {
           />
           <Animated.View
             style={[
-              exportModalStyles.sheet,
+              em.sheet,
               {
                 transform: [{ translateY: modalSlide }],
                 paddingBottom: insets.bottom + 20,
               },
             ]}
           >
-            <View style={exportModalStyles.handle} />
-            <View style={exportModalStyles.header}>
-              <Text style={exportModalStyles.title}>Exporter les données</Text>
+            <View style={em.handle} />
+            <View style={em.header}>
+              <Text style={em.title}>Exporter les données</Text>
               <TouchableOpacity onPress={closeExportModal}>
-                <View style={exportModalStyles.closeIcon}>
-                  <Text style={exportModalStyles.closeIconText}>✕</Text>
+                <View style={em.closeIcon}>
+                  <Text style={em.closeIconText}>✕</Text>
                 </View>
               </TouchableOpacity>
             </View>
-            <Text style={exportModalStyles.body}>
+            <Text style={em.body}>
               Les règles, profils et statistiques seront exportés au format
-              JSON. Vous pourrez partager ce fichier ou le sauvegarder
-              localement.
+              JSON.
             </Text>
             <TouchableOpacity
-              style={exportModalStyles.exportBtn}
+              style={em.exportBtn}
               onPress={handleExport}
               activeOpacity={0.85}
             >
-              <Text style={exportModalStyles.exportBtnIcon}>↑</Text>
-              <Text style={exportModalStyles.exportBtnText}>
-                Exporter et partager
-              </Text>
+              <Text style={em.exportBtnIcon}>↑</Text>
+              <Text style={em.exportBtnText}>Exporter et partager</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={exportModalStyles.cancelBtn}
+              style={em.cancelBtn}
               onPress={closeExportModal}
               activeOpacity={0.8}
             >
-              <Text style={exportModalStyles.cancelBtnText}>Annuler</Text>
+              <Text style={em.cancelBtnText}>Annuler</Text>
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
       </Modal>
 
-      {/* Confirm Clear Modal */}
+      {/* Confirm Clear */}
       <Modal
         visible={confirmClearVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setConfirmClearVisible(false)}
       >
-        <View style={confirmStyles.overlay}>
-          <View style={confirmStyles.container}>
-            <Text style={confirmStyles.icon}>⚠️</Text>
-            <Text style={confirmStyles.title}>
-              Effacer toutes les données ?
-            </Text>
-            <Text style={confirmStyles.body}>
+        <View style={cc.overlay}>
+          <View style={cc.container}>
+            <Text style={cc.icon}>⚠️</Text>
+            <Text style={cc.title}>Effacer toutes les données ?</Text>
+            <Text style={cc.body}>
               Cette action supprimera définitivement toutes vos règles, profils
               et statistiques. Elle est irréversible.
             </Text>
             <TouchableOpacity
-              style={confirmStyles.dangerBtn}
+              style={cc.dangerBtn}
               onPress={() => {
                 setConfirmClearVisible(false);
                 clearAllData();
               }}
               activeOpacity={0.85}
             >
-              <Text style={confirmStyles.dangerBtnText}>Oui, tout effacer</Text>
+              <Text style={cc.dangerBtnText}>Oui, tout effacer</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={confirmStyles.cancelBtn}
+              style={cc.cancelBtn}
               onPress={() => setConfirmClearVisible(false)}
             >
-              <Text style={confirmStyles.cancelBtnText}>Annuler</Text>
+              <Text style={cc.cancelBtnText}>Annuler</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* PIN Change Modal */}
+      {/* PIN Setup / Change */}
       <PinChangeModal
         visible={pinModalVisible}
-        onClose={() => setPinModalVisible(false)}
+        onClose={handlePinModalClose}
+        isCreating={pinModalCreating}
       />
 
-      {/* Import Modal */}
+      {/* Import */}
       <ImportModal
         visible={importModalVisible}
         onClose={() => setImportModalVisible(false)}
         onImported={loadAll}
       />
+
+      {/* Désactiver PIN */}
+      <ConfirmPinModal
+        visible={confirmDisablePinVisible}
+        onClose={() => setConfirmDisablePinVisible(false)}
+        onConfirmed={handleDisablePinConfirmed}
+        title="Désactiver le verrouillage"
+        subtitle="Entrez votre PIN pour confirmer la désactivation"
+      />
+
+      {/* Désactiver biométrie */}
+      <ConfirmPinModal
+        visible={confirmDisableBioVisible}
+        onClose={() => setConfirmDisableBioVisible(false)}
+        onConfirmed={handleDisableBioConfirmed}
+        title="Désactiver la biométrie"
+        subtitle="Entrez votre PIN pour confirmer"
+      />
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
   header: {
@@ -865,7 +1299,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 6,
   },
-
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
   statCard: {
     flex: 1,
@@ -888,7 +1321,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1,
   },
-
   vpnBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -928,7 +1360,6 @@ const styles = StyleSheet.create({
   vpnPillOff: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
   vpnPillDot: { width: 6, height: 6, borderRadius: 3 },
   vpnPillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
-
   card: {
     backgroundColor: "#0E0E18",
     borderRadius: 16,
@@ -938,7 +1369,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   sep: { height: 1, backgroundColor: "#13131F", marginLeft: 58 },
-
   row: { flexDirection: "row", alignItems: "center", padding: 15 },
   rowIcon: {
     width: 36,
@@ -965,7 +1395,6 @@ const styles = StyleSheet.create({
   rowSubtitle: { fontSize: 11, color: "#3A3A58" },
   rowChevron: { color: "#2A2A42", fontSize: 22, fontWeight: "300" },
   rowChevronDanger: { color: "#4A1A2A" },
-
   toggle: {
     width: 46,
     height: 26,
@@ -980,9 +1409,22 @@ const styles = StyleSheet.create({
   toggleThumb: { width: 18, height: 18, borderRadius: 9 },
   thumbOn: { backgroundColor: "#3DDB8A", alignSelf: "flex-end" },
   thumbOff: { backgroundColor: "#2A2A3A", alignSelf: "flex-start" },
+  infoBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#0E0E18",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+    marginBottom: 8,
+  },
+  infoIcon: { fontSize: 14, color: "#3A3A58", marginTop: 1 },
+  infoText: { flex: 1, fontSize: 12, color: "#3A3A58", lineHeight: 19 },
 });
 
-const exportModalStyles = StyleSheet.create({
+const em = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "#00000088",
@@ -1039,12 +1481,7 @@ const exportModalStyles = StyleSheet.create({
     marginBottom: 10,
   },
   exportBtnIcon: { fontSize: 16, color: "#F0F0FF", fontWeight: "700" },
-  exportBtnText: {
-    color: "#F0F0FF",
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-  },
+  exportBtnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
   cancelBtn: {
     backgroundColor: "#0E0E18",
     borderRadius: 14,
@@ -1056,7 +1493,7 @@ const exportModalStyles = StyleSheet.create({
   cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
 });
 
-const confirmStyles = StyleSheet.create({
+const cc = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "#000000BB",
@@ -1097,149 +1534,6 @@ const confirmStyles = StyleSheet.create({
   dangerBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
   cancelBtn: {
     width: "100%",
-    backgroundColor: "#14141E",
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-  },
-  cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
-});
-
-const pinModal = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
-  container: { alignItems: "center", paddingHorizontal: 32 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-    marginBottom: 24,
-  },
-  title: { fontSize: 20, fontWeight: "800", color: "#F0F0FF" },
-  closeIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "#1C1C2C",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeIconText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
-  steps: { flexDirection: "row", gap: 8, marginBottom: 20 },
-  step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: "#1C1C2C" },
-  stepActive: { backgroundColor: "#7B6EF6" },
-  stepDone: { backgroundColor: "#3DDB8A" },
-  subtitle: {
-    fontSize: 14,
-    color: "#3A3A58",
-    marginBottom: 32,
-    textAlign: "center",
-  },
-  dots: { flexDirection: "row", gap: 14, marginBottom: 40 },
-  dot: { width: 14, height: 14, borderRadius: 7 },
-  dotEmpty: {
-    backgroundColor: "#1C1C2C",
-    borderWidth: 1,
-    borderColor: "#2A2A42",
-  },
-  dotFilled: { backgroundColor: "#7B6EF6" },
-  pad: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    width: 280,
-    justifyContent: "center",
-    marginBottom: 24,
-  },
-  padBtn: {
-    width: 88,
-    height: 72,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 16,
-    margin: 3,
-  },
-  padBtnText: { fontSize: 26, fontWeight: "600", color: "#F0F0FF" },
-  padBtnSub: {
-    fontSize: 8,
-    color: "#3A3A58",
-    fontWeight: "700",
-    letterSpacing: 1.5,
-  },
-  padDelete: { fontSize: 22, color: "#3A3A58" },
-  nextBtn: {
-    width: 280,
-    backgroundColor: "#7B6EF6",
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-  },
-  nextBtnDisabled: { backgroundColor: "#7B6EF620" },
-  nextBtnText: { color: "#F0F0FF", fontSize: 16, fontWeight: "800" },
-});
-
-const importModal = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "#000000AA",
-    justifyContent: "flex-end",
-  },
-  container: {
-    backgroundColor: "#0E0E18",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  title: { fontSize: 19, fontWeight: "800", color: "#F0F0FF" },
-  closeIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    backgroundColor: "#1C1C2C",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-  label: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 2,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: "#14141E",
-    borderRadius: 12,
-    padding: 14,
-    color: "#F0F0FF",
-    fontSize: 12,
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-    height: 140,
-    textAlignVertical: "top",
-    fontFamily: "monospace",
-    marginBottom: 14,
-  },
-  warning: { fontSize: 12, color: "#D04070", marginBottom: 20, lineHeight: 18 },
-  importBtn: {
-    backgroundColor: "#7B6EF6",
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  importBtnDisabled: { backgroundColor: "#7B6EF620" },
-  importBtnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
-  cancelBtn: {
     backgroundColor: "#14141E",
     borderRadius: 14,
     paddingVertical: 13,
