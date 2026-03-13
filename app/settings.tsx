@@ -1,6 +1,8 @@
+import { useAppInfo } from "@/hooks/useAppInfo";
 import StorageService from "@/services/storage.service";
 import VpnService from "@/services/vpn.service";
 import * as LocalAuthentication from "expo-local-authentication";
+import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -256,7 +258,6 @@ function ConfirmPinModal({
   const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
   const shakeAnim = useRef(new Animated.Value(0)).current;
-
   const shake = () =>
     Animated.sequence([
       Animated.timing(shakeAnim, {
@@ -280,7 +281,6 @@ function ConfirmPinModal({
         useNativeDriver: true,
       }),
     ]).start();
-
   const handleClose = () => {
     setPin("");
     setShowPin(false);
@@ -304,7 +304,6 @@ function ConfirmPinModal({
       Alert.alert("PIN incorrect", "Veuillez réessayer");
     }
   };
-
   return (
     <Modal
       visible={visible}
@@ -341,7 +340,6 @@ function ConfirmPinModal({
     </Modal>
   );
 }
-
 const cpm = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
@@ -387,7 +385,6 @@ function PinChangeModal({
   const [confirmPin, setConfirmPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const shakeAnim = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     if (visible) {
       setStep(isCreating ? "new" : "current");
@@ -397,7 +394,6 @@ function PinChangeModal({
       setShowPin(false);
     }
   }, [visible]);
-
   const shake = () =>
     Animated.sequence([
       Animated.timing(shakeAnim, {
@@ -421,7 +417,6 @@ function PinChangeModal({
         useNativeDriver: true,
       }),
     ]).start();
-
   const activePin =
     step === "current" ? currentPin : step === "new" ? newPin : confirmPin;
   const setActivePin = (v: string) => {
@@ -429,7 +424,6 @@ function PinChangeModal({
     else if (step === "new") setNewPin(v);
     else setConfirmPin(v);
   };
-
   const handleNext = async () => {
     if (step === "current") {
       if (currentPin.length < 4) {
@@ -467,7 +461,6 @@ function PinChangeModal({
       onClose();
     }
   };
-
   const steps = isCreating ? ["new", "confirm"] : ["current", "new", "confirm"];
   const stepIndex = steps.indexOf(step);
   const titles = {
@@ -480,7 +473,6 @@ function PinChangeModal({
     new: "Choisissez un PIN de 4 à 6 chiffres",
     confirm: "Répétez votre nouveau PIN",
   };
-
   return (
     <Modal
       visible={visible}
@@ -538,7 +530,6 @@ function PinChangeModal({
     </Modal>
   );
 }
-
 const pcm = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
@@ -656,7 +647,6 @@ function ImportModal({
     </Modal>
   );
 }
-
 const imm = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -731,14 +721,13 @@ const imm = StyleSheet.create({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const appInfo = useAppInfo();
 
-  // États auth
   const [pinEnabled, setPinEnabled] = useState(false);
   const [bioEnabled, setBioEnabled] = useState(false);
   const [bioAvailable, setBioAvailable] = useState(false);
-  const [bioType, setBioType] = useState("Biométrie"); // label affiché
+  const [bioType, setBioType] = useState("Biométrie");
 
-  // Modals
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalCreating, setPinModalCreating] = useState(false);
   const [confirmDisablePinVisible, setConfirmDisablePinVisible] =
@@ -747,7 +736,6 @@ export default function SettingsScreen() {
   const [confirmClearVisible, setConfirmClearVisible] = useState(false);
   const [exportVisible, setExportVisible] = useState(false);
 
-  // VPN / stats
   const [vpnStatus, setVpnStatus] = useState({
     isActive: false,
     isNative: false,
@@ -802,12 +790,9 @@ export default function SettingsScreen() {
     const config = await StorageService.getAuthConfig();
     setPinEnabled(config.isPinEnabled);
     setBioEnabled(config.isBiometricEnabled);
-
     const hasHW = await LocalAuthentication.hasHardwareAsync();
     const enrolled = await LocalAuthentication.isEnrolledAsync();
     setBioAvailable(hasHW && enrolled);
-
-    // Déterminer le type biométrique disponible
     if (hasHW) {
       const types =
         await LocalAuthentication.supportedAuthenticationTypesAsync();
@@ -823,7 +808,6 @@ export default function SettingsScreen() {
         setBioType("Empreinte digitale");
       else setBioType("PIN du téléphone");
     }
-
     const status = VpnService.getStatus();
     const isActive = await VpnService.isVpnActive();
     setVpnStatus({ ...status, isActive });
@@ -832,26 +816,20 @@ export default function SettingsScreen() {
     setStats({ rules: rules.length, profiles: profiles.length });
   };
 
-  // ── Gestion PIN applicatif ────────────────────────────────────────────────
   const handlePinToggle = () => {
     if (!pinEnabled) {
       setPinModalCreating(true);
       setPinModalVisible(true);
-    } else {
-      setConfirmDisablePinVisible(true);
-    }
+    } else setConfirmDisablePinVisible(true);
   };
-
   const handlePinModalClose = async () => {
     setPinModalVisible(false);
     setPinModalCreating(false);
     await loadAll();
   };
-
   const handleDisablePinConfirmed = async () => {
     setConfirmDisablePinVisible(false);
     await StorageService.disablePin();
-    // Si on désactive le PIN, on désactive aussi la biométrie (plus de fallback)
     await StorageService.updateAuthConfig({ isBiometricEnabled: false });
     setPinEnabled(false);
     setBioEnabled(false);
@@ -860,11 +838,8 @@ export default function SettingsScreen() {
       "L'app ne demandera plus de code propriétaire.",
     );
   };
-
-  // ── Gestion biométrie / PIN téléphone ─────────────────────────────────────
   const handleBioToggle = async () => {
     if (!bioEnabled) {
-      // Activer : on demande une auth pour confirmer que ça fonctionne
       try {
         const result = await LocalAuthentication.authenticateAsync({
           promptMessage: "Confirmer l'activation",
@@ -879,8 +854,6 @@ export default function SettingsScreen() {
         Alert.alert("Erreur", "Impossible d'activer la biométrie");
       }
     } else {
-      // Désactiver : si PIN applicatif actif → on demande le PIN pour confirmer
-      // sinon on désactive directement
       if (pinEnabled) {
         Alert.alert(
           "Désactiver la biométrie ?",
@@ -905,7 +878,6 @@ export default function SettingsScreen() {
       }
     }
   };
-
   const handleExport = async () => {
     try {
       const jsonData = await StorageService.exportData();
@@ -915,7 +887,6 @@ export default function SettingsScreen() {
       Alert.alert("Erreur", "Impossible d'exporter");
     }
   };
-
   const clearAllData = async () => {
     try {
       await StorageService.clearStats();
@@ -927,13 +898,11 @@ export default function SettingsScreen() {
       Alert.alert("Erreur", "Impossible d'effacer");
     }
   };
-
   const toggleVpn = async () => {
     if (vpnStatus.isActive) await VpnService.stopVpn();
     else await VpnService.startVpn();
     await loadAll();
   };
-
   const closeExportModal = () => {
     Animated.parallel([
       Animated.timing(modalOpacity, {
@@ -1037,8 +1006,6 @@ export default function SettingsScreen() {
         {/* ── SÉCURITÉ ── */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
           <SectionLabel label="SÉCURITÉ — ACCÈS À L'APPLICATION" />
-
-          {/* Statut global */}
           <View
             style={[
               s.lockStatusBanner,
@@ -1066,8 +1033,6 @@ export default function SettingsScreen() {
               </Text>
             </View>
           </View>
-
-          {/* ── Méthode 1 : PIN applicatif ── */}
           <Text style={s.methodLabel}>MÉTHODE 1 — PIN APPLICATIF</Text>
           <View style={s.card}>
             <SettingRow
@@ -1101,8 +1066,6 @@ export default function SettingsScreen() {
               votre écran déverrouillé (contrôle parental, etc.)
             </Text>
           </View>
-
-          {/* ── Méthode 2 : Biométrie / PIN téléphone ── */}
           <Text style={[s.methodLabel, { marginTop: 16 }]}>
             MÉTHODE 2 — {bioType.toUpperCase()} / PIN TÉLÉPHONE
           </Text>
@@ -1133,8 +1096,6 @@ export default function SettingsScreen() {
               comme fallback automatique
             </Text>
           </View>
-
-          {/* Note combinaison */}
           {pinEnabled && bioEnabled && (
             <View style={s.combinedBanner}>
               <Text style={s.combinedIcon}>⚡</Text>
@@ -1178,18 +1139,20 @@ export default function SettingsScreen() {
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
           <SectionLabel label="À PROPOS" />
           <View style={s.card}>
-            <SettingRow icon="◉" title="Version" subtitle="1.0.0 — NetOff" />
+            <SettingRow
+              icon="◉"
+              title="À propos de NetOff"
+              subtitle={
+                appInfo.loading ? "…" : `Version ${appInfo.fullVersion}`
+              }
+              onPress={() => router.push("/screens/about")}
+            />
             <View style={s.sep} />
             <SettingRow
-              icon="◌"
-              title="Licence"
-              subtitle="Usage personnel uniquement"
-              onPress={() =>
-                Alert.alert(
-                  "Licence",
-                  "NetOff — Usage personnel uniquement.\nModule VPN natif Android.",
-                )
-              }
+              icon="◎"
+              title="Nous contacter"
+              subtitle="Signaler un bug ou envoyer une suggestion"
+              onPress={() => router.push("/screens/contact")}
             />
           </View>
         </Animated.View>
@@ -1283,21 +1246,16 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* PIN Setup / Change */}
       <PinChangeModal
         visible={pinModalVisible}
         onClose={handlePinModalClose}
         isCreating={pinModalCreating}
       />
-
-      {/* Import */}
       <ImportModal
         visible={importModalVisible}
         onClose={() => setImportModalVisible(false)}
         onImported={loadAll}
       />
-
-      {/* Désactiver PIN */}
       <ConfirmPinModal
         visible={confirmDisablePinVisible}
         onClose={() => setConfirmDisablePinVisible(false)}
@@ -1340,7 +1298,6 @@ const s = StyleSheet.create({
     marginBottom: 10,
     marginTop: 6,
   },
-
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
   statCard: {
     flex: 1,
@@ -1363,7 +1320,6 @@ const s = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1,
   },
-
   vpnBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1403,8 +1359,6 @@ const s = StyleSheet.create({
   vpnPillOff: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
   vpnPillDot: { width: 6, height: 6, borderRadius: 3 },
   vpnPillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
-
-  // Lock status banner
   lockStatusBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1419,7 +1373,6 @@ const s = StyleSheet.create({
   lockStatusIcon: { fontSize: 24 },
   lockStatusTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
   lockStatusSub: { fontSize: 11, color: "#3A3A58" },
-
   methodLabel: {
     fontSize: 9,
     fontWeight: "700",
@@ -1429,7 +1382,6 @@ const s = StyleSheet.create({
   },
   methodNote: { paddingHorizontal: 4, paddingVertical: 8, marginBottom: 4 },
   methodNoteText: { fontSize: 11, color: "#2E2E48", lineHeight: 17 },
-
   combinedBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1443,7 +1395,6 @@ const s = StyleSheet.create({
   },
   combinedIcon: { fontSize: 14, marginTop: 1 },
   combinedText: { flex: 1, fontSize: 12, color: "#7B6EF6", lineHeight: 18 },
-
   card: {
     backgroundColor: "#0E0E18",
     borderRadius: 16,

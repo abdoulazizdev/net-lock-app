@@ -1,6 +1,6 @@
 import { Tabs } from "expo-router";
-import React from "react";
-import { StyleSheet, View } from "react-native";
+import React, { useRef } from "react";
+import { Animated, Easing, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 
@@ -12,8 +12,60 @@ const TABS = [
   { name: "stats", title: "Stats", icon: "chart-bar" },
 ] as const;
 
-// Tab bar height exposed so screens can use it for paddingBottom
 export const TAB_BAR_HEIGHT = 62;
+
+// ─── Animated tab icon ────────────────────────────────────────────────────────
+function TabIcon({
+  icon,
+  color,
+  focused,
+}: {
+  icon: string;
+  color: string;
+  focused: boolean;
+}) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const bgAnim = useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: focused ? 1.12 : 1,
+        useNativeDriver: true,
+        damping: 14,
+        stiffness: 180,
+      }),
+      Animated.timing(bgAnim, {
+        toValue: focused ? 1 : 0,
+        duration: 200,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [focused]);
+
+  const backgroundColor = bgAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["transparent", "#16103A"],
+  });
+  const borderColor = bgAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["transparent", "#4A3F8A"],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.iconWrap,
+        { backgroundColor, borderColor, borderWidth: 1 },
+      ]}
+    >
+      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+        <Icon name={icon} size={21} color={color} />
+      </Animated.View>
+    </Animated.View>
+  );
+}
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -24,8 +76,6 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarShowLabel: true,
-        // No position:absolute — tab bar sits in normal flow so screens
-        // are never obscured. Height accounts for safe-area bottom inset.
         tabBarStyle: {
           height: TAB_BAR_HEIGHT + insets.bottom,
           backgroundColor: "#0B0B14",
@@ -49,9 +99,7 @@ export default function TabLayout() {
           options={{
             title,
             tabBarIcon: ({ color, focused }) => (
-              <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
-                <Icon name={icon} size={21} color={color} />
-              </View>
+              <TabIcon icon={icon} color={color} focused={focused} />
             ),
           }}
         />
@@ -72,13 +120,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   iconWrap: {
-    width: 40,
+    width: 44,
     height: 30,
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
-  },
-  iconWrapActive: {
-    backgroundColor: "#16103A",
   },
 });
