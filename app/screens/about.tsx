@@ -1,21 +1,21 @@
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { router } from "expo-router";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Easing,
-    Linking,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  Animated,
+  Easing,
+  Linking,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ─── Staggered fade-in hook ───────────────────────────────────────────────────
-function useStagger(count: number, delay = 60) {
+function useStagger(count: number, delay = 55) {
   const anims = useRef(
     Array.from({ length: count }, () => new Animated.Value(0)),
   ).current;
@@ -77,15 +77,24 @@ function FeatureItem({
   icon,
   title,
   desc,
+  accent,
 }: {
   icon: string;
   title: string;
   desc: string;
+  accent?: string;
 }) {
   return (
     <View style={feat.container}>
-      <View style={feat.iconWrap}>
-        <Text style={feat.icon}>{icon}</Text>
+      <View
+        style={[
+          feat.iconWrap,
+          accent
+            ? { backgroundColor: accent + "18", borderColor: accent + "40" }
+            : {},
+        ]}
+      >
+        <Text style={[feat.icon, accent ? { color: accent } : {}]}>{icon}</Text>
       </View>
       <View style={feat.text}>
         <Text style={feat.title}>{title}</Text>
@@ -120,11 +129,45 @@ function LinkRow({
   );
 }
 
+// ─── Stat pill ────────────────────────────────────────────────────────────────
+function StatPill({ value, label }: { value: string; label: string }) {
+  return (
+    <View style={stat.container}>
+      <Text style={stat.value}>{value}</Text>
+      <Text style={stat.label}>{label}</Text>
+    </View>
+  );
+}
+
+// ─── Feature section with collapsible ────────────────────────────────────────
+function FeatureGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <View style={styles.card}>
+      <TouchableOpacity
+        style={grp.header}
+        onPress={() => setOpen((v) => !v)}
+        activeOpacity={0.7}
+      >
+        <Text style={grp.title}>{title}</Text>
+        <Text style={grp.chevron}>{open ? "⌃" : "⌄"}</Text>
+      </TouchableOpacity>
+      {open && children}
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function AboutScreen() {
   const insets = useSafeAreaInsets();
   const appInfo = useAppInfo();
-  const anims = useStagger(7, 55);
+  const anims = useStagger(11, 50);
 
   return (
     <View style={styles.container}>
@@ -152,14 +195,12 @@ export default function AboutScreen() {
         {/* ── Hero ──────────────────────────────────────────────────────── */}
         <Section anim={anims[0]}>
           <View style={styles.hero}>
-            {/* Logo mark */}
             <View style={styles.logoWrap}>
               <View style={styles.logoOuter}>
                 <View style={styles.logoInner}>
                   <Text style={styles.logoIcon}>◉</Text>
                 </View>
               </View>
-              {/* Decorative rings */}
               <View style={[styles.ring, styles.ring1]} />
               <View style={[styles.ring, styles.ring2]} />
             </View>
@@ -179,6 +220,17 @@ export default function AboutScreen() {
                 </Text>
               </View>
             </View>
+
+            {/* Quick stats */}
+            <View style={styles.statsRow}>
+              <StatPill value="VPN" label="local" />
+              <View style={styles.statsDivider} />
+              <StatPill value="100%" label="privé" />
+              <View style={styles.statsDivider} />
+              <StatPill value="∞" label="profils" />
+              <View style={styles.statsDivider} />
+              <StatPill value="0" label="collecte" />
+            </View>
           </View>
         </Section>
 
@@ -189,45 +241,110 @@ export default function AboutScreen() {
             <Text style={styles.missionTitle}>Notre mission</Text>
             <Text style={styles.missionText}>
               NetOff vous donne un contrôle total sur les connexions réseau de
-              vos applications. Via un VPN local, chaque tentative de connexion
-              est analysée et filtrée selon vos profils — sans qu'aucune donnée
-              ne quitte votre appareil.
+              vos applications. Via un VPN local Android natif, chaque tentative
+              de connexion est analysée et filtrée selon vos profils — sans
+              qu'aucune donnée ne quitte votre appareil.
             </Text>
           </View>
         </Section>
 
-        {/* ── Features ──────────────────────────────────────────────────── */}
+        {/* ── Fonctionnalités principales ───────────────────────────────── */}
         <Section anim={anims[2]}>
           <Text style={styles.sectionLabel}>FONCTIONNALITÉS</Text>
-          <View style={styles.card}>
-            <FeatureItem
-              icon="◎"
-              title="Blocage par profil"
-              desc="Créez des profils dédiés pour différents contextes : enfant, travail, nuit."
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="◷"
-              title="Planification horaire"
-              desc="Activez et désactivez automatiquement vos profils selon des plages horaires."
-            />
-            <View style={styles.divider} />
+          <FeatureGroup title="Contrôle & VPN">
             <FeatureItem
               icon="◈"
-              title="VPN local"
-              desc="Tout le filtrage se fait localement. Aucune donnée n'est envoyée à l'extérieur."
+              title="VPN local natif"
+              desc="Filtrage via VpnService Android. Aucune donnée ne quitte l'appareil. Règles globales ou par profil, synchronisées instantanément."
+              accent="#7B6EF6"
+            />
+            <View style={styles.divider} />
+            <FeatureItem
+              icon="◎"
+              title="Blocage par application"
+              desc="Liste complète des apps installées (utilisateur + système). Blocage ou autorisation d'un tap, avec fiche détaillée par app."
+              accent="#7B6EF6"
+            />
+            <View style={styles.divider} />
+            <FeatureItem
+              icon="⊡"
+              title="Widget écran d'accueil"
+              desc="Statut VPN en temps réel, compteur d'apps bloquées et toggle — sans ouvrir l'app. Mise à jour instantanée."
+              accent="#7B6EF6"
+            />
+          </FeatureGroup>
+        </Section>
+
+        <Section anim={anims[3]}>
+          <FeatureGroup title="Profils & Planifications">
+            <FeatureItem
+              icon="◷"
+              title="Profils personnalisés"
+              desc="Groupes de règles nommés : Travail, Soirée, Enfants… Activation manuelle ou automatique selon des créneaux hebdomadaires."
+              accent="#3DDB8A"
+            />
+            <View style={styles.divider} />
+            <FeatureItem
+              icon="⊙"
+              title="Planifications hebdomadaires"
+              desc="Alarmes via AlarmManager — activation/désactivation automatique à des jours et heures précis. Se reprogramment 7 jours après chaque déclenchement et survivent aux reboots."
+              accent="#3DDB8A"
             />
             <View style={styles.divider} />
             <FeatureItem
               icon="◉"
-              title="Statistiques détaillées"
-              desc="Visualisez les tentatives de connexion bloquées et autorisées par application."
+              title="Persistance au redémarrage"
+              desc="VPN et sessions relancés automatiquement après un reboot via BootReceiver. État sauvegardé en SharedPreferences natif."
+              accent="#3DDB8A"
             />
-          </View>
+          </FeatureGroup>
+        </Section>
+
+        <Section anim={anims[4]}>
+          <FeatureGroup title="Focus & Sécurité">
+            <FeatureItem
+              icon="◔"
+              title="Mode Focus"
+              desc="Session de blocage minutée (25 min à 4h). Impossible d'annuler sans maintenir 5 secondes. Notification persistante avec compte à rebours. Fin automatique même app fermée."
+              accent="#FF6B6B"
+            />
+            <View style={styles.divider} />
+            <FeatureItem
+              icon="◈"
+              title="Authentification"
+              desc="PIN applicatif (4–6 chiffres) et/ou biométrie/PIN téléphone. Les deux méthodes sont indépendantes et cumulables. Configuration dans Paramètres."
+              accent="#FF6B6B"
+            />
+            <View style={styles.divider} />
+            <FeatureItem
+              icon="◎"
+              title="Import / Export"
+              desc="Export JSON de toutes les règles et profils via le partage Android. Import avec validation et remplacement des données existantes."
+              accent="#FF6B6B"
+            />
+          </FeatureGroup>
+        </Section>
+
+        <Section anim={anims[5]}>
+          <FeatureGroup title="Statistiques & Historique">
+            <FeatureItem
+              icon="◉"
+              title="Historique des connexions"
+              desc="Log de toutes les tentatives (bloquées/autorisées) avec horodatage. Limité à 500 entrées, effaçable."
+              accent="#F0A500"
+            />
+            <View style={styles.divider} />
+            <FeatureItem
+              icon="◷"
+              title="3 vues dans Stats"
+              desc="Vue d'ensemble avec top apps — historique chronologique groupé par date — détail par application avec ratio et dernière activité."
+              accent="#F0A500"
+            />
+          </FeatureGroup>
         </Section>
 
         {/* ── App info ──────────────────────────────────────────────────── */}
-        <Section anim={anims[3]}>
+        <Section anim={anims[6]}>
           <Text style={styles.sectionLabel}>INFORMATIONS</Text>
           <View style={styles.card}>
             <InfoRow
@@ -266,11 +383,15 @@ export default function AboutScreen() {
             <InfoRow label="Données collectées" value="Aucune" />
             <View style={styles.divider} />
             <InfoRow label="Connexion requise" value="Non" />
+            <View style={styles.divider} />
+            <InfoRow label="Stockage des règles" value="Local (SharedPrefs)" />
+            <View style={styles.divider} />
+            <InfoRow label="Entrées historique max" value="500" />
           </View>
         </Section>
 
         {/* ── Privacy ───────────────────────────────────────────────────── */}
-        <Section anim={anims[4]}>
+        <Section anim={anims[7]}>
           <View style={styles.privacyCard}>
             <View style={styles.privacyIconWrap}>
               <Text style={styles.privacyIcon}>◈</Text>
@@ -279,15 +400,32 @@ export default function AboutScreen() {
               <Text style={styles.privacyTitle}>100% privé, 100% local</Text>
               <Text style={styles.privacyText}>
                 NetOff ne collecte aucune donnée personnelle. Le VPN fonctionne
-                entièrement sur votre appareil. Vos règles, profils et
-                statistiques restent sur votre téléphone.
+                entièrement sur votre appareil via VpnService Android. Vos
+                règles, profils, statistiques et historique restent sur votre
+                téléphone. Aucune requête vers un serveur externe n'est
+                effectuée.
               </Text>
             </View>
           </View>
         </Section>
 
+        {/* ── Technologie ───────────────────────────────────────────────── */}
+        <Section anim={anims[8]}>
+          <Text style={styles.sectionLabel}>TECHNOLOGIE</Text>
+          <View style={styles.card}>
+            <View style={styles.techRow}>
+              <TechBadge label="VpnService" color="#7B6EF6" />
+              <TechBadge label="AlarmManager" color="#3DDB8A" />
+              <TechBadge label="BootReceiver" color="#3DDB8A" />
+              <TechBadge label="SharedPreferences" color="#F0A500" />
+              <TechBadge label="LocalAuthentication" color="#FF6B6B" />
+              <TechBadge label="WidgetSyncModule" color="#7B6EF6" />
+            </View>
+          </View>
+        </Section>
+
         {/* ── Links ─────────────────────────────────────────────────────── */}
-        <Section anim={anims[5]}>
+        <Section anim={anims[9]}>
           <Text style={styles.sectionLabel}>LIENS</Text>
           <View style={styles.card}>
             <LinkRow
@@ -307,11 +445,17 @@ export default function AboutScreen() {
               label="Signaler un problème"
               onPress={() => Linking.openURL("mailto:support@netoff.app")}
             />
+            <View style={styles.divider} />
+            <LinkRow
+              icon="⊙"
+              label="Changelog"
+              onPress={() => Linking.openURL("https://example.com/changelog")}
+            />
           </View>
         </Section>
 
         {/* ── Footer ────────────────────────────────────────────────────── */}
-        <Section anim={anims[6]}>
+        <Section anim={anims[9]}>
           <View style={styles.footer}>
             <Text style={styles.footerLogo}>◉ NetOff</Text>
             <Text style={styles.footerCopy}>
@@ -321,6 +465,20 @@ export default function AboutScreen() {
           </View>
         </Section>
       </ScrollView>
+    </View>
+  );
+}
+
+// ─── Tech badge ───────────────────────────────────────────────────────────────
+function TechBadge({ label, color }: { label: string; color: string }) {
+  return (
+    <View
+      style={[
+        tech.badge,
+        { backgroundColor: color + "18", borderColor: color + "40" },
+      ]}
+    >
+      <Text style={[tech.label, { color }]}>{label}</Text>
     </View>
   );
 }
@@ -403,7 +561,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     letterSpacing: 0.3,
   },
-  versionRow: { flexDirection: "row", gap: 8 },
+  versionRow: { flexDirection: "row", gap: 8, marginBottom: 20 },
   versionBadge: {
     backgroundColor: "#7B6EF618",
     borderRadius: 8,
@@ -422,6 +580,25 @@ const styles = StyleSheet.create({
     borderColor: "#1C1C2C",
   },
   buildText: { fontSize: 12, color: "#3A3A58", fontWeight: "600" },
+
+  // ── Stats row
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#0E0E18",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 4,
+  },
+  statsDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "#1C1C2C",
+    marginHorizontal: 8,
+  },
 
   // ── Mission card
   missionCard: {
@@ -468,13 +645,21 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#1C1C2C",
-    marginBottom: 28,
+    marginBottom: 14,
     overflow: "hidden",
   },
   divider: {
     height: 1,
     backgroundColor: "#13131F",
     marginHorizontal: 16,
+  },
+
+  // ── Tech row
+  techRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    padding: 16,
   },
 
   // ── Privacy card
@@ -519,6 +704,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 8,
     gap: 6,
+    marginTop: 12,
   },
   footerLogo: {
     fontSize: 16,
@@ -599,4 +785,60 @@ const lnk = StyleSheet.create({
   label: { flex: 1, fontSize: 14, color: "#E8E8F8", fontWeight: "500" },
   labelDanger: { color: "#D04070" },
   arrow: { fontSize: 20, color: "#2E2E48", fontWeight: "300" },
+});
+
+// ─── Stat pill styles ─────────────────────────────────────────────────────────
+const stat = StyleSheet.create({
+  container: { flex: 1, alignItems: "center" },
+  value: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#9B8FFF",
+    letterSpacing: -0.5,
+  },
+  label: {
+    fontSize: 11,
+    color: "#2E2E48",
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+});
+
+// ─── Feature group styles ─────────────────────────────────────────────────────
+const grp = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#13131F",
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#5A5A80",
+    letterSpacing: 0.3,
+  },
+  chevron: {
+    fontSize: 14,
+    color: "#2E2E48",
+  },
+});
+
+// ─── Tech badge styles ─────────────────────────────────────────────────────────
+const tech = StyleSheet.create({
+  badge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
 });
