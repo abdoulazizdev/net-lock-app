@@ -5,6 +5,8 @@ import {
   Easing,
   Image,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -23,6 +25,7 @@ import { AppRule, InstalledApp, Schedule } from "@/types";
 
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
+// ─── ProgressBar ──────────────────────────────────────────────────────────────
 function ProgressBar({
   pct,
   color,
@@ -41,10 +44,6 @@ function ProgressBar({
       useNativeDriver: false,
     }).start();
   }, [pct]);
-  const width = w.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "100%"],
-  });
   return (
     <View
       style={{
@@ -57,7 +56,10 @@ function ProgressBar({
       <Animated.View
         style={{
           height: "100%",
-          width,
+          width: w.interpolate({
+            inputRange: [0, 1],
+            outputRange: ["0%", "100%"],
+          }),
           backgroundColor: color,
           borderRadius: 2,
         }}
@@ -66,7 +68,132 @@ function ProgressBar({
   );
 }
 
-function TimePicker({
+// ─── DrumColumn — colonne scroll snappée ──────────────────────────────────────
+const ITEM_H = 48;
+const VISIBLE = 5; // nombre d'items visibles
+const DRUM_H = ITEM_H * VISIBLE;
+
+function DrumColumn({
+  items,
+  selectedIndex,
+  onChange,
+  formatItem,
+}: {
+  items: number[];
+  selectedIndex: number;
+  onChange: (index: number) => void;
+  formatItem: (v: number) => string;
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+  const isDragging = useRef(false);
+
+  useEffect(() => {
+    // Scroll initial vers la valeur sélectionnée
+    scrollRef.current?.scrollTo({ y: selectedIndex * ITEM_H, animated: false });
+  }, []);
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!isDragging.current) return;
+    const y = e.nativeEvent.contentOffset.y;
+    const idx = Math.round(y / ITEM_H);
+    const clamped = Math.max(0, Math.min(items.length - 1, idx));
+    if (clamped !== selectedIndex) onChange(clamped);
+  };
+
+  const handleScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    isDragging.current = false;
+    const y = e.nativeEvent.contentOffset.y;
+    const idx = Math.max(0, Math.min(items.length - 1, Math.round(y / ITEM_H)));
+    scrollRef.current?.scrollTo({ y: idx * ITEM_H, animated: true });
+    onChange(idx);
+  };
+
+  return (
+    <View style={dr.colWrap}>
+      {/* Indicateur de sélection */}
+      <View style={dr.selectionBar} pointerEvents="none" />
+
+      <ScrollView
+        ref={scrollRef}
+        style={dr.scroll}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ITEM_H}
+        decelerationRate="fast"
+        contentContainerStyle={{ paddingVertical: ITEM_H * 2 }}
+        onScrollBeginDrag={() => {
+          isDragging.current = true;
+        }}
+        onScroll={handleScroll}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollEnd={handleScrollEnd}
+        scrollEventThrottle={16}
+      >
+        {items.map((v, i) => {
+          const selected = i === selectedIndex;
+          return (
+            <TouchableOpacity
+              key={v}
+              style={[dr.item, selected && dr.itemSelected]}
+              onPress={() => {
+                onChange(i);
+                scrollRef.current?.scrollTo({ y: i * ITEM_H, animated: true });
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[dr.itemText, selected && dr.itemTextSelected]}>
+                {formatItem(v)}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+const dr = StyleSheet.create({
+  colWrap: {
+    flex: 1,
+    height: DRUM_H,
+    overflow: "hidden",
+    position: "relative",
+  },
+  selectionBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: ITEM_H * 2,
+    height: ITEM_H,
+    backgroundColor: "#16103A",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#4A3F8A",
+    zIndex: 0,
+  },
+  scroll: { flex: 1 },
+  item: {
+    height: ITEM_H,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  itemSelected: {},
+  itemText: {
+    fontSize: 22,
+    fontWeight: "500",
+    color: "#3A3A58",
+  },
+  itemTextSelected: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#9B8FFF",
+  },
+});
+
+// ─── TimePicker drum roller ────────────────────────────────────────────────────
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTES = Array.from({ length: 60 }, (_, i) => i);
+
+function DrumTimePicker({
   hour,
   minute,
   onChange,
@@ -75,65 +202,45 @@ function TimePicker({
   minute: number;
   onChange: (h: number, m: number) => void;
 }) {
-  const hours = Array.from({ length: 24 }, (_, i) => i);
-  const minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
   return (
-    <View style={tp.container}>
-      <ScrollView style={tp.scroll} showsVerticalScrollIndicator={false}>
-        {hours.map((h) => (
-          <TouchableOpacity
-            key={h}
-            style={[tp.item, h === hour && tp.itemActive]}
-            onPress={() => onChange(h, minute)}
-          >
-            <Text style={[tp.itemText, h === hour && tp.itemTextActive]}>
-              {h.toString().padStart(2, "0")}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-      <Text style={tp.sep}>:</Text>
-      <ScrollView style={tp.scroll} showsVerticalScrollIndicator={false}>
-        {minutes.map((m) => (
-          <TouchableOpacity
-            key={m}
-            style={[tp.item, m === minute && tp.itemActive]}
-            onPress={() => onChange(hour, m)}
-          >
-            <Text style={[tp.itemText, m === minute && tp.itemTextActive]}>
-              {m.toString().padStart(2, "0")}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+    <View style={dtp.container}>
+      <DrumColumn
+        items={HOURS}
+        selectedIndex={hour}
+        onChange={(idx) => onChange(HOURS[idx], minute)}
+        formatItem={(v) => v.toString().padStart(2, "0")}
+      />
+      <Text style={dtp.sep}>:</Text>
+      <DrumColumn
+        items={MINUTES}
+        selectedIndex={minute}
+        onChange={(idx) => onChange(hour, MINUTES[idx])}
+        formatItem={(v) => v.toString().padStart(2, "0")}
+      />
     </View>
   );
 }
 
-const tp = StyleSheet.create({
-  container: { flexDirection: "row", alignItems: "center", height: 160 },
-  scroll: { flex: 1 },
-  sep: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#E8E8F8",
-    marginHorizontal: 8,
-  },
-  item: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
+const dtp = StyleSheet.create({
+  container: {
+    flexDirection: "row",
     alignItems: "center",
-  },
-  itemActive: {
-    backgroundColor: "#16103A",
+    backgroundColor: "#080810",
+    borderRadius: 16,
+    padding: 12,
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: "#1C1C2C",
   },
-  itemText: { fontSize: 18, color: "#3A3A58", fontWeight: "600" },
-  itemTextActive: { color: "#9B8FFF", fontWeight: "800" },
+  sep: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#7B6EF6",
+    marginHorizontal: 8,
+    marginBottom: 4,
+  },
 });
 
+// ─── ScheduleCard ─────────────────────────────────────────────────────────────
 function ScheduleCard({
   schedule,
   onEdit,
@@ -240,6 +347,7 @@ function ScheduleCard({
   );
 }
 
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function AppDetailScreen() {
   const insets = useSafeAreaInsets();
   const { packageName } = useLocalSearchParams<{ packageName: string }>();
@@ -253,15 +361,14 @@ export default function AppDetailScreen() {
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [formLabel, setFormLabel] = useState("");
   const [formStartHour, setFormStartHour] = useState(8);
-  const [formStartMinute, setFormStartMinute] = useState(0);
+  const [formStartMin, setFormStartMin] = useState(0);
   const [formEndHour, setFormEndHour] = useState(18);
-  const [formEndMinute, setFormEndMinute] = useState(0);
+  const [formEndMin, setFormEndMin] = useState(0);
   const [formDays, setFormDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [formAction, setFormAction] = useState<"block" | "allow">("block");
-  const [timePickerTarget, setTimePickerTarget] = useState<"start" | "end">(
-    "start",
-  );
-  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [activeTimePicker, setActiveTimePicker] = useState<
+    "start" | "end" | null
+  >(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(16)).current;
@@ -271,7 +378,6 @@ export default function AppDetailScreen() {
   useEffect(() => {
     loadAll();
   }, [packageName]);
-
   useEffect(() => {
     if (!loading) {
       Animated.parallel([
@@ -311,7 +417,6 @@ export default function AppDetailScreen() {
     }
   }, [showModal]);
 
-  // ── Tout en parallèle ──────────────────────────────────────────────────────
   const loadAll = async () => {
     try {
       setLoading(true);
@@ -324,11 +429,11 @@ export default function AppDetailScreen() {
         ]);
       setApp(appData);
       setRule(existingRule);
-      const appStats = allStats.find((s) => s.packageName === packageName);
-      if (appStats)
+      const appStat = allStats.find((s) => s.packageName === packageName);
+      if (appStat)
         setStats({
-          blocked: appStats.blockedAttempts,
-          allowed: appStats.allowedAttempts,
+          blocked: appStat.blockedAttempts,
+          allowed: appStat.allowedAttempts,
         });
       setSchedules(loadedSchedules);
     } catch (e) {
@@ -362,11 +467,12 @@ export default function AppDetailScreen() {
     setEditingSchedule(null);
     setFormLabel("");
     setFormStartHour(8);
-    setFormStartMinute(0);
+    setFormStartMin(0);
     setFormEndHour(18);
-    setFormEndMinute(0);
+    setFormEndMin(0);
     setFormDays([1, 2, 3, 4, 5]);
     setFormAction("block");
+    setActiveTimePicker(null);
     setShowModal(true);
   };
 
@@ -374,11 +480,12 @@ export default function AppDetailScreen() {
     setEditingSchedule(s);
     setFormLabel(s.label);
     setFormStartHour(s.startHour);
-    setFormStartMinute(s.startMinute);
+    setFormStartMin(s.startMinute);
     setFormEndHour(s.endHour);
-    setFormEndMinute(s.endMinute);
+    setFormEndMin(s.endMinute);
     setFormDays([...s.days]);
     setFormAction(s.action);
+    setActiveTimePicker(null);
     setShowModal(true);
   };
 
@@ -408,11 +515,11 @@ export default function AppDetailScreen() {
       packageName,
       label:
         formLabel ||
-        `${ScheduleService.formatTime(formStartHour, formStartMinute)} – ${ScheduleService.formatTime(formEndHour, formEndMinute)}`,
+        `${ScheduleService.formatTime(formStartHour, formStartMin)} – ${ScheduleService.formatTime(formEndHour, formEndMin)}`,
       startHour: formStartHour,
-      startMinute: formStartMinute,
+      startMinute: formStartMin,
       endHour: formEndHour,
-      endMinute: formEndMinute,
+      endMinute: formEndMin,
       days: formDays.sort(),
       isActive: editingSchedule?.isActive ?? true,
       action: formAction,
@@ -533,39 +640,34 @@ export default function AppDetailScreen() {
         >
           <Text style={styles.sectionLabel}>STATISTIQUES</Text>
           <View style={styles.statsRow}>
-            <View style={[styles.statCard, styles.statBlocked]}>
-              <Text style={[styles.statNum, { color: "#D04070" }]}>
-                {stats.blocked}
-              </Text>
-              <View style={styles.statLabelRow}>
-                <View
-                  style={[styles.statDot, { backgroundColor: "#D04070" }]}
-                />
-                <Text style={styles.statLabel}>Bloquées</Text>
+            {[
+              {
+                num: stats.blocked,
+                label: "Bloquées",
+                color: "#D04070",
+                bg: "statBlocked",
+              },
+              {
+                num: stats.allowed,
+                label: "Autorisées",
+                color: "#3DDB8A",
+                bg: "statAllowed",
+              },
+              {
+                num: `${blockedPercent}%`,
+                label: "Bloqué",
+                color: "#9B8FFF",
+                bg: "statTotal",
+              },
+            ].map(({ num, label, color, bg }) => (
+              <View key={label} style={[styles.statCard, (styles as any)[bg]]}>
+                <Text style={[styles.statNum, { color }]}>{num}</Text>
+                <View style={styles.statLabelRow}>
+                  <View style={[styles.statDot, { backgroundColor: color }]} />
+                  <Text style={styles.statLabel}>{label}</Text>
+                </View>
               </View>
-            </View>
-            <View style={[styles.statCard, styles.statAllowed]}>
-              <Text style={[styles.statNum, { color: "#3DDB8A" }]}>
-                {stats.allowed}
-              </Text>
-              <View style={styles.statLabelRow}>
-                <View
-                  style={[styles.statDot, { backgroundColor: "#3DDB8A" }]}
-                />
-                <Text style={styles.statLabel}>Autorisées</Text>
-              </View>
-            </View>
-            <View style={[styles.statCard, styles.statTotal]}>
-              <Text style={[styles.statNum, { color: "#9B8FFF" }]}>
-                {blockedPercent}%
-              </Text>
-              <View style={styles.statLabelRow}>
-                <View
-                  style={[styles.statDot, { backgroundColor: "#9B8FFF" }]}
-                />
-                <Text style={styles.statLabel}>Bloqué</Text>
-              </View>
-            </View>
+            ))}
           </View>
           {total > 0 && (
             <View style={{ marginTop: 10, marginBottom: 14 }}>
@@ -628,13 +730,14 @@ export default function AppDetailScreen() {
         </Animated.View>
       </Animated.ScrollView>
 
+      {/* ── Modal planification ── */}
       <Modal
         visible={showModal}
         transparent
         animationType="none"
         onRequestClose={closeModal}
       >
-        <Animated.View style={[modalStyles.overlay, { opacity: modalOpacity }]}>
+        <Animated.View style={[ms.overlay, { opacity: modalOpacity }]}>
           <TouchableOpacity
             style={{ flex: 1 }}
             activeOpacity={1}
@@ -642,30 +745,32 @@ export default function AppDetailScreen() {
           />
           <Animated.View
             style={[
-              modalStyles.sheet,
+              ms.sheet,
               {
                 transform: [{ translateY: modalSlide }],
                 paddingBottom: insets.bottom + 20,
               },
             ]}
           >
-            <View style={modalStyles.handle} />
-            <View style={modalStyles.sheetHeader}>
-              <Text style={modalStyles.sheetTitle}>
+            <View style={ms.handle} />
+            <View style={ms.header}>
+              <Text style={ms.title}>
                 {editingSchedule ? "Modifier" : "Nouvelle planification"}
               </Text>
-              <TouchableOpacity
-                onPress={closeModal}
-                style={modalStyles.closeBtn}
-              >
-                <View style={modalStyles.closeIcon}>
-                  <Text style={modalStyles.closeIconText}>✕</Text>
+              <TouchableOpacity onPress={closeModal} style={ms.closeBtn}>
+                <View style={ms.closeIcon}>
+                  <Text style={ms.closeIconText}>✕</Text>
                 </View>
               </TouchableOpacity>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={modalStyles.fieldLabel}>ACTION</Text>
-              <View style={modalStyles.actionRow}>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Action */}
+              <Text style={ms.label}>ACTION</Text>
+              <View style={ms.actionRow}>
                 {(["block", "allow"] as const).map((a) => {
                   const active = formAction === a;
                   const c =
@@ -676,7 +781,7 @@ export default function AppDetailScreen() {
                     <TouchableOpacity
                       key={a}
                       style={[
-                        modalStyles.actionChip,
+                        ms.actionChip,
                         active && {
                           backgroundColor: c.bg,
                           borderColor: c.border,
@@ -687,15 +792,12 @@ export default function AppDetailScreen() {
                     >
                       <View
                         style={[
-                          modalStyles.actionChipDot,
+                          ms.actionChipDot,
                           active && { backgroundColor: c.text },
                         ]}
                       />
                       <Text
-                        style={[
-                          modalStyles.actionChipText,
-                          active && { color: c.text },
-                        ]}
+                        style={[ms.actionChipText, active && { color: c.text }]}
                       >
                         {a === "block" ? "Bloquer" : "Autoriser"}
                       </Text>
@@ -703,33 +805,36 @@ export default function AppDetailScreen() {
                   );
                 })}
               </View>
-              <View style={modalStyles.timeRow}>
+
+              {/* Heures — boutons toggle → drum roller inline */}
+              <Text style={ms.label}>HORAIRES</Text>
+              <View style={ms.timeRow}>
                 {(["start", "end"] as const).map((target, idx) => {
                   const h = target === "start" ? formStartHour : formEndHour;
-                  const m =
-                    target === "start" ? formStartMinute : formEndMinute;
+                  const m = target === "start" ? formStartMin : formEndMin;
+                  const isOpen = activeTimePicker === target;
                   return (
                     <React.Fragment key={target}>
-                      {idx === 1 && <Text style={modalStyles.timeSep}>→</Text>}
+                      {idx === 1 && <Text style={ms.timeSep}>→</Text>}
                       <View style={{ flex: 1 }}>
-                        <Text style={modalStyles.fieldLabel}>
+                        <Text style={ms.timeSubLabel}>
                           {target === "start" ? "DÉBUT" : "FIN"}
                         </Text>
                         <TouchableOpacity
                           style={[
-                            modalStyles.timeDisplay,
-                            timePickerTarget === target &&
-                              showTimePicker &&
-                              modalStyles.timeDisplayActive,
+                            ms.timeDisplay,
+                            isOpen && ms.timeDisplayActive,
                           ]}
-                          onPress={() => {
-                            setTimePickerTarget(target);
-                            setShowTimePicker(true);
-                          }}
+                          onPress={() =>
+                            setActiveTimePicker(isOpen ? null : target)
+                          }
                           activeOpacity={0.8}
                         >
-                          <Text style={modalStyles.timeDisplayText}>
+                          <Text style={ms.timeDisplayText}>
                             {ScheduleService.formatTime(h, m)}
+                          </Text>
+                          <Text style={ms.timeDisplayCaret}>
+                            {isOpen ? "▲" : "▼"}
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -737,60 +842,56 @@ export default function AppDetailScreen() {
                   );
                 })}
               </View>
-              {showTimePicker && (
-                <View style={modalStyles.timePickerWrap}>
-                  <Text style={modalStyles.timePickerTitle}>
-                    {timePickerTarget === "start"
+
+              {/* Drum roller inline */}
+              {activeTimePicker !== null && (
+                <View style={ms.drumWrap}>
+                  <Text style={ms.drumTitle}>
+                    {activeTimePicker === "start"
                       ? "Heure de début"
                       : "Heure de fin"}
                   </Text>
-                  <TimePicker
+                  <DrumTimePicker
                     hour={
-                      timePickerTarget === "start" ? formStartHour : formEndHour
+                      activeTimePicker === "start" ? formStartHour : formEndHour
                     }
                     minute={
-                      timePickerTarget === "start"
-                        ? formStartMinute
-                        : formEndMinute
+                      activeTimePicker === "start" ? formStartMin : formEndMin
                     }
                     onChange={(h, m) => {
-                      if (timePickerTarget === "start") {
+                      if (activeTimePicker === "start") {
                         setFormStartHour(h);
-                        setFormStartMinute(m);
+                        setFormStartMin(m);
                       } else {
                         setFormEndHour(h);
-                        setFormEndMinute(m);
+                        setFormEndMin(m);
                       }
                     }}
                   />
                   <TouchableOpacity
-                    style={modalStyles.confirmBtn}
-                    onPress={() => setShowTimePicker(false)}
+                    style={ms.confirmBtn}
+                    onPress={() => setActiveTimePicker(null)}
                     activeOpacity={0.8}
                   >
-                    <Text style={modalStyles.confirmBtnText}>Confirmer</Text>
+                    <Text style={ms.confirmBtnText}>✓ Confirmer</Text>
                   </TouchableOpacity>
                 </View>
               )}
-              <Text style={modalStyles.fieldLabel}>JOURS</Text>
-              <View style={modalStyles.daysRow}>
+
+              {/* Jours */}
+              <Text style={[ms.label, { marginTop: 18 }]}>JOURS</Text>
+              <View style={ms.daysRow}>
                 {DAYS.map((d, i) => {
                   const active = formDays.includes(i);
                   return (
                     <TouchableOpacity
                       key={i}
-                      style={[
-                        modalStyles.dayChip,
-                        active && modalStyles.dayChipActive,
-                      ]}
+                      style={[ms.dayChip, active && ms.dayChipActive]}
                       onPress={() => toggleDay(i)}
                       activeOpacity={0.8}
                     >
                       <Text
-                        style={[
-                          modalStyles.dayChipText,
-                          active && modalStyles.dayChipTextActive,
-                        ]}
+                        style={[ms.dayChipText, active && ms.dayChipTextActive]}
                       >
                         {d}
                       </Text>
@@ -798,7 +899,7 @@ export default function AppDetailScreen() {
                   );
                 })}
               </View>
-              <View style={modalStyles.shortcutsRow}>
+              <View style={ms.shortcutsRow}>
                 {[
                   { label: "Semaine", days: [1, 2, 3, 4, 5] },
                   { label: "Week-end", days: [0, 6] },
@@ -806,21 +907,22 @@ export default function AppDetailScreen() {
                 ].map(({ label, days }) => (
                   <TouchableOpacity
                     key={label}
-                    style={modalStyles.shortcut}
+                    style={ms.shortcut}
                     onPress={() => setFormDays(days)}
                     activeOpacity={0.8}
                   >
-                    <Text style={modalStyles.shortcutText}>{label}</Text>
+                    <Text style={ms.shortcutText}>{label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </ScrollView>
+
             <TouchableOpacity
-              style={modalStyles.saveBtn}
+              style={ms.saveBtn}
               onPress={saveSchedule}
               activeOpacity={0.85}
             >
-              <Text style={modalStyles.saveBtnText}>
+              <Text style={ms.saveBtnText}>
                 {editingSchedule ? "Enregistrer" : "Créer la planification"}
               </Text>
             </TouchableOpacity>
@@ -831,6 +933,7 @@ export default function AppDetailScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
   header: {
@@ -1133,7 +1236,7 @@ const styles = StyleSheet.create({
   emptyBtnText: { color: "#9B8FFF", fontSize: 13, fontWeight: "700" },
 });
 
-const modalStyles = StyleSheet.create({
+const ms = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "#00000088",
@@ -1158,13 +1261,13 @@ const modalStyles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 20,
   },
-  sheetHeader: {
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 22,
   },
-  sheetTitle: {
+  title: {
     fontSize: 19,
     fontWeight: "800",
     color: "#F0F0FF",
@@ -1180,7 +1283,7 @@ const modalStyles = StyleSheet.create({
     alignItems: "center",
   },
   closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-  fieldLabel: {
+  label: {
     fontSize: 10,
     fontWeight: "700",
     color: "#2E2E48",
@@ -1211,7 +1314,7 @@ const modalStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 10,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   timeSep: {
     color: "#3A3A58",
@@ -1219,35 +1322,46 @@ const modalStyles = StyleSheet.create({
     fontWeight: "700",
     paddingBottom: 14,
   },
+  timeSubLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#2E2E48",
+    letterSpacing: 1.5,
+    marginBottom: 6,
+  },
   timeDisplay: {
     backgroundColor: "#080810",
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
     borderColor: "#1C1C2C",
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
-  timeDisplayActive: { borderColor: "#4A3F8A", backgroundColor: "#0D0C1A" },
+  timeDisplayActive: { borderColor: "#7B6EF6", backgroundColor: "#0D0C1A" },
   timeDisplayText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "800",
     color: "#E8E8F8",
     letterSpacing: 1,
   },
-  timePickerWrap: {
-    backgroundColor: "#080810",
-    borderRadius: 14,
+  timeDisplayCaret: { fontSize: 10, color: "#3A3A58" },
+  drumWrap: {
+    backgroundColor: "#0A0A14",
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 18,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: "#1C1C2C",
   },
-  timePickerTitle: {
-    fontSize: 11,
+  drumTitle: {
+    fontSize: 10,
     color: "#3A3A58",
     fontWeight: "700",
-    letterSpacing: 1.2,
-    marginBottom: 10,
+    letterSpacing: 1.5,
+    marginBottom: 12,
+    textAlign: "center",
   },
   confirmBtn: {
     backgroundColor: "#16103A",

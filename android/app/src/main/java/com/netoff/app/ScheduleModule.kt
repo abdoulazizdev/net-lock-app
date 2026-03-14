@@ -65,7 +65,7 @@ class ScheduleModule(private val reactContext: ReactApplicationContext) :
                 val endHour         = entry.getInt("endHour")
                 val endMinute       = entry.getInt("endMinute")
                 val action          = entry.getString("action")
-                val packagesJson    = entry.getJSONArray("blockedPackages").toString()
+                val packagesJson    = if (entry.has("blockedPackages")) entry.getJSONArray("blockedPackages").toString() else "[]"
 
                 val days = (0 until daysArray.length()).map { daysArray.getInt(it) }
 

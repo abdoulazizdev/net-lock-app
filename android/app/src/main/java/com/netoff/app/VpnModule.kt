@@ -20,9 +20,7 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
 
     private var pendingStartPromise: Promise? = null
 
-    init {
-        reactContext.addActivityEventListener(this)
-    }
+    init { reactContext.addActivityEventListener(this) }
 
     override fun getName() = "VpnModule"
 
@@ -34,25 +32,20 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
                 launchVpnService()
                 promise.resolve(true)
             } else {
-                val activity = reactContext.currentActivity  // ← via reactContext
+                val activity = reactContext.currentActivity
                 if (activity == null) {
                     promise.reject("NO_ACTIVITY", "Activité non disponible")
                     return
                 }
                 pendingStartPromise = promise
-                activity.startActivityForResult(permIntent, VPN_PERMISSION_REQUEST) // ← sur activity
+                activity.startActivityForResult(permIntent, VPN_PERMISSION_REQUEST)
             }
         } catch (e: Exception) {
             promise.reject("VPN_ERROR", e.message, e)
         }
     }
 
-    override fun onActivityResult(
-        activity: Activity,
-        requestCode: Int,
-        resultCode: Int,
-        data: Intent?
-    ) {
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode != VPN_PERMISSION_REQUEST) return
         if (resultCode == Activity.RESULT_OK) {
             launchVpnService()
@@ -68,9 +61,9 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
     override fun onNewIntent(intent: Intent) {}
 
     private fun launchVpnService() {
-        val intent = Intent(reactContext, NetLockVpnService::class.java).apply {
-            action = "START"
-        }
+        val intent = Intent(reactContext, NetLockVpnService::class.java).apply { action = "START" }
+        // startForegroundService obligatoire sur Android 8+ — le service doit appeler
+        // startForeground() dans les 5 secondes sinon → ForegroundServiceDidNotStartInTimeException
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             reactContext.startForegroundService(intent)
         else
@@ -80,6 +73,7 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun stopVpn(promise: Promise) {
         try {
+            // stopVpn n'a pas besoin de startForegroundService — juste startService suffit
             reactContext.startService(
                 Intent(reactContext, NetLockVpnService::class.java).apply { action = "STOP" }
             )
@@ -92,10 +86,9 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun isVpnActive(promise: Promise) {
         try {
-            if (NetLockVpnService.isVpnEstablished) {
-                promise.resolve(true)
-                return
-            }
+            // Source de vérité 1 : variable mémoire (même process, reload JS)
+            if (NetLockVpnService.isVpnEstablished) { promise.resolve(true); return }
+            // Source de vérité 2 : SharedPreferences (survit aux reloads JS)
             val active = reactContext
                 .getSharedPreferences(NetLockVpnService.PREFS, Context.MODE_PRIVATE)
                 .getBoolean(NetLockVpnService.KEY_ACTIVE, false)
@@ -109,9 +102,7 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
     fun setBlockedApps(packages: ReadableArray, promise: Promise) {
         try {
             val newSet = HashSet<String>()
-            for (i in 0 until packages.size()) {
-                packages.getString(i)?.let { newSet.add(it) }
-            }
+            for (i in 0 until packages.size()) packages.getString(i)?.let { newSet.add(it) }
 
             val newlyBlocked = newSet - NetLockVpnService.blockedPackages
             val newlyAllowed = NetLockVpnService.blockedPackages - newSet
@@ -121,10 +112,9 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
             NetLockVpnService.blockedPackages = newSet
 
             if (NetLockVpnService.isVpnEstablished) {
+                // startService (pas startForegroundService) — le service est déjà en foreground
                 reactContext.startService(
-                    Intent(reactContext, NetLockVpnService::class.java).apply {
-                        action = "UPDATE_RULES"
-                    }
+                    Intent(reactContext, NetLockVpnService::class.java).apply { action = "UPDATE_RULES" }
                 )
             }
             promise.resolve(true)
@@ -140,16 +130,12 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(arr)
     }
 
-    @ReactMethod
-    fun addListener(eventName: String) {}
-
-    @ReactMethod
-    fun removeListeners(count: Int) {}
+    @ReactMethod fun addListener(eventName: String) {}
+    @ReactMethod fun removeListeners(count: Int) {}
 
     private fun sendEvent(eventName: String) {
         try {
-            reactContext
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 .emit(eventName, null)
         } catch (_: Exception) {}
     }
