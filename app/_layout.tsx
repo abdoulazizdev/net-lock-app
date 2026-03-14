@@ -5,13 +5,12 @@ import {
 } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useEffect, useRef, useState } from "react";
-import { Animated } from "react-native";
+import React, { useEffect, useState } from "react";
 import { Provider as PaperProvider } from "react-native-paper";
 import "react-native-reanimated";
-import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import FocusService from "@/services/focus.service";
 import StorageService from "@/services/storage.service";
 
 export const unstable_settings = { anchor: "(tabs)" };
@@ -19,23 +18,17 @@ export const unstable_settings = { anchor: "(tabs)" };
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [ready, setReady] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setReady(true);
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
   }, []);
 
   useEffect(() => {
     if (!ready) return;
-    checkAuth();
+    checkAuthAndFocus();
   }, [ready]);
 
-  const checkAuth = async () => {
+  const checkAuthAndFocus = async () => {
     try {
       const config = await StorageService.getAuthConfig();
       if (config.isPinEnabled || config.isBiometricEnabled) {
@@ -47,57 +40,42 @@ export default function RootLayout() {
   };
 
   return (
-    <SafeAreaProvider>
-      <PaperProvider>
-        <ThemeProvider
-          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+    <PaperProvider>
+      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+        <Stack
+          screenListeners={{
+            // Intercepter la navigation vers settings si focus actif
+            beforeRemove: () => {},
+            state: async (e) => {
+              const routes = (e.data?.state as any)?.routes ?? [];
+              const last = routes[routes.length - 1];
+              if (last?.name === "settings") {
+                try {
+                  const status = await FocusService.getStatus();
+                  if (status.isActive) {
+                    // Annuler la navigation et afficher un message
+                    router.back();
+                  }
+                } catch {}
+              }
+            },
+          }}
         >
-          <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: "#080810" },
-                animation: "slide_from_right",
-                animationDuration: 280,
-              }}
-            >
-              <Stack.Screen
-                name="(tabs)"
-                options={{ headerShown: false, animation: "none" }}
-              />
-              <Stack.Screen
-                name="auth"
-                options={{ headerShown: false, animation: "fade" }}
-              />
-              <Stack.Screen
-                name="profile-rules"
-                options={{ headerShown: false, animation: "slide_from_right" }}
-              />
-              <Stack.Screen
-                name="settings"
-                options={{ headerShown: false, animation: "slide_from_right" }}
-              />
-              <Stack.Screen
-                name="screens/app-detail"
-                options={{ headerShown: false, animation: "slide_from_right" }}
-              />
-              <Stack.Screen
-                name="screens/profile-detail"
-                options={{ headerShown: false, animation: "slide_from_right" }}
-              />
-              <Stack.Screen
-                name="screens/about"
-                options={{ headerShown: false, animation: "slide_from_right" }}
-              />
-              <Stack.Screen
-                name="screens/contact"
-                options={{ headerShown: false, animation: "slide_from_right" }}
-              />
-            </Stack>
-          </Animated.View>
-          <StatusBar style="light" />
-        </ThemeProvider>
-      </PaperProvider>
-    </SafeAreaProvider>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="auth" options={{ headerShown: false }} />
+          <Stack.Screen name="profile-rules" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="screens/app-detail"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="screens/profile-detail"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen name="settings" options={{ headerShown: false }} />
+        </Stack>
+        <StatusBar style="light" />
+      </ThemeProvider>
+    </PaperProvider>
   );
 }

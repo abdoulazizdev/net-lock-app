@@ -1,3 +1,4 @@
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -5,8 +6,7 @@ import {
   Easing,
   Image,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -25,7 +25,7 @@ import { AppRule, InstalledApp, Schedule } from "@/types";
 
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
-// ─── ProgressBar ──────────────────────────────────────────────────────────────
+// ─── Animated progress bar ────────────────────────────────────────────────────
 function ProgressBar({
   pct,
   color,
@@ -44,6 +44,10 @@ function ProgressBar({
       useNativeDriver: false,
     }).start();
   }, [pct]);
+  const width = w.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0%", "100%"],
+  });
   return (
     <View
       style={{
@@ -56,10 +60,7 @@ function ProgressBar({
       <Animated.View
         style={{
           height: "100%",
-          width: w.interpolate({
-            inputRange: [0, 1],
-            outputRange: ["0%", "100%"],
-          }),
+          width,
           backgroundColor: color,
           borderRadius: 2,
         }}
@@ -68,179 +69,7 @@ function ProgressBar({
   );
 }
 
-// ─── DrumColumn — colonne scroll snappée ──────────────────────────────────────
-const ITEM_H = 48;
-const VISIBLE = 5; // nombre d'items visibles
-const DRUM_H = ITEM_H * VISIBLE;
-
-function DrumColumn({
-  items,
-  selectedIndex,
-  onChange,
-  formatItem,
-}: {
-  items: number[];
-  selectedIndex: number;
-  onChange: (index: number) => void;
-  formatItem: (v: number) => string;
-}) {
-  const scrollRef = useRef<ScrollView>(null);
-  const isDragging = useRef(false);
-
-  useEffect(() => {
-    // Scroll initial vers la valeur sélectionnée
-    scrollRef.current?.scrollTo({ y: selectedIndex * ITEM_H, animated: false });
-  }, []);
-
-  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (!isDragging.current) return;
-    const y = e.nativeEvent.contentOffset.y;
-    const idx = Math.round(y / ITEM_H);
-    const clamped = Math.max(0, Math.min(items.length - 1, idx));
-    if (clamped !== selectedIndex) onChange(clamped);
-  };
-
-  const handleScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    isDragging.current = false;
-    const y = e.nativeEvent.contentOffset.y;
-    const idx = Math.max(0, Math.min(items.length - 1, Math.round(y / ITEM_H)));
-    scrollRef.current?.scrollTo({ y: idx * ITEM_H, animated: true });
-    onChange(idx);
-  };
-
-  return (
-    <View style={dr.colWrap}>
-      {/* Indicateur de sélection */}
-      <View style={dr.selectionBar} pointerEvents="none" />
-
-      <ScrollView
-        ref={scrollRef}
-        style={dr.scroll}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={ITEM_H}
-        decelerationRate="fast"
-        contentContainerStyle={{ paddingVertical: ITEM_H * 2 }}
-        onScrollBeginDrag={() => {
-          isDragging.current = true;
-        }}
-        onScroll={handleScroll}
-        onScrollEndDrag={handleScrollEnd}
-        onMomentumScrollEnd={handleScrollEnd}
-        scrollEventThrottle={16}
-      >
-        {items.map((v, i) => {
-          const selected = i === selectedIndex;
-          return (
-            <TouchableOpacity
-              key={v}
-              style={[dr.item, selected && dr.itemSelected]}
-              onPress={() => {
-                onChange(i);
-                scrollRef.current?.scrollTo({ y: i * ITEM_H, animated: true });
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[dr.itemText, selected && dr.itemTextSelected]}>
-                {formatItem(v)}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-}
-
-const dr = StyleSheet.create({
-  colWrap: {
-    flex: 1,
-    height: DRUM_H,
-    overflow: "hidden",
-    position: "relative",
-  },
-  selectionBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: ITEM_H * 2,
-    height: ITEM_H,
-    backgroundColor: "#16103A",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
-    zIndex: 0,
-  },
-  scroll: { flex: 1 },
-  item: {
-    height: ITEM_H,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  itemSelected: {},
-  itemText: {
-    fontSize: 22,
-    fontWeight: "500",
-    color: "#3A3A58",
-  },
-  itemTextSelected: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#9B8FFF",
-  },
-});
-
-// ─── TimePicker drum roller ────────────────────────────────────────────────────
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const MINUTES = Array.from({ length: 60 }, (_, i) => i);
-
-function DrumTimePicker({
-  hour,
-  minute,
-  onChange,
-}: {
-  hour: number;
-  minute: number;
-  onChange: (h: number, m: number) => void;
-}) {
-  return (
-    <View style={dtp.container}>
-      <DrumColumn
-        items={HOURS}
-        selectedIndex={hour}
-        onChange={(idx) => onChange(HOURS[idx], minute)}
-        formatItem={(v) => v.toString().padStart(2, "0")}
-      />
-      <Text style={dtp.sep}>:</Text>
-      <DrumColumn
-        items={MINUTES}
-        selectedIndex={minute}
-        onChange={(idx) => onChange(hour, MINUTES[idx])}
-        formatItem={(v) => v.toString().padStart(2, "0")}
-      />
-    </View>
-  );
-}
-
-const dtp = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#080810",
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-  },
-  sep: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#7B6EF6",
-    marginHorizontal: 8,
-    marginBottom: 4,
-  },
-});
-
-// ─── ScheduleCard ─────────────────────────────────────────────────────────────
+// ─── Schedule Card ────────────────────────────────────────────────────────────
 function ScheduleCard({
   schedule,
   onEdit,
@@ -267,7 +96,9 @@ function ScheduleCard({
       onPress={onEdit}
       activeOpacity={0.75}
     >
+      {/* left accent */}
       <View style={[styles.scheduleAccent, { backgroundColor: accentColor }]} />
+
       <View style={styles.scheduleLeft}>
         <View style={styles.scheduleTopRow}>
           <View
@@ -290,11 +121,13 @@ function ScheduleCard({
             </View>
           )}
         </View>
+
         <Text style={styles.scheduleTime}>
           {ScheduleService.formatTime(schedule.startHour, schedule.startMinute)}
           <Text style={styles.scheduleTimeSep}> → </Text>
           {ScheduleService.formatTime(schedule.endHour, schedule.endMinute)}
         </Text>
+
         <View style={styles.daysRow}>
           {DAYS.map((d, i) => {
             const active = schedule.days.includes(i);
@@ -319,6 +152,7 @@ function ScheduleCard({
           })}
         </View>
       </View>
+
       <View style={styles.scheduleRight}>
         <TouchableOpacity
           style={[
@@ -347,7 +181,7 @@ function ScheduleCard({
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
+// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function AppDetailScreen() {
   const insets = useSafeAreaInsets();
   const { packageName } = useLocalSearchParams<{ packageName: string }>();
@@ -357,18 +191,20 @@ export default function AppDetailScreen() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Modal state
   const [showModal, setShowModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [formLabel, setFormLabel] = useState("");
   const [formStartHour, setFormStartHour] = useState(8);
-  const [formStartMin, setFormStartMin] = useState(0);
+  const [formStartMinute, setFormStartMinute] = useState(0);
   const [formEndHour, setFormEndHour] = useState(18);
-  const [formEndMin, setFormEndMin] = useState(0);
+  const [formEndMinute, setFormEndMinute] = useState(0);
   const [formDays, setFormDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [formAction, setFormAction] = useState<"block" | "allow">("block");
-  const [activeTimePicker, setActiveTimePicker] = useState<
-    "start" | "end" | null
-  >(null);
+  const [timePickerTarget, setTimePickerTarget] = useState<"start" | "end">(
+    "start",
+  );
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(16)).current;
@@ -378,6 +214,7 @@ export default function AppDetailScreen() {
   useEffect(() => {
     loadAll();
   }, [packageName]);
+
   useEffect(() => {
     if (!loading) {
       Animated.parallel([
@@ -420,22 +257,18 @@ export default function AppDetailScreen() {
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [appData, existingRule, allStats, loadedSchedules] =
-        await Promise.all([
-          AppListService.getAppByPackage(packageName),
-          StorageService.getRuleByPackage(packageName),
-          StorageService.getStats(),
-          ScheduleService.getSchedules(packageName),
-        ]);
+      const appData = await AppListService.getAppByPackage(packageName);
       setApp(appData);
+      const existingRule = await StorageService.getRuleByPackage(packageName);
       setRule(existingRule);
-      const appStat = allStats.find((s) => s.packageName === packageName);
-      if (appStat)
+      const allStats = await StorageService.getStats();
+      const appStats = allStats.find((s) => s.packageName === packageName);
+      if (appStats)
         setStats({
-          blocked: appStat.blockedAttempts,
-          allowed: appStat.allowedAttempts,
+          blocked: appStats.blockedAttempts,
+          allowed: appStats.allowedAttempts,
         });
-      setSchedules(loadedSchedules);
+      setSchedules(await ScheduleService.getSchedules(packageName));
     } catch (e) {
       console.error("Erreur chargement:", e);
     } finally {
@@ -467,12 +300,11 @@ export default function AppDetailScreen() {
     setEditingSchedule(null);
     setFormLabel("");
     setFormStartHour(8);
-    setFormStartMin(0);
+    setFormStartMinute(0);
     setFormEndHour(18);
-    setFormEndMin(0);
+    setFormEndMinute(0);
     setFormDays([1, 2, 3, 4, 5]);
     setFormAction("block");
-    setActiveTimePicker(null);
     setShowModal(true);
   };
 
@@ -480,12 +312,11 @@ export default function AppDetailScreen() {
     setEditingSchedule(s);
     setFormLabel(s.label);
     setFormStartHour(s.startHour);
-    setFormStartMin(s.startMinute);
+    setFormStartMinute(s.startMinute);
     setFormEndHour(s.endHour);
-    setFormEndMin(s.endMinute);
+    setFormEndMinute(s.endMinute);
     setFormDays([...s.days]);
     setFormAction(s.action);
-    setActiveTimePicker(null);
     setShowModal(true);
   };
 
@@ -515,11 +346,11 @@ export default function AppDetailScreen() {
       packageName,
       label:
         formLabel ||
-        `${ScheduleService.formatTime(formStartHour, formStartMin)} – ${ScheduleService.formatTime(formEndHour, formEndMin)}`,
+        `${ScheduleService.formatTime(formStartHour, formStartMinute)} – ${ScheduleService.formatTime(formEndHour, formEndMinute)}`,
       startHour: formStartHour,
-      startMinute: formStartMin,
+      startMinute: formStartMinute,
       endHour: formEndHour,
-      endMinute: formEndMin,
+      endMinute: formEndMinute,
       days: formDays.sort(),
       isActive: editingSchedule?.isActive ?? true,
       action: formAction,
@@ -533,10 +364,12 @@ export default function AppDetailScreen() {
     await ScheduleService.deleteSchedule(id);
     setSchedules(await ScheduleService.getSchedules(packageName));
   };
+
   const toggleSchedule = async (id: string) => {
     await ScheduleService.toggleSchedule(id);
     setSchedules(await ScheduleService.getSchedules(packageName));
   };
+
   const toggleDay = (day: number) =>
     setFormDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
@@ -553,6 +386,7 @@ export default function AppDetailScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
 
+      {/* ── Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -562,6 +396,7 @@ export default function AppDetailScreen() {
           <Text style={styles.backArrow}>←</Text>
           <Text style={styles.backText}>Retour</Text>
         </TouchableOpacity>
+
         <View style={styles.heroSection}>
           {app?.icon ? (
             <Image
@@ -585,6 +420,7 @@ export default function AppDetailScreen() {
         </View>
       </View>
 
+      {/* ── Scroll content */}
       <Animated.ScrollView
         style={{ opacity: fadeAnim }}
         contentContainerStyle={[
@@ -593,6 +429,7 @@ export default function AppDetailScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Access control */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
           <Text style={styles.sectionLabel}>CONTRÔLE D'ACCÈS</Text>
           <View
@@ -601,12 +438,16 @@ export default function AppDetailScreen() {
               isBlocked ? styles.controlCardBlocked : styles.controlCardAllowed,
             ]}
           >
-            <View
-              style={[
-                styles.controlAccent,
-                { backgroundColor: isBlocked ? "#D04070" : "#3DDB8A" },
-              ]}
-            />
+            {isBlocked && (
+              <View
+                style={[styles.controlAccent, { backgroundColor: "#D04070" }]}
+              />
+            )}
+            {!isBlocked && (
+              <View
+                style={[styles.controlAccent, { backgroundColor: "#3DDB8A" }]}
+              />
+            )}
             <View style={{ flex: 1 }}>
               <Text style={styles.controlTitle}>
                 {isBlocked ? "Internet bloqué" : "Internet autorisé"}
@@ -635,45 +476,53 @@ export default function AppDetailScreen() {
           </View>
         </Animated.View>
 
+        {/* Stats */}
         <Animated.View
           style={[styles.section, { transform: [{ translateY: slideAnim }] }]}
         >
           <Text style={styles.sectionLabel}>STATISTIQUES</Text>
           <View style={styles.statsRow}>
-            {[
-              {
-                num: stats.blocked,
-                label: "Bloquées",
-                color: "#D04070",
-                bg: "statBlocked",
-              },
-              {
-                num: stats.allowed,
-                label: "Autorisées",
-                color: "#3DDB8A",
-                bg: "statAllowed",
-              },
-              {
-                num: `${blockedPercent}%`,
-                label: "Bloqué",
-                color: "#9B8FFF",
-                bg: "statTotal",
-              },
-            ].map(({ num, label, color, bg }) => (
-              <View key={label} style={[styles.statCard, (styles as any)[bg]]}>
-                <Text style={[styles.statNum, { color }]}>{num}</Text>
-                <View style={styles.statLabelRow}>
-                  <View style={[styles.statDot, { backgroundColor: color }]} />
-                  <Text style={styles.statLabel}>{label}</Text>
-                </View>
+            <View style={[styles.statCard, styles.statBlocked]}>
+              <Text style={[styles.statNum, { color: "#D04070" }]}>
+                {stats.blocked}
+              </Text>
+              <View style={styles.statLabelRow}>
+                <View
+                  style={[styles.statDot, { backgroundColor: "#D04070" }]}
+                />
+                <Text style={styles.statLabel}>Bloquées</Text>
               </View>
-            ))}
+            </View>
+            <View style={[styles.statCard, styles.statAllowed]}>
+              <Text style={[styles.statNum, { color: "#3DDB8A" }]}>
+                {stats.allowed}
+              </Text>
+              <View style={styles.statLabelRow}>
+                <View
+                  style={[styles.statDot, { backgroundColor: "#3DDB8A" }]}
+                />
+                <Text style={styles.statLabel}>Autorisées</Text>
+              </View>
+            </View>
+            <View style={[styles.statCard, styles.statTotal]}>
+              <Text style={[styles.statNum, { color: "#9B8FFF" }]}>
+                {blockedPercent}%
+              </Text>
+              <View style={styles.statLabelRow}>
+                <View
+                  style={[styles.statDot, { backgroundColor: "#9B8FFF" }]}
+                />
+                <Text style={styles.statLabel}>Bloqué</Text>
+              </View>
+            </View>
           </View>
+
           {total > 0 && (
             <View style={{ marginTop: 10, marginBottom: 14 }}>
               <ProgressBar pct={blockedPct} color="#D04070" track="#0D2218" />
             </View>
           )}
+
           <TouchableOpacity
             style={styles.simulateBtn}
             onPress={simulateAttempt}
@@ -684,6 +533,7 @@ export default function AppDetailScreen() {
           </TouchableOpacity>
         </Animated.View>
 
+        {/* Schedule */}
         <Animated.View
           style={[styles.section, { transform: [{ translateY: slideAnim }] }]}
         >
@@ -698,6 +548,7 @@ export default function AppDetailScreen() {
               <Text style={styles.addBtnText}>Ajouter</Text>
             </TouchableOpacity>
           </View>
+
           {schedules.length === 0 ? (
             <View style={styles.emptySchedule}>
               <View style={styles.emptyIconWrap}>
@@ -730,47 +581,49 @@ export default function AppDetailScreen() {
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* ── Modal planification ── */}
+      {/* ── Schedule Modal */}
       <Modal
         visible={showModal}
         transparent
         animationType="none"
         onRequestClose={closeModal}
       >
-        <Animated.View style={[ms.overlay, { opacity: modalOpacity }]}>
+        <Animated.View style={[modalStyles.overlay, { opacity: modalOpacity }]}>
           <TouchableOpacity
             style={{ flex: 1 }}
             activeOpacity={1}
             onPress={closeModal}
           />
+
           <Animated.View
             style={[
-              ms.sheet,
+              modalStyles.sheet,
               {
                 transform: [{ translateY: modalSlide }],
                 paddingBottom: insets.bottom + 20,
               },
             ]}
           >
-            <View style={ms.handle} />
-            <View style={ms.header}>
-              <Text style={ms.title}>
+            <View style={modalStyles.handle} />
+
+            <View style={modalStyles.sheetHeader}>
+              <Text style={modalStyles.sheetTitle}>
                 {editingSchedule ? "Modifier" : "Nouvelle planification"}
               </Text>
-              <TouchableOpacity onPress={closeModal} style={ms.closeBtn}>
-                <View style={ms.closeIcon}>
-                  <Text style={ms.closeIconText}>✕</Text>
+              <TouchableOpacity
+                onPress={closeModal}
+                style={modalStyles.closeBtn}
+              >
+                <View style={modalStyles.closeIcon}>
+                  <Text style={modalStyles.closeIconText}>✕</Text>
                 </View>
               </TouchableOpacity>
             </View>
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              {/* Action */}
-              <Text style={ms.label}>ACTION</Text>
-              <View style={ms.actionRow}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Action toggle */}
+              <Text style={modalStyles.fieldLabel}>ACTION</Text>
+              <View style={modalStyles.actionRow}>
                 {(["block", "allow"] as const).map((a) => {
                   const active = formAction === a;
                   const c =
@@ -781,7 +634,7 @@ export default function AppDetailScreen() {
                     <TouchableOpacity
                       key={a}
                       style={[
-                        ms.actionChip,
+                        modalStyles.actionChip,
                         active && {
                           backgroundColor: c.bg,
                           borderColor: c.border,
@@ -792,12 +645,15 @@ export default function AppDetailScreen() {
                     >
                       <View
                         style={[
-                          ms.actionChipDot,
+                          modalStyles.actionChipDot,
                           active && { backgroundColor: c.text },
                         ]}
                       />
                       <Text
-                        style={[ms.actionChipText, active && { color: c.text }]}
+                        style={[
+                          modalStyles.actionChipText,
+                          active && { color: c.text },
+                        ]}
                       >
                         {a === "block" ? "Bloquer" : "Autoriser"}
                       </Text>
@@ -806,35 +662,43 @@ export default function AppDetailScreen() {
                 })}
               </View>
 
-              {/* Heures — boutons toggle → drum roller inline */}
-              <Text style={ms.label}>HORAIRES</Text>
-              <View style={ms.timeRow}>
+              {/* Time blocks */}
+              <View style={modalStyles.timeRow}>
                 {(["start", "end"] as const).map((target, idx) => {
                   const h = target === "start" ? formStartHour : formEndHour;
-                  const m = target === "start" ? formStartMin : formEndMin;
-                  const isOpen = activeTimePicker === target;
+                  const m =
+                    target === "start" ? formStartMinute : formEndMinute;
                   return (
                     <React.Fragment key={target}>
-                      {idx === 1 && <Text style={ms.timeSep}>→</Text>}
+                      {idx === 1 && <Text style={modalStyles.timeSep}>→</Text>}
                       <View style={{ flex: 1 }}>
-                        <Text style={ms.timeSubLabel}>
+                        <Text style={modalStyles.fieldLabel}>
                           {target === "start" ? "DÉBUT" : "FIN"}
                         </Text>
                         <TouchableOpacity
                           style={[
-                            ms.timeDisplay,
-                            isOpen && ms.timeDisplayActive,
+                            modalStyles.timeDisplay,
+                            timePickerTarget === target &&
+                              showTimePicker &&
+                              modalStyles.timeDisplayActive,
                           ]}
-                          onPress={() =>
-                            setActiveTimePicker(isOpen ? null : target)
-                          }
+                          onPress={() => {
+                            if (timePickerTarget === target && showTimePicker) {
+                              setShowTimePicker(false); // toggle off si même bouton
+                            } else {
+                              setTimePickerTarget(target);
+                              setShowTimePicker(true);
+                            }
+                          }}
                           activeOpacity={0.8}
                         >
-                          <Text style={ms.timeDisplayText}>
+                          <Text style={modalStyles.timeDisplayText}>
                             {ScheduleService.formatTime(h, m)}
                           </Text>
-                          <Text style={ms.timeDisplayCaret}>
-                            {isOpen ? "▲" : "▼"}
+                          <Text style={modalStyles.timeDisplayCaret}>
+                            {timePickerTarget === target && showTimePicker
+                              ? "▲"
+                              : "▼"}
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -843,55 +707,74 @@ export default function AppDetailScreen() {
                 })}
               </View>
 
-              {/* Drum roller inline */}
-              {activeTimePicker !== null && (
-                <View style={ms.drumWrap}>
-                  <Text style={ms.drumTitle}>
-                    {activeTimePicker === "start"
-                      ? "Heure de début"
-                      : "Heure de fin"}
-                  </Text>
-                  <DrumTimePicker
-                    hour={
-                      activeTimePicker === "start" ? formStartHour : formEndHour
+              {/* DateTimePicker natif — dialog Android / spinner iOS */}
+              {showTimePicker && (
+                <DateTimePicker
+                  value={(() => {
+                    const d = new Date();
+                    if (timePickerTarget === "start") {
+                      d.setHours(formStartHour, formStartMinute, 0, 0);
+                    } else {
+                      d.setHours(formEndHour, formEndMinute, 0, 0);
                     }
-                    minute={
-                      activeTimePicker === "start" ? formStartMin : formEndMin
-                    }
-                    onChange={(h, m) => {
-                      if (activeTimePicker === "start") {
+                    return d;
+                  })()}
+                  mode="time"
+                  is24Hour={true}
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={(event, date) => {
+                    // Android : dialog se ferme automatiquement
+                    if (Platform.OS === "android") setShowTimePicker(false);
+                    if (event.type !== "dismissed" && date) {
+                      const h = date.getHours();
+                      const m = date.getMinutes();
+                      if (timePickerTarget === "start") {
                         setFormStartHour(h);
-                        setFormStartMin(m);
+                        setFormStartMinute(m);
                       } else {
                         setFormEndHour(h);
-                        setFormEndMin(m);
+                        setFormEndMinute(m);
                       }
-                    }}
-                  />
-                  <TouchableOpacity
-                    style={ms.confirmBtn}
-                    onPress={() => setActiveTimePicker(null)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={ms.confirmBtnText}>✓ Confirmer</Text>
-                  </TouchableOpacity>
-                </View>
+                    }
+                  }}
+                  themeVariant="dark"
+                  textColor="#F0F0FF"
+                  style={
+                    Platform.OS === "ios" ? modalStyles.iosPicker : undefined
+                  }
+                />
+              )}
+              {/* iOS uniquement : bouton Valider pour fermer le spinner inline */}
+              {showTimePicker && Platform.OS === "ios" && (
+                <TouchableOpacity
+                  style={modalStyles.confirmBtn}
+                  onPress={() => setShowTimePicker(false)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={modalStyles.confirmBtnText}>Valider</Text>
+                </TouchableOpacity>
               )}
 
-              {/* Jours */}
-              <Text style={[ms.label, { marginTop: 18 }]}>JOURS</Text>
-              <View style={ms.daysRow}>
+              {/* Days */}
+              <Text style={modalStyles.fieldLabel}>JOURS</Text>
+              <View style={modalStyles.daysRow}>
                 {DAYS.map((d, i) => {
                   const active = formDays.includes(i);
                   return (
                     <TouchableOpacity
                       key={i}
-                      style={[ms.dayChip, active && ms.dayChipActive]}
+                      style={[
+                        modalStyles.dayChip,
+                        active && modalStyles.dayChipActive,
+                      ]}
                       onPress={() => toggleDay(i)}
                       activeOpacity={0.8}
                     >
                       <Text
-                        style={[ms.dayChipText, active && ms.dayChipTextActive]}
+                        style={[
+                          modalStyles.dayChipText,
+                          active && modalStyles.dayChipTextActive,
+                        ]}
                       >
                         {d}
                       </Text>
@@ -899,7 +782,8 @@ export default function AppDetailScreen() {
                   );
                 })}
               </View>
-              <View style={ms.shortcutsRow}>
+
+              <View style={modalStyles.shortcutsRow}>
                 {[
                   { label: "Semaine", days: [1, 2, 3, 4, 5] },
                   { label: "Week-end", days: [0, 6] },
@@ -907,22 +791,22 @@ export default function AppDetailScreen() {
                 ].map(({ label, days }) => (
                   <TouchableOpacity
                     key={label}
-                    style={ms.shortcut}
+                    style={modalStyles.shortcut}
                     onPress={() => setFormDays(days)}
                     activeOpacity={0.8}
                   >
-                    <Text style={ms.shortcutText}>{label}</Text>
+                    <Text style={modalStyles.shortcutText}>{label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </ScrollView>
 
             <TouchableOpacity
-              style={ms.saveBtn}
+              style={modalStyles.saveBtn}
               onPress={saveSchedule}
               activeOpacity={0.85}
             >
-              <Text style={ms.saveBtnText}>
+              <Text style={modalStyles.saveBtnText}>
                 {editingSchedule ? "Enregistrer" : "Créer la planification"}
               </Text>
             </TouchableOpacity>
@@ -936,6 +820,8 @@ export default function AppDetailScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#080810" },
+
+  // ── Header
   header: {
     paddingHorizontal: 22,
     paddingBottom: 24,
@@ -950,6 +836,7 @@ const styles = StyleSheet.create({
   },
   backArrow: { fontSize: 18, color: "#9B8FFF", lineHeight: 20 },
   backText: { fontSize: 14, color: "#9B8FFF", fontWeight: "600" },
+
   heroSection: { alignItems: "center" },
   heroIcon: { width: 80, height: 80, borderRadius: 22, marginBottom: 12 },
   heroIconPlaceholder: {
@@ -986,6 +873,8 @@ const styles = StyleSheet.create({
     borderColor: "#1C1C2C",
   },
   sysBadgeText: { fontSize: 11, color: "#3A3A58", fontWeight: "600" },
+
+  // ── Scroll
   scroll: { paddingHorizontal: 22, paddingTop: 22 },
   section: { marginBottom: 26 },
   sectionLabel: {
@@ -1001,6 +890,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
+
+  // ── Control card
   controlCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1041,6 +932,8 @@ const styles = StyleSheet.create({
   bigThumb: { width: 22, height: 22, borderRadius: 11 },
   bigThumbAllowed: { backgroundColor: "#3DDB8A", alignSelf: "flex-end" },
   bigThumbBlocked: { backgroundColor: "#4A2030", alignSelf: "flex-start" },
+
+  // ── Stats
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 2 },
   statCard: {
     flex: 1,
@@ -1063,6 +956,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
+
+  // ── Simulate button
   simulateBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1076,6 +971,8 @@ const styles = StyleSheet.create({
   },
   simulateBtnIcon: { fontSize: 14, color: "#3A3A58" },
   simulateBtnText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
+
+  // ── Add button
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1094,6 +991,8 @@ const styles = StyleSheet.create({
     fontWeight: "300",
   },
   addBtnText: { fontSize: 12, color: "#9B8FFF", fontWeight: "700" },
+
+  // ── Schedule cards
   scheduleCard: {
     flexDirection: "row",
     backgroundColor: "#0E0E18",
@@ -1149,6 +1048,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.8,
   },
+
   scheduleTime: {
     fontSize: 22,
     fontWeight: "800",
@@ -1157,6 +1057,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   scheduleTimeSep: { color: "#3A3A58", fontWeight: "400" },
+
   daysRow: { flexDirection: "row", gap: 4 },
   dayChip: {
     paddingHorizontal: 6,
@@ -1167,6 +1068,7 @@ const styles = StyleSheet.create({
     borderColor: "#1C1C2C",
   },
   dayChipText: { fontSize: 9, color: "#2E2E44", fontWeight: "700" },
+
   scheduleRight: { alignItems: "center", gap: 10, paddingLeft: 12 },
   scheduleToggle: {
     width: 40,
@@ -1192,6 +1094,8 @@ const styles = StyleSheet.create({
     borderColor: "#2A1520",
   },
   scheduleDeleteIcon: { fontSize: 13, color: "#5A2030" },
+
+  // ── Empty schedule
   emptySchedule: {
     backgroundColor: "#0E0E18",
     borderRadius: 16,
@@ -1236,7 +1140,8 @@ const styles = StyleSheet.create({
   emptyBtnText: { color: "#9B8FFF", fontSize: 13, fontWeight: "700" },
 });
 
-const ms = StyleSheet.create({
+// ─── Modal styles ─────────────────────────────────────────────────────────────
+const modalStyles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "#00000088",
@@ -1261,13 +1166,13 @@ const ms = StyleSheet.create({
     marginTop: 12,
     marginBottom: 20,
   },
-  header: {
+  sheetHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 22,
   },
-  title: {
+  sheetTitle: {
     fontSize: 19,
     fontWeight: "800",
     color: "#F0F0FF",
@@ -1283,13 +1188,15 @@ const ms = StyleSheet.create({
     alignItems: "center",
   },
   closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-  label: {
+
+  fieldLabel: {
     fontSize: 10,
     fontWeight: "700",
     color: "#2E2E48",
     letterSpacing: 1.8,
     marginBottom: 10,
   },
+
   actionRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
   actionChip: {
     flex: 1,
@@ -1310,24 +1217,18 @@ const ms = StyleSheet.create({
     backgroundColor: "#2A2A3A",
   },
   actionChipText: { fontSize: 14, fontWeight: "700", color: "#3A3A58" },
+
   timeRow: {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 10,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   timeSep: {
     color: "#3A3A58",
     fontSize: 16,
     fontWeight: "700",
     paddingBottom: 14,
-  },
-  timeSubLabel: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 1.5,
-    marginBottom: 6,
   },
   timeDisplay: {
     backgroundColor: "#080810",
@@ -1339,29 +1240,29 @@ const ms = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  timeDisplayActive: { borderColor: "#7B6EF6", backgroundColor: "#0D0C1A" },
+  timeDisplayActive: { borderColor: "#4A3F8A", backgroundColor: "#0D0C1A" },
   timeDisplayText: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "800",
     color: "#E8E8F8",
     letterSpacing: 1,
   },
   timeDisplayCaret: { fontSize: 10, color: "#3A3A58" },
-  drumWrap: {
-    backgroundColor: "#0A0A14",
-    borderRadius: 16,
+
+  timePickerWrap: {
+    backgroundColor: "#080810",
+    borderRadius: 14,
     padding: 16,
-    marginBottom: 8,
+    marginBottom: 18,
     borderWidth: 1,
     borderColor: "#1C1C2C",
   },
-  drumTitle: {
-    fontSize: 10,
+  timePickerTitle: {
+    fontSize: 11,
     color: "#3A3A58",
     fontWeight: "700",
-    letterSpacing: 1.5,
-    marginBottom: 12,
-    textAlign: "center",
+    letterSpacing: 1.2,
+    marginBottom: 10,
   },
   confirmBtn: {
     backgroundColor: "#16103A",
@@ -1373,6 +1274,7 @@ const ms = StyleSheet.create({
     borderColor: "#4A3F8A",
   },
   confirmBtnText: { color: "#9B8FFF", fontSize: 14, fontWeight: "700" },
+
   daysRow: { flexDirection: "row", gap: 6, marginBottom: 10, flexWrap: "wrap" },
   dayChip: {
     paddingHorizontal: 11,
@@ -1385,6 +1287,7 @@ const ms = StyleSheet.create({
   dayChipActive: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
   dayChipText: { fontSize: 12, color: "#3A3A58", fontWeight: "700" },
   dayChipTextActive: { color: "#9B8FFF" },
+
   shortcutsRow: { flexDirection: "row", gap: 8, marginBottom: 22 },
   shortcut: {
     flex: 1,
@@ -1396,6 +1299,7 @@ const ms = StyleSheet.create({
     borderColor: "#1C1C2C",
   },
   shortcutText: { fontSize: 11, color: "#3A3A58", fontWeight: "600" },
+
   saveBtn: {
     backgroundColor: "#7B6EF6",
     borderRadius: 14,
@@ -1409,4 +1313,5 @@ const ms = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.3,
   },
+  iosPicker: { width: "100%", height: 150, marginBottom: 4 },
 });

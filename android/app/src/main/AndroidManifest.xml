@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.BIND_VPN_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
@@ -11,10 +13,6 @@
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-  <!-- Android 14+ : permission spécifique pour foreground service de type specialUse -->
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
-
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -22,46 +20,17 @@
       <data android:scheme="https"/>
     </intent>
   </queries>
-
-  <application
-      android:name=".MainApplication"
-      android:label="@string/app_name"
-      android:icon="@mipmap/ic_launcher"
-      android:roundIcon="@mipmap/ic_launcher_round"
-      android:allowBackup="true"
-      android:theme="@style/AppTheme"
-      android:supportsRtl="true"
-      android:enableOnBackInvokedCallback="false"
-      android:fullBackupContent="@xml/secure_store_backup_rules"
-      android:dataExtractionRules="@xml/secure_store_data_extraction_rules">
-
+  <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false" android:fullBackupContent="@xml/secure_store_backup_rules" android:dataExtractionRules="@xml/secure_store_data_extraction_rules">
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
-
-    <!-- VPN Service — foregroundServiceType="specialUse" pour Android 14+ -->
-    <service
-        android:name=".NetLockVpnService"
-        android:permission="android.permission.BIND_VPN_SERVICE"
-        android:exported="false"
-        android:foregroundServiceType="specialUse">
+    <service android:name=".NetLockVpnService" android:permission="android.permission.BIND_VPN_SERVICE" android:exported="false" android:foregroundServiceType="specialUse">
       <intent-filter>
         <action android:name="android.net.VpnService"/>
       </intent-filter>
-      <!-- Description obligatoire pour foregroundServiceType="specialUse" -->
-      <property
-          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-          android:value="VPN internet control"/>
+      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="VPN internet control"/>
     </service>
-
-    <activity
-        android:name=".MainActivity"
-        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
-        android:launchMode="singleTask"
-        android:windowSoftInputMode="adjustResize"
-        android:theme="@style/Theme.App.SplashScreen"
-        android:exported="true"
-        android:screenOrientation="portrait">
+    <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
@@ -74,39 +43,33 @@
         <data android:scheme="netoff"/>
       </intent-filter>
     </activity>
-
     <receiver android:name=".BootReceiver" android:exported="false">
       <intent-filter android:priority="999">
         <action android:name="android.intent.action.BOOT_COMPLETED"/>
         <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
       </intent-filter>
     </receiver>
-
     <receiver android:name=".ScheduleReceiver" android:exported="false">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED"/>
         <action android:name="com.netoff.app.SCHEDULE_TRIGGER"/>
       </intent-filter>
     </receiver>
-
     <receiver android:name=".FocusReceiver" android:exported="false">
       <intent-filter>
         <action android:name="com.netoff.app.FOCUS_END"/>
       </intent-filter>
     </receiver>
-
     <receiver android:name=".WidgetToggleReceiver" android:exported="false">
       <intent-filter>
         <action android:name="com.netoff.app.WIDGET_TOGGLE_VPN"/>
       </intent-filter>
     </receiver>
-
     <receiver android:name=".NetOffWidget" android:exported="true" android:label="NetOff">
       <intent-filter>
         <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
       </intent-filter>
       <meta-data android:name="android.appwidget.provider" android:resource="@xml/netoff_widget_info"/>
     </receiver>
-
   </application>
 </manifest>
