@@ -1,5 +1,8 @@
 import ScheduleModal from "@/components/ScheduleModal";
-import SearchAndFilters, { FilterKey } from "@/components/SearchAndFilters";
+import SearchAndFilters, {
+  DEFAULT_FILTERS,
+  Filters,
+} from "@/components/SearchAndFilters";
 import AppListService from "@/services/app-list.service";
 import ProfileService from "@/services/profile.service";
 import StorageService from "@/services/storage.service";
@@ -266,7 +269,7 @@ export default function ProfileDetailScreen() {
     new Set(),
   );
   const [activeTab, setActiveTab] = useState<"apps" | "schedules">("apps");
-  const [activeFilters, setActiveFilters] = useState<FilterKey[]>([]);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [searchQuery, setSearchQuery] = useState("");
   const [systemAppsLoaded, setSystemAppsLoaded] = useState(false);
   const [systemAppsLoading, setSystemAppsLoading] = useState(false);
@@ -292,13 +295,13 @@ export default function ProfileDetailScreen() {
 
   useEffect(() => {
     if (
-      activeFilters.includes("system") &&
+      (filters.scope === "system" || filters.scope === "all") &&
       !systemAppsLoaded &&
       !loadingSystemRef.current
     ) {
       loadSystemApps();
     }
-  }, [activeFilters]);
+  }, [filters.scope]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -322,6 +325,8 @@ export default function ProfileDetailScreen() {
         );
       }
       setIsActiveProfile(activeP?.id === profileId);
+
+      // Phase 1 : apps utilisateur → affichage rapide
       const userApps = await AppListService.getUserApps();
       setApps(
         userApps.sort((a, b) =>
@@ -331,6 +336,11 @@ export default function ProfileDetailScreen() {
     } finally {
       setLoading(false);
     }
+
+    // Phase 2 : toutes les apps (+ système) en background
+    // On reset systemAppsLoaded pour que loadSystemApps retourne les nouvelles données
+    setSystemAppsLoaded(false);
+    await loadSystemApps(true);
   }, [profileId]);
 
   const handleRefresh = useCallback(async () => {
@@ -339,15 +349,16 @@ export default function ProfileDetailScreen() {
     setRefreshing(false);
   }, [loadAll]);
 
-  const loadSystemApps = async () => {
-    if (loadingSystemRef.current) return;
+  const loadSystemApps = async (force = false) => {
+    if (!force && loadingSystemRef.current) return;
     loadingSystemRef.current = true;
     setSystemAppsLoading(true);
     try {
       const all = await AppListService.getAllApps();
       setApps(
         all.sort((a, b) => {
-          if (a.isSystemApp !== b.isSystemApp) return a.isSystemApp ? 1 : -1;
+          if (a.isSystemApp !== b.isSystemApp)
+            return a.isSystemApp === true ? 1 : -1;
           return (a.appName ?? "").localeCompare(b.appName ?? "");
         }),
       );
@@ -403,9 +414,12 @@ export default function ProfileDetailScreen() {
 
   const blockAll = useCallback(async () => {
     if (!profile) return;
-    const scope = activeFilters.includes("system")
-      ? apps
-      : apps.filter((a) => !a.isSystemApp);
+    const scope =
+      filters.scope === "system"
+        ? apps.filter((a) => !!a.isSystemApp)
+        : filters.scope === "all"
+          ? apps
+          : apps.filter((a) => !a.isSystemApp);
     const allRules = scope.map((a) => ({
       packageName: a.packageName,
       isBlocked: true,
@@ -415,7 +429,7 @@ export default function ProfileDetailScreen() {
     }));
     setBlockedPackages(new Set(scope.map((a) => a.packageName)));
     await saveProfileAndSync({ ...profile, rules: allRules });
-  }, [profile, apps, activeFilters, saveProfileAndSync]);
+  }, [profile, apps, filters.scope, saveProfileAndSync]);
 
   const allowAll = useCallback(async () => {
     if (!profile) return;
@@ -470,26 +484,25 @@ export default function ProfileDetailScreen() {
   const filteredApps = useMemo(
     () =>
       apps.filter((a) => {
-        if (!activeFilters.includes("system") && a.isSystemApp) return false;
+        // ── Scope
+        if (filters.scope === "user" && a.isSystemApp === true) return false;
+        if (filters.scope === "system" && a.isSystemApp !== true) return false;
+        // "all" → pas de filtre scope
+        // ── Text
         if (
           searchQuery &&
           !a.appName?.toLowerCase().includes(searchQuery.toLowerCase()) &&
           !a.packageName.toLowerCase().includes(searchQuery.toLowerCase())
         )
           return false;
-        if (
-          activeFilters.includes("blocked") &&
-          !blockedPackages.has(a.packageName)
-        )
+        // ── State
+        if (filters.state === "blocked" && !blockedPackages.has(a.packageName))
           return false;
-        if (
-          activeFilters.includes("allowed") &&
-          blockedPackages.has(a.packageName)
-        )
+        if (filters.state === "allowed" && blockedPackages.has(a.packageName))
           return false;
         return true;
       }),
-    [apps, activeFilters, searchQuery, blockedPackages],
+    [apps, filters, searchQuery, blockedPackages],
   );
 
   const keyExtractor = useCallback(
@@ -613,8 +626,8 @@ export default function ProfileDetailScreen() {
             <SearchAndFilters
               query={searchQuery}
               onQueryChange={setSearchQuery}
-              activeFilters={activeFilters}
-              onFilterChange={setActiveFilters}
+              filters={filters}
+              onFiltersChange={setFilters}
               systemAppsLoaded={systemAppsLoaded}
               systemAppsLoading={systemAppsLoading}
             />

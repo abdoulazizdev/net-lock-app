@@ -38,6 +38,7 @@ const SUGGESTIONS = [
   { name: "Travail", desc: "Mode concentration" },
   { name: "Gaming", desc: "Sessions de jeu" },
   { name: "Nuit", desc: "Pas de distraction" },
+  { name: "Réseaux Sociaux", desc: "Bloquer Instagram, TikTok…" },
 ];
 
 // ─── Pulse dot ─────────────────────────────────────────────────────────────────

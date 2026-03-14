@@ -1,7 +1,10 @@
 import FocusBanner from "@/components/FocusBanner";
 import FocusModal from "@/components/FocusModal";
 import HomeScreenSkeleton from "@/components/HomeScreenSkeleton";
-import SearchAndFilters, { FilterKey } from "@/components/SearchAndFilters";
+import SearchAndFilters, {
+  DEFAULT_FILTERS,
+  Filters,
+} from "@/components/SearchAndFilters";
 import AppListService from "@/services/app-list.service";
 import FocusService, { FocusStatus } from "@/services/focus.service";
 import StorageService from "@/services/storage.service";
@@ -147,7 +150,7 @@ export default function HomeScreen() {
   const [vpnActive, setVpnActive] = useState(false);
   const [blockedCount, setBlockedCount] = useState(0);
   const [query, setQuery] = useState("");
-  const [activeFilters, setActiveFilters] = useState<FilterKey[]>([]);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [systemAppsLoaded, setSystemAppsLoaded] = useState(false);
   const [systemAppsLoading, setSystemAppsLoading] = useState(false);
   const [focusVisible, setFocusVisible] = useState(false);
@@ -189,6 +192,35 @@ export default function HomeScreen() {
     });
     return () => sub.remove();
   }, []);
+
+  // Déclenche le chargement des apps système si le filtre le demande
+  // et qu'elles ne sont pas encore chargées (loadInitial les charge déjà
+  // en background, mais si ça a échoué on retente ici)
+  useEffect(() => {
+    if (
+      (filters.scope === "system" || filters.scope === "all") &&
+      !systemAppsLoaded &&
+      !systemAppsLoading
+    ) {
+      loadSystemAppsIfNeeded();
+    }
+  }, [filters.scope]);
+
+  const loadSystemAppsIfNeeded = async () => {
+    if (systemAppsLoaded || systemAppsLoading) return;
+    setSystemAppsLoading(true);
+    try {
+      const [allApps, rules] = await Promise.all([
+        AppListService.getInstalledApps(),
+        StorageService.getRules(),
+      ]);
+      setApps(mergeAppsRules(allApps, rules));
+      setSystemAppsLoaded(true);
+    } catch {
+    } finally {
+      setSystemAppsLoading(false);
+    }
+  };
 
   const checkFocus = async () => {
     try {
@@ -256,8 +288,15 @@ export default function HomeScreen() {
   // ── Filtres ─────────────────────────────────────────────────────────────
   const filteredApps = useMemo(() => {
     let list = [...apps];
-    if (!activeFilters.includes("system"))
-      list = list.filter((a) => !a.isSystemApp);
+    // ── Scope
+    // "user"   → apps non-système uniquement
+    // "system" → apps système uniquement (chargées en phase 2)
+    // "all"    → tout ce qui est dans apps (phase 1 = user only, phase 2 = tout)
+    if (filters.scope === "user") list = list.filter((a) => !a.isSystemApp);
+    if (filters.scope === "system")
+      list = list.filter((a) => a.isSystemApp === true);
+    // "all" : pas de filtre scope — on affiche tout ce qu'on a chargé
+    // ── Text
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -266,12 +305,13 @@ export default function HomeScreen() {
           a.packageName.toLowerCase().includes(q),
       );
     }
-    const wb = activeFilters.includes("blocked"),
-      wa = activeFilters.includes("allowed");
-    if (wb && !wa) list = list.filter((a) => a.rule?.isBlocked === true);
-    else if (wa && !wb) list = list.filter((a) => !a.rule?.isBlocked);
+    // ── State
+    if (filters.state === "blocked")
+      list = list.filter((a) => a.rule?.isBlocked === true);
+    if (filters.state === "allowed")
+      list = list.filter((a) => !a.rule?.isBlocked);
     return list;
-  }, [apps, query, activeFilters]);
+  }, [apps, query, filters]);
 
   // ── Actions ─────────────────────────────────────────────────────────────
   const toggleVpn = useCallback(async () => {
@@ -475,8 +515,8 @@ export default function HomeScreen() {
             <SearchAndFilters
               query={query}
               onQueryChange={setQuery}
-              activeFilters={activeFilters}
-              onFilterChange={setActiveFilters}
+              filters={filters}
+              onFiltersChange={setFilters}
               systemAppsLoaded={systemAppsLoaded}
               systemAppsLoading={systemAppsLoading}
             />
