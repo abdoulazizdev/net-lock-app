@@ -1,5 +1,7 @@
 import { useAppInfo } from "@/hooks/useAppInfo";
+import { usePremium } from "@/hooks/usePremium";
 import StorageService from "@/services/storage.service";
+import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
@@ -29,18 +31,45 @@ function Toggle({
   onToggle: () => void;
   disabled?: boolean;
 }) {
+  const pos = useRef(new Animated.Value(value ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(pos, {
+      toValue: value ? 1 : 0,
+      duration: 200,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [value]);
+  const bg = pos.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#14141E", "#16103A"],
+  });
+  const border = pos.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#1C1C2C", "#4A3F8A"],
+  });
+  const thumbX = pos.interpolate({ inputRange: [0, 1], outputRange: [2, 20] });
+  const thumbBg = pos.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#2A2A3A", "#7B6EF6"],
+  });
   return (
     <TouchableOpacity
-      style={[
-        s.toggle,
-        value ? s.toggleOn : s.toggleOff,
-        disabled && s.toggleDisabled,
-      ]}
       onPress={onToggle}
       disabled={disabled}
       activeOpacity={0.8}
+      style={disabled && { opacity: 0.3 }}
     >
-      <View style={[s.toggleThumb, value ? s.thumbOn : s.thumbOff]} />
+      <Animated.View
+        style={[s.toggle, { backgroundColor: bg, borderColor: border }]}
+      >
+        <Animated.View
+          style={[
+            s.toggleThumb,
+            { transform: [{ translateX: thumbX }], backgroundColor: thumbBg },
+          ]}
+        />
+      </Animated.View>
     </TouchableOpacity>
   );
 }
@@ -54,6 +83,7 @@ function SettingRow({
   right,
   danger,
   disabled,
+  accent,
 }: {
   icon: string;
   title: string;
@@ -62,6 +92,7 @@ function SettingRow({
   right?: React.ReactNode;
   danger?: boolean;
   disabled?: boolean;
+  accent?: string;
 }) {
   return (
     <TouchableOpacity
@@ -70,8 +101,23 @@ function SettingRow({
       activeOpacity={onPress && !disabled ? 0.65 : 1}
       disabled={(!onPress && !right) || disabled}
     >
-      <View style={[s.rowIcon, danger && s.rowIconDanger]}>
-        <Text style={s.rowIconText}>{icon}</Text>
+      <View
+        style={[
+          s.rowIcon,
+          danger && s.rowIconDanger,
+          accent
+            ? { backgroundColor: accent + "18", borderColor: accent + "40" }
+            : {},
+        ]}
+      >
+        <Text
+          style={[
+            s.rowIconText,
+            accent ? { color: accent } : danger ? { color: "#D04070" } : {},
+          ]}
+        >
+          {icon}
+        </Text>
       </View>
       <View style={s.rowContent}>
         <Text style={[s.rowTitle, danger && s.rowTitleDanger]}>{title}</Text>
@@ -89,7 +135,11 @@ function SectionLabel({ label }: { label: string }) {
   return <Text style={s.sectionLabel}>{label}</Text>;
 }
 
-// ─── Pavé numérique réutilisable ──────────────────────────────────────────────
+function Divider() {
+  return <View style={s.sep} />;
+}
+
+// ─── PinPad ───────────────────────────────────────────────────────────────────
 function PinPad({
   pin,
   onDigit,
@@ -133,7 +183,7 @@ function PinPad({
         activeOpacity={0.7}
       >
         <Text style={pp.eyeText}>
-          {showPin ? "🙈  Masquer" : "👁  Voir le code"}
+          {showPin ? "◈  Masquer" : "◎  Voir le code"}
         </Text>
       </TouchableOpacity>
       <View style={pp.grid}>
@@ -152,7 +202,7 @@ function PinPad({
             key={d}
             style={pp.btn}
             onPress={() => onDigit(d)}
-            activeOpacity={0.6}
+            activeOpacity={0.5}
           >
             <Text style={pp.btnText}>{d}</Text>
             {sub ? <Text style={pp.btnSub}>{sub}</Text> : null}
@@ -162,11 +212,11 @@ function PinPad({
         <TouchableOpacity
           style={pp.btn}
           onPress={() => onDigit("0")}
-          activeOpacity={0.6}
+          activeOpacity={0.5}
         >
           <Text style={pp.btnText}>0</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={pp.btn} onPress={onDelete} activeOpacity={0.6}>
+        <TouchableOpacity style={pp.btn} onPress={onDelete} activeOpacity={0.5}>
           <Text style={pp.deleteText}>⌫</Text>
         </TouchableOpacity>
       </View>
@@ -193,7 +243,7 @@ const pp = StyleSheet.create({
   },
   dot: { width: 14, height: 14, borderRadius: 7 },
   dotEmpty: {
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
     borderWidth: 1,
     borderColor: "#2A2A42",
   },
@@ -221,7 +271,7 @@ const pp = StyleSheet.create({
     borderRadius: 16,
     margin: 3,
   },
-  btnText: { fontSize: 26, fontWeight: "600", color: "#F0F0FF" },
+  btnText: { fontSize: 26, fontWeight: "600", color: "#E8E8F8" },
   btnSub: {
     fontSize: 8,
     color: "#3A3A58",
@@ -240,7 +290,7 @@ const pp = StyleSheet.create({
   submitText: { color: "#F0F0FF", fontSize: 16, fontWeight: "800" },
 });
 
-// ─── Confirm PIN Modal ────────────────────────────────────────────────────────
+// ─── ConfirmPinModal ──────────────────────────────────────────────────────────
 function ConfirmPinModal({
   visible,
   onClose,
@@ -313,12 +363,13 @@ function ConfirmPinModal({
     >
       <View style={cpm.overlay}>
         <View style={cpm.container}>
+          <View style={cpm.iconWrap}>
+            <Text style={cpm.iconText}>◈</Text>
+          </View>
           <View style={cpm.header}>
             <Text style={cpm.title}>{title}</Text>
-            <TouchableOpacity onPress={handleClose}>
-              <View style={cpm.closeIcon}>
-                <Text style={cpm.closeIconText}>✕</Text>
-              </View>
+            <TouchableOpacity onPress={handleClose} style={cpm.closeIcon}>
+              <Text style={cpm.closeIconText}>✕</Text>
             </TouchableOpacity>
           </View>
           <Text style={cpm.subtitle}>{subtitle}</Text>
@@ -329,7 +380,7 @@ function ConfirmPinModal({
             }}
             onDelete={() => setPin((p) => p.slice(0, -1))}
             onSubmit={handleConfirm}
-            submitLabel={loading ? "..." : "Confirmer"}
+            submitLabel={loading ? "…" : "Confirmer"}
             submitDisabled={loading || pin.length < 4}
             showPin={showPin}
             onToggleShow={() => setShowPin((v) => !v)}
@@ -341,8 +392,20 @@ function ConfirmPinModal({
   );
 }
 const cpm = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
+  overlay: { flex: 1, backgroundColor: "#07070F", justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: "#16103A",
+    borderWidth: 1,
+    borderColor: "#4A3F8A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  iconText: { fontSize: 28, color: "#7B6EF6" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -350,25 +413,33 @@ const cpm = StyleSheet.create({
     width: "100%",
     marginBottom: 12,
   },
-  title: { fontSize: 20, fontWeight: "800", color: "#F0F0FF" },
+  title: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#F0F0FF",
+    letterSpacing: -0.5,
+  },
   closeIcon: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
   closeIconText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#3A3A58",
     marginBottom: 28,
     textAlign: "center",
+    lineHeight: 20,
   },
 });
 
-// ─── PIN Setup/Change Modal ───────────────────────────────────────────────────
+// ─── PinChangeModal ───────────────────────────────────────────────────────────
 function PinChangeModal({
   visible,
   onClose,
@@ -482,12 +553,15 @@ function PinChangeModal({
     >
       <View style={pcm.overlay}>
         <View style={pcm.container}>
+          <View style={pcm.iconWrap}>
+            <Text style={pcm.iconText}>
+              {step === "confirm" ? "◉" : step === "new" ? "◈" : "◎"}
+            </Text>
+          </View>
           <View style={pcm.header}>
             <Text style={pcm.title}>{titles[step]}</Text>
-            <TouchableOpacity onPress={onClose}>
-              <View style={pcm.closeIcon}>
-                <Text style={pcm.closeIconText}>✕</Text>
-              </View>
+            <TouchableOpacity onPress={onClose} style={pcm.closeIcon}>
+              <Text style={pcm.closeIconText}>✕</Text>
             </TouchableOpacity>
           </View>
           <View style={pcm.steps}>
@@ -531,8 +605,20 @@ function PinChangeModal({
   );
 }
 const pcm = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "#080810", justifyContent: "center" },
+  overlay: { flex: 1, backgroundColor: "#07070F", justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: "#16103A",
+    borderWidth: 1,
+    borderColor: "#4A3F8A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  iconText: { fontSize: 28, color: "#7B6EF6" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -540,30 +626,38 @@ const pcm = StyleSheet.create({
     width: "100%",
     marginBottom: 16,
   },
-  title: { fontSize: 20, fontWeight: "800", color: "#F0F0FF" },
+  title: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#F0F0FF",
+    letterSpacing: -0.5,
+  },
   closeIcon: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
   closeIconText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
-  steps: { flexDirection: "row", gap: 8, width: "100%", marginBottom: 16 },
+  steps: { flexDirection: "row", gap: 6, width: "100%", marginBottom: 16 },
   step: { flex: 1, height: 3, borderRadius: 2 },
   stepActive: { backgroundColor: "#7B6EF6" },
   stepDone: { backgroundColor: "#3DDB8A" },
   stepInactive: { backgroundColor: "#1C1C2C" },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#3A3A58",
     marginBottom: 24,
     textAlign: "center",
+    lineHeight: 20,
   },
 });
 
-// ─── Import Modal ─────────────────────────────────────────────────────────────
+// ─── ImportModal ──────────────────────────────────────────────────────────────
 function ImportModal({
   visible,
   onClose,
@@ -602,12 +696,11 @@ function ImportModal({
     >
       <View style={imm.overlay}>
         <View style={imm.container}>
+          <View style={imm.handle} />
           <View style={imm.header}>
             <Text style={imm.title}>Importer des données</Text>
-            <TouchableOpacity onPress={onClose}>
-              <View style={imm.closeIcon}>
-                <Text style={imm.closeIconText}>✕</Text>
-              </View>
+            <TouchableOpacity onPress={onClose} style={imm.closeIcon}>
+              <Text style={imm.closeIconText}>✕</Text>
             </TouchableOpacity>
           </View>
           <Text style={imm.label}>COLLER LE JSON EXPORTÉ</Text>
@@ -622,9 +715,12 @@ function ImportModal({
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={imm.warning}>
-            ⚠️ L'import remplacera les données existantes. Action irréversible.
-          </Text>
+          <View style={imm.warnRow}>
+            <Text style={imm.warnIcon}>⚠</Text>
+            <Text style={imm.warning}>
+              L'import remplacera les données existantes. Action irréversible.
+            </Text>
+          </View>
           <TouchableOpacity
             style={[imm.btn, (!jsonText.trim() || loading) && imm.btnOff]}
             onPress={handleImport}
@@ -632,7 +728,7 @@ function ImportModal({
             activeOpacity={0.85}
           >
             <Text style={imm.btnText}>
-              {loading ? "Import..." : "↓ Importer"}
+              {loading ? "Import…" : "↓ Importer"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -654,12 +750,21 @@ const imm = StyleSheet.create({
     justifyContent: "flex-end",
   },
   container: {
-    backgroundColor: "#0E0E18",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    backgroundColor: "#0C0C16",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: 24,
     borderWidth: 1,
+    borderBottomWidth: 0,
     borderColor: "#1C1C2C",
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#2A2A3C",
+    alignSelf: "center",
+    marginBottom: 20,
   },
   header: {
     flexDirection: "row",
@@ -667,12 +772,19 @@ const imm = StyleSheet.create({
     alignItems: "center",
     marginBottom: 20,
   },
-  title: { fontSize: 19, fontWeight: "800", color: "#F0F0FF" },
+  title: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#F0F0FF",
+    letterSpacing: -0.5,
+  },
   closeIcon: {
     width: 28,
     height: 28,
     borderRadius: 9,
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -685,8 +797,8 @@ const imm = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: "#14141E",
-    borderRadius: 12,
+    backgroundColor: "#0E0E18",
+    borderRadius: 14,
     padding: 14,
     color: "#F0F0FF",
     fontSize: 12,
@@ -697,7 +809,19 @@ const imm = StyleSheet.create({
     fontFamily: "monospace",
     marginBottom: 14,
   },
-  warning: { fontSize: 12, color: "#D04070", marginBottom: 20, lineHeight: 18 },
+  warnRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#140810",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#3A1020",
+    marginBottom: 20,
+  },
+  warnIcon: { fontSize: 13, color: "#D04070", marginTop: 1 },
+  warning: { flex: 1, fontSize: 12, color: "#8A3050", lineHeight: 18 },
   btn: {
     backgroundColor: "#7B6EF6",
     borderRadius: 14,
@@ -708,7 +832,7 @@ const imm = StyleSheet.create({
   btnOff: { backgroundColor: "#7B6EF620" },
   btnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
   cancelBtn: {
-    backgroundColor: "#14141E",
+    backgroundColor: "#0E0E18",
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: "center",
@@ -722,12 +846,20 @@ const imm = StyleSheet.create({
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const appInfo = useAppInfo();
+  const { isPremium, refresh: refreshPremium } = usePremium();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<"security" | "export">(
+    "security",
+  );
+  const showPaywall = (reason: "security" | "export") => {
+    setPaywallReason(reason);
+    setPaywallVisible(true);
+  };
 
   const [pinEnabled, setPinEnabled] = useState(false);
   const [bioEnabled, setBioEnabled] = useState(false);
   const [bioAvailable, setBioAvailable] = useState(false);
   const [bioType, setBioType] = useState("Biométrie");
-
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalCreating, setPinModalCreating] = useState(false);
   const [confirmDisablePinVisible, setConfirmDisablePinVisible] =
@@ -735,7 +867,6 @@ export default function SettingsScreen() {
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [confirmClearVisible, setConfirmClearVisible] = useState(false);
   const [exportVisible, setExportVisible] = useState(false);
-
   const [vpnStatus, setVpnStatus] = useState({
     isActive: false,
     isNative: false,
@@ -744,7 +875,7 @@ export default function SettingsScreen() {
   const [stats, setStats] = useState({ rules: 0, profiles: 0 });
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(16)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
   const modalSlide = useRef(new Animated.Value(300)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
 
@@ -753,12 +884,12 @@ export default function SettingsScreen() {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 400,
+        duration: 420,
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 400,
+        duration: 420,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -817,6 +948,10 @@ export default function SettingsScreen() {
   };
 
   const handlePinToggle = () => {
+    if (!isPremium && !FREE_LIMITS.PIN_AUTH) {
+      showPaywall("security");
+      return;
+    }
     if (!pinEnabled) {
       setPinModalCreating(true);
       setPinModalVisible(true);
@@ -924,238 +1059,291 @@ export default function SettingsScreen() {
 
   return (
     <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080810" />
-      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={s.headerTitle}>Paramètres</Text>
-        <Text style={s.headerSubtitle}>Configuration de l'app</Text>
+      <StatusBar barStyle="light-content" backgroundColor="#07070F" />
+
+      {/* ── Header ── */}
+      <View style={[s.header, { paddingTop: insets.top + 14 }]}>
+        <View style={s.headerLeft}>
+          <View style={s.headerIconWrap}>
+            <Text style={s.headerIconText}>◈</Text>
+          </View>
+          <View>
+            <Text style={s.headerTitle}>Paramètres</Text>
+            <Text style={s.headerSubtitle}>Configuration de l'app</Text>
+          </View>
+        </View>
+        {isPremium && (
+          <View style={s.proBadge}>
+            <Text style={s.proBadgeText}>PRO</Text>
+          </View>
+        )}
       </View>
 
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
-        style={{ opacity: fadeAnim }}
+        style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}
         contentContainerStyle={[
           s.scroll,
-          { paddingBottom: insets.bottom + 32 },
+          { paddingBottom: insets.bottom + 40 },
         ]}
       >
         {/* ── VPN Banner ── */}
-        <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          <TouchableOpacity
-            style={[s.vpnBanner, vpnOn ? s.vpnBannerOn : s.vpnBannerOff]}
-            onPress={toggleVpn}
-            activeOpacity={0.8}
+        <TouchableOpacity
+          style={[s.vpnBanner, vpnOn ? s.vpnBannerOn : s.vpnBannerOff]}
+          onPress={toggleVpn}
+          activeOpacity={0.8}
+        >
+          <View
+            style={[
+              s.vpnAccent,
+              { backgroundColor: vpnOn ? "#3DDB8A" : "#D04070" },
+            ]}
+          />
+          <View style={{ flex: 1, paddingLeft: 10 }}>
+            <Text
+              style={[s.vpnTitle, { color: vpnOn ? "#3DDB8A" : "#D04070" }]}
+            >
+              {vpnOn ? "◉ VPN Actif" : "◎ VPN Inactif"}
+            </Text>
+            <Text style={s.vpnSub}>
+              {vpnStatus.isNative
+                ? "Mode natif (VPNService)"
+                : "Mode simulation"}
+              {vpnStatus.platform ? ` · ${vpnStatus.platform}` : ""}
+            </Text>
+          </View>
+          <View
+            style={[
+              s.vpnTogglePill,
+              vpnOn ? s.vpnTogglePillOn : s.vpnTogglePillOff,
+            ]}
           >
             <View
               style={[
-                s.vpnAccent,
+                s.vpnDot,
                 { backgroundColor: vpnOn ? "#3DDB8A" : "#D04070" },
               ]}
             />
-            <View style={{ flex: 1, paddingLeft: 8 }}>
-              <Text
-                style={[s.vpnTitle, { color: vpnOn ? "#3DDB8A" : "#D04070" }]}
-              >
-                {vpnOn ? "🛡️ VPN Actif" : "⚠️ VPN Inactif"}
-              </Text>
-              <Text style={s.vpnSub}>
-                {vpnStatus.isNative
-                  ? "Mode natif (VPNService)"
-                  : "Mode simulation"}
-                {vpnStatus.platform ? ` • ${vpnStatus.platform}` : ""}
-              </Text>
-            </View>
-            <View style={[s.vpnPill, vpnOn ? s.vpnPillOn : s.vpnPillOff]}>
-              <View
-                style={[
-                  s.vpnPillDot,
-                  { backgroundColor: vpnOn ? "#3DDB8A" : "#D04070" },
-                ]}
-              />
-              <Text
-                style={[
-                  s.vpnPillText,
-                  { color: vpnOn ? "#3DDB8A" : "#D04070" },
-                ]}
-              >
-                {vpnOn ? "ON" : "OFF"}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
+            <Text
+              style={[
+                s.vpnToggleText,
+                { color: vpnOn ? "#3DDB8A" : "#D04070" },
+              ]}
+            >
+              {vpnOn ? "ON" : "OFF"}
+            </Text>
+          </View>
+        </TouchableOpacity>
 
         {/* ── Stats ── */}
-        <Animated.View
-          style={[s.statsRow, { transform: [{ translateY: slideAnim }] }]}
-        >
-          <View style={s.statCard}>
-            <Text style={s.statNum}>{stats.rules}</Text>
-            <Text style={s.statLabel}>Règles</Text>
-          </View>
-          <View style={s.statCard}>
-            <Text style={s.statNum}>{stats.profiles}</Text>
-            <Text style={s.statLabel}>Profils</Text>
-          </View>
-          <View style={s.statCard}>
-            <Text style={[s.statNum, { color: vpnOn ? "#3DDB8A" : "#D04070" }]}>
-              {vpnOn ? "●" : "○"}
-            </Text>
-            <Text style={s.statLabel}>VPN</Text>
-          </View>
-        </Animated.View>
+        <View style={s.statsRow}>
+          {[
+            { num: stats.rules, label: "Règles", color: "#9B8FFF" },
+            { num: stats.profiles, label: "Profils", color: "#9B8FFF" },
+            {
+              num: null,
+              label: "VPN",
+              color: vpnOn ? "#3DDB8A" : "#D04070",
+              dot: vpnOn,
+            },
+          ].map((item, i) => (
+            <View key={i} style={s.statCard}>
+              {item.dot !== undefined ? (
+                <View style={[s.statDot, { backgroundColor: item.color }]} />
+              ) : (
+                <Text style={[s.statNum, { color: item.color }]}>
+                  {item.num}
+                </Text>
+              )}
+              <Text style={s.statLabel}>{item.label}</Text>
+            </View>
+          ))}
+        </View>
 
         {/* ── SÉCURITÉ ── */}
-        <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          <SectionLabel label="SÉCURITÉ — ACCÈS À L'APPLICATION" />
+        <SectionLabel label="SÉCURITÉ" />
+
+        {/* Statut global du verrou */}
+        <View
+          style={[
+            s.lockStatusBanner,
+            anyLockEnabled ? s.lockStatusOn : s.lockStatusOff,
+          ]}
+        >
           <View
             style={[
-              s.lockStatusBanner,
-              anyLockEnabled ? s.lockStatusOn : s.lockStatusOff,
+              s.lockIconWrap,
+              anyLockEnabled ? s.lockIconWrapOn : s.lockIconWrapOff,
             ]}
           >
-            <Text style={s.lockStatusIcon}>{anyLockEnabled ? "🔒" : "🔓"}</Text>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={[
-                  s.lockStatusTitle,
-                  { color: anyLockEnabled ? "#3DDB8A" : "#D04070" },
-                ]}
-              >
-                {anyLockEnabled
-                  ? "Application verrouillée"
-                  : "Application non verrouillée"}
-              </Text>
-              <Text style={s.lockStatusSub}>
-                {anyLockEnabled
-                  ? [pinEnabled && "PIN applicatif", bioEnabled && bioType]
-                      .filter(Boolean)
-                      .join(" + ")
-                  : "N'importe qui peut ouvrir et modifier les règles"}
-              </Text>
-            </View>
+            <Text style={s.lockIcon}>{anyLockEnabled ? "◈" : "◎"}</Text>
           </View>
-          <Text style={s.methodLabel}>MÉTHODE 1 — PIN APPLICATIF</Text>
-          <View style={s.card}>
-            <SettingRow
-              icon="◈"
-              title="Code PIN de l'application"
-              subtitle={
-                pinEnabled
-                  ? "Code à 4–6 chiffres géré par NetOff"
-                  : "Créer un code propre à l'application"
-              }
-              right={<Toggle value={pinEnabled} onToggle={handlePinToggle} />}
-            />
-            {pinEnabled && (
-              <>
-                <View style={s.sep} />
-                <SettingRow
-                  icon="✎"
-                  title="Changer le PIN"
-                  subtitle="Modifier le code PIN applicatif"
-                  onPress={() => {
-                    setPinModalCreating(false);
-                    setPinModalVisible(true);
-                  }}
-                />
-              </>
-            )}
-          </View>
-          <View style={s.methodNote}>
-            <Text style={s.methodNoteText}>
-              ✦ Indépendant du téléphone — utile si quelqu'un d'autre a accès à
-              votre écran déverrouillé (contrôle parental, etc.)
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[
+                s.lockStatusTitle,
+                { color: anyLockEnabled ? "#3DDB8A" : "#C04060" },
+              ]}
+            >
+              {anyLockEnabled
+                ? "Application verrouillée"
+                : "Application non protégée"}
+            </Text>
+            <Text style={s.lockStatusSub}>
+              {anyLockEnabled
+                ? [pinEnabled && "PIN applicatif", bioEnabled && bioType]
+                    .filter(Boolean)
+                    .join(" + ")
+                : "N'importe qui peut modifier les règles"}
             </Text>
           </View>
-          <Text style={[s.methodLabel, { marginTop: 16 }]}>
-            MÉTHODE 2 — {bioType.toUpperCase()} / PIN TÉLÉPHONE
-          </Text>
-          <View style={s.card}>
-            <SettingRow
-              icon="◎"
-              title={`${bioType} / PIN du téléphone`}
-              subtitle={
-                bioAvailable
-                  ? bioEnabled
-                    ? `Actif — utilise le système Android (${bioType})`
-                    : `Utiliser ${bioType} ou le PIN de votre téléphone`
-                  : "Aucune méthode biométrique configurée sur ce téléphone"
-              }
-              right={
-                <Toggle
-                  value={bioEnabled}
-                  onToggle={handleBioToggle}
-                  disabled={!bioAvailable}
-                />
-              }
-              disabled={!bioAvailable}
-            />
-          </View>
-          <View style={s.methodNote}>
-            <Text style={s.methodNoteText}>
-              ✦ Délègue au système Android — empreinte, face ou PIN du téléphone
-              comme fallback automatique
-            </Text>
-          </View>
-          {pinEnabled && bioEnabled && (
-            <View style={s.combinedBanner}>
-              <Text style={s.combinedIcon}>⚡</Text>
-              <Text style={s.combinedText}>
-                Les deux méthodes sont actives. Au démarrage, la biométrie sera
-                proposée en premier, avec le PIN applicatif en secours.
-              </Text>
-            </View>
+        </View>
+
+        {/* Méthode 1 — PIN */}
+        <Text style={s.methodLabel}>MÉTHODE 1 — PIN APPLICATIF</Text>
+        <View style={s.card}>
+          <SettingRow
+            icon="◈"
+            title="Code PIN de l'application"
+            subtitle={
+              pinEnabled
+                ? "Code à 4–6 chiffres géré par NetOff"
+                : "Créer un code propre à l'application"
+            }
+            right={<Toggle value={pinEnabled} onToggle={handlePinToggle} />}
+            accent="#7B6EF6"
+          />
+          {pinEnabled && (
+            <>
+              <Divider />
+              <SettingRow
+                icon="✎"
+                title="Changer le PIN"
+                subtitle="Modifier le code PIN applicatif"
+                onPress={() => {
+                  setPinModalCreating(false);
+                  setPinModalVisible(true);
+                }}
+                accent="#7B6EF6"
+              />
+            </>
           )}
-        </Animated.View>
+        </View>
+        <Text style={s.methodNote}>
+          ✦ Indépendant du téléphone — utile si quelqu'un d'autre a accès à
+          votre écran déverrouillé
+        </Text>
 
-        {/* ── Données ── */}
-        <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          <SectionLabel label="DONNÉES" />
-          <View style={s.card}>
-            <SettingRow
-              icon="↑"
-              title="Exporter les règles"
-              subtitle="Sauvegarder règles et profils en JSON"
-              onPress={() => setExportVisible(true)}
-            />
-            <View style={s.sep} />
-            <SettingRow
-              icon="↓"
-              title="Importer les règles"
-              subtitle="Restaurer des règles depuis un JSON"
-              onPress={() => setImportModalVisible(true)}
-            />
-            <View style={s.sep} />
-            <SettingRow
-              icon="⌫"
-              title="Effacer toutes les données"
-              subtitle="Supprime règles, profils et statistiques"
-              onPress={() => setConfirmClearVisible(true)}
-              danger
-            />
+        {/* Méthode 2 — Bio */}
+        <Text style={[s.methodLabel, { marginTop: 18 }]}>
+          MÉTHODE 2 — {bioType.toUpperCase()}
+        </Text>
+        <View style={s.card}>
+          <SettingRow
+            icon="◎"
+            title={`${bioType} / PIN du téléphone`}
+            subtitle={
+              bioAvailable
+                ? bioEnabled
+                  ? `Actif — ${bioType}`
+                  : `Utiliser ${bioType} ou le PIN du téléphone`
+                : "Aucune biométrie configurée"
+            }
+            right={
+              <Toggle
+                value={bioEnabled}
+                onToggle={handleBioToggle}
+                disabled={!bioAvailable}
+              />
+            }
+            disabled={!bioAvailable}
+            accent="#3DDB8A"
+          />
+        </View>
+        <Text style={s.methodNote}>
+          ✦ Délègue au système Android — empreinte, face ou PIN téléphone comme
+          fallback
+        </Text>
+
+        {pinEnabled && bioEnabled && (
+          <View style={s.combinedBanner}>
+            <View style={s.combinedIconWrap}>
+              <Text style={s.combinedIcon}>⚡</Text>
+            </View>
+            <Text style={s.combinedText}>
+              Les deux méthodes sont actives. Biométrie proposée en premier, PIN
+              en secours.
+            </Text>
           </View>
-        </Animated.View>
+        )}
 
-        {/* ── À propos ── */}
-        <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          <SectionLabel label="À PROPOS" />
-          <View style={s.card}>
-            <SettingRow
-              icon="◉"
-              title="À propos de NetOff"
-              subtitle={
-                appInfo.loading ? "…" : `Version ${appInfo.fullVersion}`
+        {/* ── DONNÉES ── */}
+        <SectionLabel label="DONNÉES" />
+        <View style={s.card}>
+          <SettingRow
+            icon="↑"
+            title="Exporter les règles"
+            subtitle={
+              isPremium
+                ? "Sauvegarder règles et profils en JSON"
+                : "Fonctionnalité Premium"
+            }
+            onPress={() => {
+              if (!isPremium) {
+                showPaywall("export");
+                return;
               }
-              onPress={() => router.push("/screens/about")}
-            />
-            <View style={s.sep} />
-            <SettingRow
-              icon="◎"
-              title="Nous contacter"
-              subtitle="Signaler un bug ou envoyer une suggestion"
-              onPress={() => router.push("/screens/contact")}
-            />
-          </View>
-        </Animated.View>
+              setExportVisible(true);
+            }}
+            accent="#9B8FFF"
+          />
+          <Divider />
+          <SettingRow
+            icon="↓"
+            title="Importer les règles"
+            subtitle={
+              isPremium
+                ? "Restaurer des règles depuis un JSON"
+                : "Fonctionnalité Premium"
+            }
+            onPress={() => {
+              if (!isPremium) {
+                showPaywall("export");
+                return;
+              }
+              setImportModalVisible(true);
+            }}
+            accent="#9B8FFF"
+          />
+          <Divider />
+          <SettingRow
+            icon="⌫"
+            title="Effacer toutes les données"
+            subtitle="Supprime règles, profils et statistiques"
+            onPress={() => setConfirmClearVisible(true)}
+            danger
+          />
+        </View>
+
+        {/* ── À PROPOS ── */}
+        <SectionLabel label="À PROPOS" />
+        <View style={s.card}>
+          <SettingRow
+            icon="◉"
+            title="À propos de NetOff"
+            subtitle={appInfo.loading ? "…" : `Version ${appInfo.fullVersion}`}
+            onPress={() => router.push("/screens/about")}
+            accent="#7B6EF6"
+          />
+          <Divider />
+          <SettingRow
+            icon="◎"
+            title="Nous contacter"
+            subtitle="Signaler un bug ou envoyer une suggestion"
+            onPress={() => router.push("/screens/contact")}
+            accent="#3DDB8A"
+          />
+        </View>
       </Animated.ScrollView>
 
       {/* ── Export Modal ── */}
@@ -1183,10 +1371,8 @@ export default function SettingsScreen() {
             <View style={em.handle} />
             <View style={em.header}>
               <Text style={em.title}>Exporter les données</Text>
-              <TouchableOpacity onPress={closeExportModal}>
-                <View style={em.closeIcon}>
-                  <Text style={em.closeIconText}>✕</Text>
-                </View>
+              <TouchableOpacity onPress={closeExportModal} style={em.closeIcon}>
+                <Text style={em.closeIconText}>✕</Text>
               </TouchableOpacity>
             </View>
             <Text style={em.body}>
@@ -1221,7 +1407,9 @@ export default function SettingsScreen() {
       >
         <View style={ccm.overlay}>
           <View style={ccm.container}>
-            <Text style={ccm.icon}>⚠️</Text>
+            <View style={ccm.iconWrap}>
+              <Text style={ccm.iconText}>⚠</Text>
+            </View>
             <Text style={ccm.title}>Effacer toutes les données ?</Text>
             <Text style={ccm.body}>
               Règles, profils et statistiques seront définitivement supprimés.
@@ -1269,73 +1457,85 @@ export default function SettingsScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#080810" },
+  container: { flex: 1, backgroundColor: "#07070F" },
+
+  // Header
   header: {
     paddingHorizontal: 22,
     paddingBottom: 18,
     borderBottomWidth: 1,
-    borderBottomColor: "#13131F",
+    borderBottomColor: "#111120",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#07070F",
   },
-  headerTitle: {
-    fontSize: 34,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -1.5,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: "#3A3A58",
-    marginTop: 3,
-    letterSpacing: 0.4,
-    fontWeight: "500",
-  },
-  scroll: { paddingHorizontal: 22, paddingTop: 18 },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 2,
-    marginBottom: 10,
-    marginTop: 6,
-  },
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#0E0E18",
-    borderRadius: 14,
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
+  headerIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
-    padding: 14,
+    borderColor: "#3A3480",
+    justifyContent: "center",
     alignItems: "center",
   },
-  statNum: {
-    fontSize: 22,
+  headerIconText: { fontSize: 20, color: "#7B6EF6" },
+  headerTitle: {
+    fontSize: 26,
     fontWeight: "800",
-    color: "#F0F0FF",
-    marginBottom: 4,
+    color: "#EDEDFF",
+    letterSpacing: -1,
   },
-  statLabel: {
-    fontSize: 10,
-    color: "#3A3A58",
+  headerSubtitle: {
+    fontSize: 11,
+    color: "#2A2A48",
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  proBadge: {
+    backgroundColor: "#16103A",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "#4A3F8A",
+  },
+  proBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#9B8FFF",
+    letterSpacing: 1.5,
+  },
+
+  scroll: { paddingHorizontal: 20, paddingTop: 20 },
+  sectionLabel: {
+    fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 1,
+    color: "#2A2A48",
+    letterSpacing: 2.5,
+    marginBottom: 10,
+    marginTop: 8,
   },
+
+  // VPN Banner
   vpnBanner: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 16,
     borderWidth: 1,
     overflow: "hidden",
-    marginBottom: 20,
+    marginBottom: 18,
   },
-  vpnBannerOn: { backgroundColor: "#0A0E0C", borderColor: "#152518" },
-  vpnBannerOff: { backgroundColor: "#0E0A0C", borderColor: "#251520" },
+  vpnBannerOn: { backgroundColor: "#080E0A", borderColor: "#112018" },
+  vpnBannerOff: { backgroundColor: "#0E0808", borderColor: "#200E10" },
   vpnAccent: {
     position: "absolute",
     left: 0,
-    top: 12,
-    bottom: 12,
+    top: 14,
+    bottom: 14,
     width: 3,
     borderRadius: 2,
   },
@@ -1345,8 +1545,8 @@ const s = StyleSheet.create({
     letterSpacing: -0.3,
     marginBottom: 3,
   },
-  vpnSub: { fontSize: 11, color: "#3A3A58", fontWeight: "500" },
-  vpnPill: {
+  vpnSub: { fontSize: 11, color: "#2E2E48", fontWeight: "500" },
+  vpnTogglePill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -1355,60 +1555,124 @@ const s = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
   },
-  vpnPillOn: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
-  vpnPillOff: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
-  vpnPillDot: { width: 6, height: 6, borderRadius: 3 },
-  vpnPillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
+  vpnTogglePillOn: { backgroundColor: "#0A1C14", borderColor: "#1A5034" },
+  vpnTogglePillOff: { backgroundColor: "#1A0A0C", borderColor: "#3A1018" },
+  vpnDot: { width: 6, height: 6, borderRadius: 3 },
+  vpnToggleText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
+
+  // Stats
+  statsRow: { flexDirection: "row", gap: 10, marginBottom: 24 },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#0C0C16",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#141428",
+    padding: 16,
+    alignItems: "center",
+    gap: 6,
+  },
+  statNum: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
+  statDot: { width: 12, height: 12, borderRadius: 6 },
+  statLabel: {
+    fontSize: 9,
+    color: "#2A2A48",
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+
+  // Lock status
   lockStatusBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    borderRadius: 14,
+    gap: 14,
+    borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    marginBottom: 20,
+    marginBottom: 18,
   },
-  lockStatusOn: { backgroundColor: "#0A0E0C", borderColor: "#1E6A46" },
-  lockStatusOff: { backgroundColor: "#0E0A10", borderColor: "#4A1A2A" },
-  lockStatusIcon: { fontSize: 24 },
-  lockStatusTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  lockStatusOn: { backgroundColor: "#080E0A", borderColor: "#112018" },
+  lockStatusOff: { backgroundColor: "#0E080A", borderColor: "#281018" },
+  lockIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  lockIconWrapOn: {
+    backgroundColor: "#0A2018",
+    borderWidth: 1,
+    borderColor: "#1A5034",
+  },
+  lockIconWrapOff: {
+    backgroundColor: "#200A10",
+    borderWidth: 1,
+    borderColor: "#401020",
+  },
+  lockIcon: { fontSize: 18, color: "#5A5A80" },
+  lockStatusTitle: { fontSize: 13, fontWeight: "800", marginBottom: 3 },
   lockStatusSub: { fontSize: 11, color: "#3A3A58" },
+
+  // Method labels & notes
   methodLabel: {
     fontSize: 9,
     fontWeight: "700",
-    color: "#2E2E48",
+    color: "#2A2A48",
     letterSpacing: 2,
     marginBottom: 8,
   },
-  methodNote: { paddingHorizontal: 4, paddingVertical: 8, marginBottom: 4 },
-  methodNoteText: { fontSize: 11, color: "#2E2E48", lineHeight: 17 },
+  methodNote: {
+    fontSize: 11,
+    color: "#1E1E30",
+    lineHeight: 17,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+
+  // Combined banner
   combinedBanner: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
+    alignItems: "center",
+    gap: 12,
     backgroundColor: "#16103A",
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: "#3A3480",
     marginTop: 12,
   },
-  combinedIcon: { fontSize: 14, marginTop: 1 },
-  combinedText: { flex: 1, fontSize: 12, color: "#7B6EF6", lineHeight: 18 },
-  card: {
-    backgroundColor: "#0E0E18",
-    borderRadius: 16,
+  combinedIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#0E0A22",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
-    marginBottom: 4,
+    borderColor: "#4A3F8A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  combinedIcon: { fontSize: 14, color: "#7B6EF6" },
+  combinedText: { flex: 1, fontSize: 12, color: "#5A5080", lineHeight: 18 },
+
+  // Card
+  card: {
+    backgroundColor: "#0C0C16",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#141428",
+    marginBottom: 8,
     overflow: "hidden",
   },
-  sep: { height: 1, backgroundColor: "#13131F", marginLeft: 58 },
-  row: { flexDirection: "row", alignItems: "center", padding: 15 },
+  sep: { height: 1, backgroundColor: "#111120", marginLeft: 60 },
+
+  // Row
+  row: { flexDirection: "row", alignItems: "center", padding: 16 },
   rowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: "#14141E",
     borderWidth: 1,
     borderColor: "#1C1C2C",
@@ -1416,34 +1680,30 @@ const s = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
-  rowIconDanger: { backgroundColor: "#14080A", borderColor: "#2A1520" },
+  rowIconDanger: { backgroundColor: "#120608", borderColor: "#2A0E14" },
   rowIconText: { fontSize: 15, color: "#5A5A80" },
   rowContent: { flex: 1 },
   rowTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#E8E8F8",
+    color: "#D8D8F0",
     marginBottom: 2,
     letterSpacing: -0.1,
   },
-  rowTitleDanger: { color: "#D04070" },
-  rowSubtitle: { fontSize: 11, color: "#3A3A58" },
-  rowChevron: { color: "#2A2A42", fontSize: 22, fontWeight: "300" },
-  rowChevronDanger: { color: "#4A1A2A" },
+  rowTitleDanger: { color: "#C04060" },
+  rowSubtitle: { fontSize: 11, color: "#2E2E48" },
+  rowChevron: { color: "#1E1E30", fontSize: 22, fontWeight: "300" },
+  rowChevronDanger: { color: "#3A1020" },
+
+  // Toggle
   toggle: {
-    width: 46,
-    height: 26,
-    borderRadius: 13,
+    width: 44,
+    height: 24,
+    borderRadius: 12,
     justifyContent: "center",
-    padding: 3,
     borderWidth: 1,
   },
-  toggleOn: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
-  toggleOff: { backgroundColor: "#14141E", borderColor: "#1C1C2C" },
-  toggleDisabled: { opacity: 0.3 },
-  toggleThumb: { width: 18, height: 18, borderRadius: 9 },
-  thumbOn: { backgroundColor: "#3DDB8A", alignSelf: "flex-end" },
-  thumbOff: { backgroundColor: "#2A2A3A", alignSelf: "flex-start" },
+  toggleThumb: { width: 18, height: 18, borderRadius: 9, position: "absolute" },
 });
 
 const em = StyleSheet.create({
@@ -1453,9 +1713,9 @@ const em = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: "#0E0E18",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    backgroundColor: "#0C0C16",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingHorizontal: 24,
     borderWidth: 1,
     borderBottomWidth: 0,
@@ -1486,7 +1746,9 @@ const em = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 9,
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1520,23 +1782,35 @@ const ccm = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000000BB",
     justifyContent: "center",
-    paddingHorizontal: 32,
+    paddingHorizontal: 28,
   },
   container: {
-    backgroundColor: "#0E0E18",
+    backgroundColor: "#0C0C16",
     borderRadius: 24,
     padding: 28,
     borderWidth: 1,
-    borderColor: "#2A1520",
+    borderColor: "#2A0E14",
     alignItems: "center",
   },
-  icon: { fontSize: 40, marginBottom: 16 },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: "#180810",
+    borderWidth: 1,
+    borderColor: "#3A1020",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  iconText: { fontSize: 24, color: "#C04060" },
   title: {
     fontSize: 18,
     fontWeight: "800",
     color: "#F0F0FF",
-    marginBottom: 12,
+    marginBottom: 10,
     textAlign: "center",
+    letterSpacing: -0.4,
   },
   body: {
     fontSize: 13,
@@ -1547,7 +1821,7 @@ const ccm = StyleSheet.create({
   },
   dangerBtn: {
     width: "100%",
-    backgroundColor: "#D04070",
+    backgroundColor: "#C04060",
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
@@ -1556,12 +1830,12 @@ const ccm = StyleSheet.create({
   dangerBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
   cancelBtn: {
     width: "100%",
-    backgroundColor: "#14141E",
+    backgroundColor: "#0E0E18",
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
   },
   cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
 });

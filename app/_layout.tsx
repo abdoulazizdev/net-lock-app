@@ -15,11 +15,39 @@ import StorageService from "@/services/storage.service";
 
 export const unstable_settings = { anchor: "(tabs)" };
 
+// ── RevenueCat — init conditionnelle ──────────────────────────────────────────
+// Clés API à remplacer par vos vraies clés RevenueCat
+const RC_API_KEY_ANDROID = "goog_anAzMDXqFAtPZxVdqLkISrCAvNp"; // Google Play
+// const RC_API_KEY_IOS = "appl_xxxx"; // App Store
+
+let Purchases: any = null;
+try {
+  Purchases = require("react-native-purchases").default;
+} catch {
+  console.warn(
+    "[_layout] react-native-purchases non installé — RevenueCat désactivé",
+  );
+}
+
+function initRevenueCat() {
+  if (!Purchases) return;
+  try {
+    // const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
+    const apiKey = RC_API_KEY_ANDROID; // Pour simplifier les tests sur Android (Expo Go)
+    Purchases.configure({ apiKey });
+    console.log("[RevenueCat] Initialisé avec succès");
+  } catch (e) {
+    console.error("[RevenueCat] Erreur d'initialisation:", e);
+  }
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    // Initialiser RevenueCat au démarrage de l'app
+    initRevenueCat();
     setReady(true);
   }, []);
 
@@ -44,7 +72,6 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
         <Stack
           screenListeners={{
-            // Intercepter la navigation vers settings si focus actif
             beforeRemove: () => {},
             state: async (e) => {
               const routes = (e.data?.state as any)?.routes ?? [];
@@ -53,7 +80,6 @@ export default function RootLayout() {
                 try {
                   const status = await FocusService.getStatus();
                   if (status.isActive) {
-                    // Annuler la navigation et afficher un message
                     router.back();
                   }
                 } catch {}

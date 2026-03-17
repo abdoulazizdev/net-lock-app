@@ -1,5 +1,8 @@
+import PaywallModal from "@/components/PaywallModal";
+import { usePremium } from "@/hooks/usePremium";
 import ProfileService from "@/services/profile.service";
 import StorageService from "@/services/storage.service";
+import { FREE_LIMITS } from "@/services/subscription.service";
 import { Profile, ProfileSchedule } from "@/types";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -41,41 +44,70 @@ const SUGGESTIONS = [
   { name: "Réseaux Sociaux", desc: "Bloquer Instagram, TikTok…" },
 ];
 
-// ─── Pulse dot ─────────────────────────────────────────────────────────────────
+// ─── Pulse dot ────────────────────────────────────────────────────────────────
 function PulseDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
-
+  const opacity = useRef(new Animated.Value(0.7)).current;
   useEffect(() => {
     Animated.loop(
-      Animated.sequence([
-        Animated.timing(scale, {
-          toValue: 1.5,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(scale, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(scale, {
+            toValue: 1.8,
+            duration: 900,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scale, {
+            toValue: 1,
+            duration: 900,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 900,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0.7,
+            duration: 900,
+            useNativeDriver: true,
+          }),
+        ]),
       ]),
     ).start();
   }, []);
-
   return (
-    <Animated.View
-      style={[pulseDot.dot, { backgroundColor: color, transform: [{ scale }] }]}
-    />
+    <View
+      style={{
+        width: 8,
+        height: 8,
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <Animated.View
+        style={{
+          position: "absolute",
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: color,
+          transform: [{ scale }],
+          opacity,
+        }}
+      />
+      <View
+        style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: color }}
+      />
+    </View>
   );
 }
 
-const pulseDot = StyleSheet.create({
-  dot: { width: 6, height: 6, borderRadius: 3 },
-});
-
-// ─── Schedule badge ────────────────────────────────────────────────────────────
+// ─── Schedule badge ───────────────────────────────────────────────────────────
 const ScheduleBadge = React.memo(function ScheduleBadge({
   schedule,
 }: {
@@ -113,7 +145,7 @@ const ScheduleBadge = React.memo(function ScheduleBadge({
   );
 });
 
-// ─── Profile card ──────────────────────────────────────────────────────────────
+// ─── Profile card ─────────────────────────────────────────────────────────────
 const ProfileCard = React.memo(
   function ProfileCard({
     item,
@@ -141,15 +173,10 @@ const ProfileCard = React.memo(
       <View
         style={[
           card.container,
-          isActive
-            ? { borderColor: "#3DDB8A40", backgroundColor: "#3DDB8A06" }
-            : { borderColor: "#1C1C2C" },
+          isActive ? card.containerActive : card.containerIdle,
         ]}
       >
-        {isActive && (
-          <View style={[card.accentBar, { backgroundColor: "#3DDB8A" }]} />
-        )}
-
+        {isActive && <View style={card.accentBar} />}
         <View style={card.top}>
           <View
             style={[
@@ -167,16 +194,9 @@ const ProfileCard = React.memo(
                 {item.name}
               </Text>
               {isActive ? (
-                <View
-                  style={[
-                    card.activeBadge,
-                    { backgroundColor: "#3DDB8A20", borderColor: "#3DDB8A80" },
-                  ]}
-                >
-                  <PulseDot color="#3DDB8A" />
-                  <Text style={[card.activeBadgeText, { color: "#3DDB8A" }]}>
-                    ACTIF
-                  </Text>
+                <View style={card.activeBadge}>
+                  <PulseDot color="#2DB870" />
+                  <Text style={card.activeBadgeText}>ACTIF</Text>
                 </View>
               ) : blockedCount > 0 ? (
                 <View style={card.inactiveBadge}>
@@ -203,7 +223,7 @@ const ProfileCard = React.memo(
 
         {!hasSchedules && isActive && blockedCount > 0 && (
           <View style={card.immediateBanner}>
-            <PulseDot color="#3DDB8A" />
+            <PulseDot color="#2DB870" />
             <Text style={card.immediateText}>
               {blockedCount} app{blockedCount !== 1 ? "s" : ""} bloquée
               {blockedCount !== 1 ? "s" : ""} maintenant
@@ -233,9 +253,7 @@ const ProfileCard = React.memo(
           <TouchableOpacity
             style={[
               card.actionBtn,
-              isActive
-                ? { backgroundColor: "#D0407015", borderColor: "#D0407040" }
-                : { backgroundColor: "#3DDB8A15", borderColor: "#3DDB8A40" },
+              isActive ? card.actionBtnDeactivate : card.actionBtnActivate,
               toggling && card.actionBtnLoading,
             ]}
             onPress={onToggle}
@@ -245,7 +263,7 @@ const ProfileCard = React.memo(
             <Text
               style={[
                 card.actionText,
-                { color: isActive ? "#D04070" : "#3DDB8A" },
+                { color: isActive ? "#C04060" : "#2DB870" },
               ]}
             >
               {toggling ? "…" : isActive ? "Désactiver" : "Activer"}
@@ -272,7 +290,7 @@ const ProfileCard = React.memo(
     prev.toggling === next.toggling,
 );
 
-// ─── Create Profile Modal ──────────────────────────────────────────────────────
+// ─── Create Profile Modal ─────────────────────────────────────────────────────
 function CreateModal({
   visible,
   onClose,
@@ -290,33 +308,28 @@ function CreateModal({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const shiftAnim = useRef(new Animated.Value(0)).current;
 
-  // Keyboard listeners — lift the sheet above the keyboard
   useEffect(() => {
-    const showEvent =
+    const showEv =
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
+    const hideEv =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const dur = Platform.OS === "ios" ? 250 : 150;
-
-    const onShow = (e: any) => {
+    const s1 = Keyboard.addListener(showEv, (e) => {
       Animated.timing(shiftAnim, {
         toValue: -e.endCoordinates.height,
         duration: dur,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }).start();
-    };
-    const onHide = () => {
+    });
+    const s2 = Keyboard.addListener(hideEv, () => {
       Animated.timing(shiftAnim, {
         toValue: 0,
         duration: dur,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }).start();
-    };
-
-    const s1 = Keyboard.addListener(showEvent, onShow);
-    const s2 = Keyboard.addListener(hideEvent, onHide);
+    });
     return () => {
       s1.remove();
       s2.remove();
@@ -363,11 +376,6 @@ function CreateModal({
     ]).start(() => onClose());
   };
 
-  const handleCreate = () => {
-    if (!name.trim()) return;
-    onCreate(name.trim(), desc.trim());
-  };
-
   return (
     <Modal
       visible={visible}
@@ -375,7 +383,7 @@ function CreateModal({
       animationType="none"
       onRequestClose={handleClose}
     >
-      <Animated.View style={[createModal.overlay, { opacity: fadeAnim }]}>
+      <Animated.View style={[cm.overlay, { opacity: fadeAnim }]}>
         <TouchableOpacity
           style={{ flex: 1 }}
           activeOpacity={1}
@@ -383,23 +391,21 @@ function CreateModal({
         />
         <Animated.View
           style={[
-            createModal.sheet,
+            cm.sheet,
             {
               transform: [{ translateY: slideAnim }, { translateY: shiftAnim }],
               paddingBottom: Math.max(bottomInset + 16, 32),
             },
           ]}
         >
-          <View style={createModal.handle} />
-          <View style={createModal.header}>
-            <Text style={createModal.title}>Nouveau profil</Text>
-            <TouchableOpacity
-              onPress={handleClose}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <View style={createModal.closeIcon}>
-                <Text style={createModal.closeIconText}>✕</Text>
-              </View>
+          <View style={cm.handle} />
+          <View style={cm.header}>
+            <View style={cm.headerIconWrap}>
+              <Text style={cm.headerIcon}>◉</Text>
+            </View>
+            <Text style={cm.title}>Nouveau profil</Text>
+            <TouchableOpacity onPress={handleClose} style={cm.closeIcon}>
+              <Text style={cm.closeIconText}>✕</Text>
             </TouchableOpacity>
           </View>
 
@@ -408,9 +414,9 @@ function CreateModal({
             showsVerticalScrollIndicator={false}
             bounces={false}
           >
-            <Text style={createModal.label}>NOM DU PROFIL</Text>
+            <Text style={cm.label}>NOM DU PROFIL</Text>
             <TextInput
-              style={createModal.input}
+              style={cm.input}
               placeholder="Ex: Enfant, Travail, Gaming..."
               placeholderTextColor="#2A2A42"
               value={name}
@@ -418,10 +424,9 @@ function CreateModal({
               autoFocus
               returnKeyType="next"
             />
-
-            <Text style={createModal.label}>DESCRIPTION (optionnel)</Text>
+            <Text style={cm.label}>DESCRIPTION (optionnel)</Text>
             <TextInput
-              style={[createModal.input, createModal.inputMulti]}
+              style={[cm.input, cm.inputMulti]}
               placeholder="Description du profil..."
               placeholderTextColor="#2A2A42"
               value={desc}
@@ -430,15 +435,14 @@ function CreateModal({
               numberOfLines={2}
               returnKeyType="done"
             />
-
-            <Text style={createModal.label}>SUGGESTIONS</Text>
-            <View style={createModal.suggestions}>
+            <Text style={cm.label}>SUGGESTIONS</Text>
+            <View style={cm.suggestions}>
               {SUGGESTIONS.map((s) => (
                 <TouchableOpacity
                   key={s.name}
                   style={[
-                    createModal.suggestion,
-                    name === s.name && createModal.suggestionActive,
+                    cm.suggestion,
+                    name === s.name && cm.suggestionActive,
                   ]}
                   onPress={() => {
                     setName(s.name);
@@ -447,8 +451,8 @@ function CreateModal({
                 >
                   <Text
                     style={[
-                      createModal.suggestionText,
-                      name === s.name && createModal.suggestionTextActive,
+                      cm.suggestionText,
+                      name === s.name && cm.suggestionTextActive,
                     ]}
                   >
                     {s.name}
@@ -456,17 +460,15 @@ function CreateModal({
                 </TouchableOpacity>
               ))}
             </View>
-
             <TouchableOpacity
-              style={[
-                createModal.createBtn,
-                !name.trim() && createModal.createBtnDisabled,
-              ]}
-              onPress={handleCreate}
+              style={[cm.createBtn, !name.trim() && cm.createBtnDisabled]}
+              onPress={() => {
+                if (name.trim()) onCreate(name.trim(), desc.trim());
+              }}
               disabled={!name.trim()}
               activeOpacity={0.85}
             >
-              <Text style={createModal.createBtnText}>Créer le profil</Text>
+              <Text style={cm.createBtnText}>Créer le profil</Text>
             </TouchableOpacity>
           </ScrollView>
         </Animated.View>
@@ -475,21 +477,24 @@ function CreateModal({
   );
 }
 
-// ─── Main Screen ───────────────────────────────────────────────────────────────
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProfilesScreen() {
   const insets = useSafeAreaInsets();
+  const { isPremium, refresh: refreshPremium } = usePremium();
+
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadProfiles();
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 400,
+      duration: 420,
       useNativeDriver: true,
     }).start();
   }, []);
@@ -518,6 +523,14 @@ export default function ProfilesScreen() {
     await loadProfiles();
     setRefreshing(false);
   }, [loadProfiles]);
+
+  const handleAddProfile = useCallback(() => {
+    if (!isPremium && profiles.length >= FREE_LIMITS.MAX_PROFILES) {
+      setPaywallVisible(true);
+      return;
+    }
+    setShowModal(true);
+  }, [isPremium, profiles.length]);
 
   const createProfile = async (name: string, desc: string) => {
     const newProfile: Profile = {
@@ -572,9 +585,8 @@ export default function ProfilesScreen() {
           setActiveProfileId(profileId);
         }
         await loadProfiles();
-      } catch (e) {
+      } catch {
         Alert.alert("Erreur", "Impossible de modifier le profil actif");
-        console.error("[ProfilesScreen] toggleProfile:", e);
       } finally {
         setTogglingId(null);
       }
@@ -583,7 +595,6 @@ export default function ProfilesScreen() {
   );
 
   const keyExtractor = useCallback((item: Profile) => item.id, []);
-
   const renderItem = useCallback(
     ({ item }: { item: Profile }) => (
       <ProfileCard
@@ -604,42 +615,54 @@ export default function ProfilesScreen() {
     [activeProfileId, togglingId, toggleProfile, deleteProfile],
   );
 
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080810" />
+  const canAddMore = isPremium || profiles.length < FREE_LIMITS.MAX_PROFILES;
 
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View>
-          <Text style={styles.headerTitle}>Profils</Text>
-          <Text style={styles.headerSubtitle}>
-            {profiles.length} profil{profiles.length !== 1 ? "s" : ""} ·{" "}
-            {activeProfileId ? "1 actif" : "Aucun actif"}
-          </Text>
+  return (
+    <View style={st.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#07070F" />
+
+      {/* ── Header ── */}
+      <View style={[st.header, { paddingTop: insets.top + 14 }]}>
+        <View style={st.headerLeft}>
+          <View style={st.headerIconWrap}>
+            <Text style={st.headerIconText}>◉</Text>
+          </View>
+          <View>
+            <Text style={st.headerTitle}>Profils</Text>
+            <Text style={st.headerSubtitle}>
+              {profiles.length} profil{profiles.length !== 1 ? "s" : ""} ·{" "}
+              {activeProfileId ? "1 actif" : "Aucun actif"}
+              {!isPremium
+                ? ` · ${profiles.length}/${FREE_LIMITS.MAX_PROFILES} gratuit`
+                : ""}
+            </Text>
+          </View>
         </View>
         <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => setShowModal(true)}
+          style={[st.addBtn, !canAddMore && st.addBtnLocked]}
+          onPress={handleAddProfile}
           activeOpacity={0.8}
         >
-          <Text style={styles.addBtnText}>+ Nouveau</Text>
+          <Text style={[st.addBtnText, !canAddMore && st.addBtnTextLocked]}>
+            {canAddMore ? "+ Nouveau" : "🔒 Premium"}
+          </Text>
         </TouchableOpacity>
       </View>
 
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         {profiles.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>◈</Text>
-            <Text style={styles.emptyTitle}>Aucun profil</Text>
-            <Text style={styles.emptyText}>
+          <View style={st.empty}>
+            <View style={st.emptyIconWrap}>
+              <Text style={st.emptyIcon}>◉</Text>
+            </View>
+            <Text style={st.emptyTitle}>Aucun profil</Text>
+            <Text style={st.emptyText}>
               Créez des profils pour regrouper des règles de blocage. Sans
               planification, le profil bloque immédiatement les apps
               configurées.
             </Text>
-            <TouchableOpacity
-              style={styles.emptyBtn}
-              onPress={() => setShowModal(true)}
-            >
-              <Text style={styles.emptyBtnText}>Créer un profil</Text>
+            <TouchableOpacity style={st.emptyBtn} onPress={handleAddProfile}>
+              <Text style={st.emptyBtnText}>Créer un profil</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -648,7 +671,7 @@ export default function ProfilesScreen() {
             renderItem={renderItem}
             keyExtractor={keyExtractor}
             contentContainerStyle={[
-              styles.list,
+              st.list,
               { paddingBottom: insets.bottom + 100 },
             ]}
             showsVerticalScrollIndicator={false}
@@ -665,13 +688,20 @@ export default function ProfilesScreen() {
         )}
       </Animated.View>
 
+      {/* FAB */}
       {profiles.length > 0 && (
         <TouchableOpacity
-          style={[styles.fab, { bottom: insets.bottom + 24 }]}
-          onPress={() => setShowModal(true)}
+          style={[
+            st.fab,
+            { bottom: insets.bottom + 24 },
+            !canAddMore && st.fabLocked,
+          ]}
+          onPress={handleAddProfile}
           activeOpacity={0.85}
         >
-          <Text style={styles.fabText}>+</Text>
+          <Text style={[st.fabText, !canAddMore && st.fabTextLocked]}>
+            {canAddMore ? "+" : "🔒"}
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -681,107 +711,151 @@ export default function ProfilesScreen() {
         onCreate={createProfile}
         bottomInset={insets.bottom}
       />
+
+      <PaywallModal
+        visible={paywallVisible}
+        reason="profiles"
+        onClose={() => setPaywallVisible(false)}
+        onUpgraded={() => {
+          refreshPremium();
+          setPaywallVisible(false);
+          setShowModal(true);
+        }}
+      />
     </View>
   );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#080810" },
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const st = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#07070F" },
   header: {
     paddingHorizontal: 22,
     paddingBottom: 18,
     borderBottomWidth: 1,
-    borderBottomColor: "#13131F",
+    borderBottomColor: "#111120",
+    backgroundColor: "#07070F",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
+  headerIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: "#0D2218",
+    borderWidth: 1,
+    borderColor: "#1A5034",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerIconText: { fontSize: 20, color: "#2DB870" },
   headerTitle: {
-    fontSize: 34,
+    fontSize: 26,
     fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -1.5,
+    color: "#EDEDFF",
+    letterSpacing: -1,
   },
   headerSubtitle: {
-    fontSize: 12,
-    color: "#3A3A58",
-    marginTop: 3,
+    fontSize: 11,
+    color: "#2A2A48",
+    marginTop: 2,
     fontWeight: "500",
   },
   addBtn: {
-    backgroundColor: "#3DDB8A18",
+    backgroundColor: "#081410",
     borderWidth: 1,
-    borderColor: "#3DDB8A60",
+    borderColor: "#0E3020",
     borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
-  addBtnText: { color: "#3DDB8A", fontSize: 13, fontWeight: "700" },
-  list: { paddingHorizontal: 20, paddingTop: 16 },
+  addBtnLocked: { backgroundColor: "#16103A", borderColor: "#3A3480" },
+  addBtnText: { color: "#2DB870", fontSize: 13, fontWeight: "700" },
+  addBtnTextLocked: { color: "#9B8FFF" },
+  list: { paddingHorizontal: 18, paddingTop: 18 },
+
+  // Empty
   empty: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 40,
   },
-  emptyIcon: { fontSize: 48, marginBottom: 18, color: "#2E2E48" },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#0D2218",
+    borderWidth: 1,
+    borderColor: "#1A5034",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  emptyIcon: { fontSize: 32, color: "#2DB870" },
   emptyTitle: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#F0F0FF",
+    color: "#D8D8F0",
     marginBottom: 10,
   },
   emptyText: {
-    fontSize: 14,
-    color: "#3A3A58",
+    fontSize: 13,
+    color: "#2A2A48",
     textAlign: "center",
-    lineHeight: 22,
+    lineHeight: 21,
     marginBottom: 28,
   },
   emptyBtn: {
-    backgroundColor: "#3DDB8A18",
+    backgroundColor: "#081410",
     borderWidth: 1,
-    borderColor: "#3DDB8A60",
+    borderColor: "#0E3020",
     borderRadius: 14,
     paddingHorizontal: 24,
     paddingVertical: 13,
   },
-  emptyBtnText: { color: "#3DDB8A", fontSize: 14, fontWeight: "700" },
+  emptyBtnText: { color: "#2DB870", fontSize: 14, fontWeight: "700" },
+
+  // FAB
   fab: {
     position: "absolute",
-    right: 22,
-    width: 56,
-    height: 56,
+    right: 20,
+    width: 54,
+    height: 54,
     borderRadius: 18,
-    backgroundColor: "#3DDB8A",
+    backgroundColor: "#2DB870",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#3DDB8A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
     elevation: 10,
+  },
+  fabLocked: {
+    backgroundColor: "#16103A",
+    borderWidth: 1,
+    borderColor: "#3A3480",
   },
   fabText: {
     fontSize: 28,
     fontWeight: "300",
-    color: "#080810",
+    color: "#07070F",
     lineHeight: 32,
   },
+  fabTextLocked: { fontSize: 18, lineHeight: 32, color: "#9B8FFF" },
 });
 
 const card = StyleSheet.create({
   container: {
-    backgroundColor: "#0E0E18",
+    backgroundColor: "#0C0C16",
     borderRadius: 20,
     padding: 18,
     paddingLeft: 22,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     overflow: "hidden",
   },
+  containerActive: { borderColor: "#0E3020", backgroundColor: "#060E08" },
+  containerIdle: { borderColor: "#141428" },
   accentBar: {
     position: "absolute",
     left: 0,
@@ -789,11 +863,12 @@ const card = StyleSheet.create({
     bottom: 12,
     width: 3,
     borderRadius: 2,
+    backgroundColor: "#2DB870",
   },
   top: { flexDirection: "row", alignItems: "center" },
   avatar: {
-    width: 52,
-    height: 52,
+    width: 50,
+    height: 50,
     borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
@@ -809,7 +884,7 @@ const card = StyleSheet.create({
     marginBottom: 4,
     flexWrap: "wrap",
   },
-  name: { fontSize: 16, fontWeight: "700", color: "#F0F0FF" },
+  name: { fontSize: 16, fontWeight: "700", color: "#D8D8F0" },
   activeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -818,43 +893,48 @@ const card = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderWidth: 1,
+    backgroundColor: "#081410",
+    borderColor: "#0E3020",
   },
-  activeBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+  activeBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1,
+    color: "#2DB870",
+  },
   inactiveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderWidth: 1,
-    backgroundColor: "#D0407010",
-    borderColor: "#D0407040",
+    backgroundColor: "#140810",
+    borderColor: "#3A1020",
   },
   inactiveBadgeText: {
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 1,
-    color: "#D04070",
+    color: "#C04060",
   },
-  desc: { fontSize: 12, color: "#3A3A58", marginBottom: 4 },
+  desc: { fontSize: 11, color: "#2A2A48", marginBottom: 5 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  meta: { fontSize: 11, color: "#2A2A42", fontWeight: "500" },
-  metaDot: { color: "#2A2A42", fontSize: 11 },
+  meta: { fontSize: 11, color: "#2A2A48", fontWeight: "500" },
+  metaDot: { color: "#1E1E30", fontSize: 11 },
   immediateBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     marginTop: 12,
-    backgroundColor: "#0D221880",
+    backgroundColor: "#081410",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: "#1E6A4650",
+    borderColor: "#0E3020",
   },
-  immediateText: { fontSize: 12, color: "#3DDB8A", fontWeight: "600" },
+  immediateText: { fontSize: 12, color: "#2DB870", fontWeight: "600" },
   scheduleSection: { marginTop: 14 },
-  scheduleLine: { height: 1, backgroundColor: "#13131F", marginBottom: 12 },
+  scheduleLine: { height: 1, backgroundColor: "#111120", marginBottom: 12 },
   schedules: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   actions: {
     flexDirection: "row",
@@ -864,43 +944,45 @@ const card = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 11,
     borderWidth: 1,
     paddingVertical: 10,
     alignItems: "center",
   },
+  actionBtnActivate: { backgroundColor: "#081410", borderColor: "#0E3020" },
+  actionBtnDeactivate: { backgroundColor: "#140810", borderColor: "#3A1020" },
   actionBtnLoading: { opacity: 0.5 },
   actionText: { fontSize: 13, fontWeight: "700" },
   configBtn: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 11,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     paddingVertical: 10,
     alignItems: "center",
-    backgroundColor: "#14141E",
+    backgroundColor: "#0E0E18",
   },
-  configBtnText: { fontSize: 13, fontWeight: "600", color: "#5A5A80" },
+  configBtnText: { fontSize: 13, fontWeight: "600", color: "#4A4A68" },
   deleteBtn: {
     width: 40,
     height: 40,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#14080A",
-    borderRadius: 10,
+    backgroundColor: "#140810",
+    borderRadius: 11,
     borderWidth: 1,
-    borderColor: "#2A1520",
+    borderColor: "#2A1018",
   },
-  deleteBtnText: { fontSize: 16, color: "#D04070" },
+  deleteBtnText: { fontSize: 15, color: "#C04060" },
 });
 
 const badge = StyleSheet.create({
   container: {
-    backgroundColor: "#14141E",
+    backgroundColor: "#0E0E18",
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     gap: 5,
     minWidth: 100,
   },
@@ -918,40 +1000,45 @@ const badge = StyleSheet.create({
     borderRadius: 5,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
   },
-  dayActive: { backgroundColor: "#7B6EF630" },
-  dayText: { fontSize: 8, fontWeight: "700", color: "#3A3A58" },
-  dayTextActive: { color: "#7B6EF6" },
+  dayActive: { backgroundColor: "#16103A", borderColor: "#3A3480" },
+  dayText: { fontSize: 8, fontWeight: "700", color: "#2A2A48" },
+  dayTextActive: { color: "#9B8FFF" },
   time: {
     fontSize: 11,
-    color: "#5A5A80",
+    color: "#3A3A58",
     fontWeight: "600",
     fontFamily: "monospace",
   },
   more: {
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#0E0E18",
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 6,
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#141428",
   },
   moreText: { fontSize: 11, color: "#3A3A58", fontWeight: "700" },
 });
 
-const createModal = StyleSheet.create({
+const cm = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "#00000099",
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: "#0E0E18",
+    backgroundColor: "#0C0C16",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 24,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderBottomWidth: 0,
+    borderColor: "#141428",
   },
   handle: {
     width: 36,
@@ -963,40 +1050,54 @@ const createModal = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 14,
     marginBottom: 22,
   },
+  headerIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: "#0D2218",
+    borderWidth: 1,
+    borderColor: "#1A5034",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerIcon: { fontSize: 18, color: "#2DB870" },
   title: {
+    flex: 1,
     fontSize: 20,
     fontWeight: "800",
-    color: "#F0F0FF",
+    color: "#EDEDFF",
     letterSpacing: -0.5,
   },
   closeIcon: {
     width: 28,
     height: 28,
     borderRadius: 9,
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
   closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
   label: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    color: "#2E2E48",
+    color: "#2A2A48",
     letterSpacing: 2,
     marginBottom: 8,
   },
   input: {
-    backgroundColor: "#14141E",
-    borderRadius: 12,
+    backgroundColor: "#0E0E18",
+    borderRadius: 14,
     padding: 14,
-    color: "#F0F0FF",
+    color: "#D8D8F0",
     fontSize: 15,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     marginBottom: 18,
   },
   inputMulti: { height: 70, textAlignVertical: "top" },
@@ -1007,25 +1108,23 @@ const createModal = StyleSheet.create({
     marginBottom: 24,
   },
   suggestion: {
-    backgroundColor: "#14141E",
+    backgroundColor: "#0E0E18",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
   },
-  suggestionActive: {
-    backgroundColor: "#7B6EF618",
-    borderColor: "#7B6EF660",
-  },
-  suggestionText: { color: "#5A5A80", fontSize: 13, fontWeight: "600" },
+  suggestionActive: { backgroundColor: "#16103A", borderColor: "#3A3480" },
+  suggestionText: { color: "#3A3A58", fontSize: 13, fontWeight: "600" },
   suggestionTextActive: { color: "#9B8FFF" },
   createBtn: {
-    backgroundColor: "#3DDB8A",
-    borderRadius: 14,
+    backgroundColor: "#2DB870",
+    borderRadius: 16,
     padding: 16,
     alignItems: "center",
+    marginBottom: 8,
   },
-  createBtnDisabled: { backgroundColor: "#3DDB8A30" },
-  createBtnText: { color: "#080810", fontSize: 16, fontWeight: "800" },
+  createBtnDisabled: { backgroundColor: "#2DB87030" },
+  createBtnText: { color: "#07070F", fontSize: 16, fontWeight: "800" },
 });

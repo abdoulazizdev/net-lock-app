@@ -17,9 +17,12 @@ import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppDetailSkeleton from "@/components/AppDetailSkeleton";
+import PaywallModal from "@/components/PaywallModal";
+import { usePremium } from "@/hooks/usePremium";
 import AppListService from "@/services/app-list.service";
 import ScheduleService from "@/services/schedule.service";
 import StorageService from "@/services/storage.service";
+import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
 import { AppRule, InstalledApp, Schedule } from "@/types";
 
@@ -39,7 +42,7 @@ function ProgressBar({
   useEffect(() => {
     Animated.timing(w, {
       toValue: pct,
-      duration: 650,
+      duration: 700,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
@@ -51,7 +54,7 @@ function ProgressBar({
   return (
     <View
       style={{
-        height: 4,
+        height: 3,
         backgroundColor: track,
         borderRadius: 2,
         overflow: "hidden",
@@ -69,6 +72,73 @@ function ProgressBar({
   );
 }
 
+// ─── Toggle animé ─────────────────────────────────────────────────────────────
+function Toggle({
+  value,
+  onPress,
+  size = "md",
+}: {
+  value: boolean;
+  onPress: () => void;
+  size?: "sm" | "md";
+}) {
+  const pos = useRef(new Animated.Value(value ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(pos, {
+      toValue: value ? 1 : 0,
+      duration: 200,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [value]);
+  const isSm = size === "sm";
+  const w = isSm ? 38 : 50,
+    h = isSm ? 22 : 28,
+    thumbSz = isSm ? 16 : 22,
+    travel = isSm ? 16 : 22;
+  const bg = pos.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#14141E", "#16103A"],
+  });
+  const border = pos.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#1C1C2C", "#4A3F8A"],
+  });
+  const thumbX = pos.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, travel],
+  });
+  const thumbBg = pos.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#2A2A3A", "#7B6EF6"],
+  });
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <Animated.View
+        style={{
+          width: w,
+          height: h,
+          borderRadius: h / 2,
+          backgroundColor: bg,
+          borderWidth: 1,
+          borderColor: border,
+          justifyContent: "center",
+        }}
+      >
+        <Animated.View
+          style={{
+            width: thumbSz,
+            height: thumbSz,
+            borderRadius: thumbSz / 2,
+            backgroundColor: thumbBg,
+            transform: [{ translateX: thumbX }],
+          }}
+        />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Schedule Card ────────────────────────────────────────────────────────────
 function ScheduleCard({
   schedule,
@@ -83,68 +153,59 @@ function ScheduleCard({
 }) {
   const isNow = ScheduleService.isScheduleActiveNow(schedule);
   const isBlock = schedule.action === "block";
-  const accentColor = isBlock ? "#D04070" : "#3DDB8A";
-  const accentBg = isBlock ? "#1E0E16" : "#0D2218";
-  const accentBorder = isBlock ? "#4A1A2A" : "#1E6A46";
+  const accent = isBlock ? "#C04060" : "#2DB870";
+  const accentBg = isBlock ? "#140810" : "#081410";
+  const accentBorder = isBlock ? "#3A1020" : "#0E3020";
 
   return (
     <TouchableOpacity
-      style={[
-        styles.scheduleCard,
-        !schedule.isActive && styles.scheduleCardDim,
-      ]}
+      style={[st.scheduleCard, !schedule.isActive && st.scheduleCardDim]}
       onPress={onEdit}
       activeOpacity={0.75}
     >
-      {/* left accent */}
-      <View style={[styles.scheduleAccent, { backgroundColor: accentColor }]} />
-
-      <View style={styles.scheduleLeft}>
-        <View style={styles.scheduleTopRow}>
+      <View style={[st.scheduleAccent, { backgroundColor: accent }]} />
+      <View style={st.scheduleLeft}>
+        <View style={st.scheduleTopRow}>
           <View
             style={[
-              styles.actionPill,
+              st.actionPill,
               { backgroundColor: accentBg, borderColor: accentBorder },
             ]}
           >
-            <View
-              style={[styles.actionDot, { backgroundColor: accentColor }]}
-            />
-            <Text style={[styles.actionPillText, { color: accentColor }]}>
+            <View style={[st.actionDot, { backgroundColor: accent }]} />
+            <Text style={[st.actionPillText, { color: accent }]}>
               {isBlock ? "Bloquer" : "Autoriser"}
             </Text>
           </View>
           {isNow && schedule.isActive && (
-            <View style={styles.nowBadge}>
-              <View style={styles.nowDot} />
-              <Text style={styles.nowBadgeText}>EN COURS</Text>
+            <View style={st.nowBadge}>
+              <View style={st.nowDot} />
+              <Text style={st.nowBadgeText}>EN COURS</Text>
             </View>
           )}
         </View>
 
-        <Text style={styles.scheduleTime}>
+        <Text style={st.scheduleTime}>
           {ScheduleService.formatTime(schedule.startHour, schedule.startMinute)}
-          <Text style={styles.scheduleTimeSep}> → </Text>
+          <Text style={st.scheduleTimeSep}> → </Text>
           {ScheduleService.formatTime(schedule.endHour, schedule.endMinute)}
         </Text>
 
-        <View style={styles.daysRow}>
+        <View style={st.daysRow}>
           {DAYS.map((d, i) => {
             const active = schedule.days.includes(i);
             return (
               <View
                 key={i}
                 style={[
-                  styles.dayChip,
+                  st.dayChip,
                   active && {
                     backgroundColor: accentBg,
                     borderColor: accentBorder,
                   },
                 ]}
               >
-                <Text
-                  style={[styles.dayChipText, active && { color: accentColor }]}
-                >
+                <Text style={[st.dayChipText, active && { color: accent }]}>
                   {d}
                 </Text>
               </View>
@@ -153,28 +214,14 @@ function ScheduleCard({
         </View>
       </View>
 
-      <View style={styles.scheduleRight}>
+      <View style={st.scheduleRight}>
+        <Toggle value={schedule.isActive} onPress={onToggle} size="sm" />
         <TouchableOpacity
-          style={[
-            styles.scheduleToggle,
-            schedule.isActive ? styles.toggleOn : styles.toggleOff,
-          ]}
-          onPress={onToggle}
-          activeOpacity={0.8}
-        >
-          <View
-            style={[
-              styles.toggleThumb,
-              schedule.isActive ? styles.thumbOn : styles.thumbOff,
-            ]}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.scheduleDeleteBtn}
+          style={st.scheduleDeleteBtn}
           onPress={onDelete}
           activeOpacity={0.8}
         >
-          <Text style={styles.scheduleDeleteIcon}>⌫</Text>
+          <Text style={st.scheduleDeleteIcon}>⌫</Text>
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
@@ -185,13 +232,15 @@ function ScheduleCard({
 export default function AppDetailScreen() {
   const insets = useSafeAreaInsets();
   const { packageName } = useLocalSearchParams<{ packageName: string }>();
+  const { isPremium } = usePremium();
   const [app, setApp] = useState<InstalledApp | null>(null);
   const [rule, setRule] = useState<AppRule | null>(null);
   const [stats, setStats] = useState({ blocked: 0, allowed: 0 });
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [blockedCount, setBlockedCount] = useState(0);
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
-  // Modal state
   const [showModal, setShowModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [formLabel, setFormLabel] = useState("");
@@ -261,6 +310,8 @@ export default function AppDetailScreen() {
       setApp(appData);
       const existingRule = await StorageService.getRuleByPackage(packageName);
       setRule(existingRule);
+      const allRules = await StorageService.getRules();
+      setBlockedCount(allRules.filter((r) => r.isBlocked).length);
       const allStats = await StorageService.getStats();
       const appStats = allStats.find((s) => s.packageName === packageName);
       if (appStats)
@@ -278,7 +329,16 @@ export default function AppDetailScreen() {
 
   const toggleBlock = async () => {
     const newBlocked = !rule?.isBlocked;
+    if (
+      newBlocked &&
+      !isPremium &&
+      blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS
+    ) {
+      setPaywallVisible(true);
+      return;
+    }
     await VpnService.setRule(packageName, newBlocked);
+    setBlockedCount((c) => c + (newBlocked ? 1 : -1));
     setRule((prev) => ({
       ...prev!,
       isBlocked: newBlocked,
@@ -292,7 +352,7 @@ export default function AppDetailScreen() {
     const result = await VpnService.simulateConnectionAttempt(packageName);
     await loadAll();
     alert(
-      result === "blocked" ? "🚫 Connexion bloquée" : "✅ Connexion autorisée",
+      result === "blocked" ? "◈ Connexion bloquée" : "◎ Connexion autorisée",
     );
   };
 
@@ -307,7 +367,6 @@ export default function AppDetailScreen() {
     setFormAction("block");
     setShowModal(true);
   };
-
   const openEditModal = (s: Schedule) => {
     setEditingSchedule(s);
     setFormLabel(s.label);
@@ -319,7 +378,6 @@ export default function AppDetailScreen() {
     setFormAction(s.action);
     setShowModal(true);
   };
-
   const closeModal = () => {
     Animated.parallel([
       Animated.timing(modalOpacity, {
@@ -335,7 +393,6 @@ export default function AppDetailScreen() {
       }),
     ]).start(() => setShowModal(false));
   };
-
   const saveSchedule = async () => {
     if (formDays.length === 0) {
       alert("Sélectionnez au moins un jour.");
@@ -359,21 +416,22 @@ export default function AppDetailScreen() {
     setSchedules(await ScheduleService.getSchedules(packageName));
     closeModal();
   };
-
   const deleteSchedule = async (id: string) => {
     await ScheduleService.deleteSchedule(id);
     setSchedules(await ScheduleService.getSchedules(packageName));
   };
-
   const toggleSchedule = async (id: string) => {
     await ScheduleService.toggleSchedule(id);
     setSchedules(await ScheduleService.getSchedules(packageName));
   };
-
   const toggleDay = (day: number) =>
     setFormDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
     );
+
+  // Vérifier limite planifications
+  const scheduleLimitReached =
+    !isPremium && schedules.length >= FREE_LIMITS.MAX_SCHEDULES;
 
   if (loading) return <AppDetailSkeleton />;
 
@@ -383,188 +441,184 @@ export default function AppDetailScreen() {
   const blockedPercent = Math.round(blockedPct * 100);
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080810" />
+    <View style={st.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#07070F" />
 
-      {/* ── Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      {/* ── Header ── */}
+      <View style={[st.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity
           onPress={() => router.back()}
-          style={styles.backBtn}
+          style={st.backBtn}
           activeOpacity={0.7}
         >
-          <Text style={styles.backArrow}>←</Text>
-          <Text style={styles.backText}>Retour</Text>
+          <Text style={st.backArrow}>←</Text>
+          <Text style={st.backText}>Retour</Text>
         </TouchableOpacity>
 
-        <View style={styles.heroSection}>
+        <View style={st.heroSection}>
           {app?.icon ? (
             <Image
               source={{ uri: `data:image/png;base64,${app.icon}` }}
-              style={styles.heroIcon}
+              style={st.heroIcon}
             />
           ) : (
-            <View style={styles.heroIconPlaceholder}>
-              <Text style={styles.heroIconLetter}>
-                {app?.appName.charAt(0)}
-              </Text>
+            <View style={st.heroIconPlaceholder}>
+              <Text style={st.heroIconLetter}>{app?.appName.charAt(0)}</Text>
             </View>
           )}
-          <Text style={styles.heroName}>{app?.appName}</Text>
-          <Text style={styles.heroPackage}>{app?.packageName}</Text>
+          <Text style={st.heroName}>{app?.appName}</Text>
+          <Text style={st.heroPackage}>{app?.packageName}</Text>
           {app?.isSystemApp && (
-            <View style={styles.sysBadge}>
-              <Text style={styles.sysBadgeText}>Système</Text>
+            <View style={st.sysBadge}>
+              <Text style={st.sysBadgeText}>Système</Text>
             </View>
           )}
         </View>
       </View>
 
-      {/* ── Scroll content */}
+      {/* ── Scroll ── */}
       <Animated.ScrollView
         style={{ opacity: fadeAnim }}
         contentContainerStyle={[
-          styles.scroll,
+          st.scroll,
           { paddingBottom: insets.bottom + 32 },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Access control */}
+        {/* ── Contrôle d'accès ── */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          <Text style={styles.sectionLabel}>CONTRÔLE D'ACCÈS</Text>
+          <Text style={st.sectionLabel}>CONTRÔLE D'ACCÈS</Text>
           <View
             style={[
-              styles.controlCard,
-              isBlocked ? styles.controlCardBlocked : styles.controlCardAllowed,
+              st.controlCard,
+              isBlocked ? st.controlCardBlocked : st.controlCardAllowed,
             ]}
           >
-            {isBlocked && (
-              <View
-                style={[styles.controlAccent, { backgroundColor: "#D04070" }]}
-              />
-            )}
-            {!isBlocked && (
-              <View
-                style={[styles.controlAccent, { backgroundColor: "#3DDB8A" }]}
-              />
-            )}
+            <View
+              style={[
+                st.controlAccent,
+                { backgroundColor: isBlocked ? "#C04060" : "#2DB870" },
+              ]}
+            />
+            <View
+              style={[
+                st.controlIconWrap,
+                isBlocked ? st.controlIconBlocked : st.controlIconAllowed,
+              ]}
+            >
+              <Text style={st.controlIcon}>{isBlocked ? "◈" : "◎"}</Text>
+            </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.controlTitle}>
+              <Text
+                style={[
+                  st.controlTitle,
+                  { color: isBlocked ? "#E8D0D8" : "#C8E8D0" },
+                ]}
+              >
                 {isBlocked ? "Internet bloqué" : "Internet autorisé"}
               </Text>
-              <Text style={styles.controlSub}>
+              <Text style={st.controlSub}>
                 {isBlocked
                   ? "Toutes les connexions sont bloquées"
                   : "Accès réseau normal"}
               </Text>
             </View>
-            <TouchableOpacity
-              style={[
-                styles.bigToggle,
-                isBlocked ? styles.bigToggleBlocked : styles.bigToggleAllowed,
-              ]}
-              onPress={toggleBlock}
-              activeOpacity={0.8}
-            >
-              <View
-                style={[
-                  styles.bigThumb,
-                  isBlocked ? styles.bigThumbBlocked : styles.bigThumbAllowed,
-                ]}
-              />
-            </TouchableOpacity>
+            <Toggle value={isBlocked} onPress={toggleBlock} />
           </View>
         </Animated.View>
 
-        {/* Stats */}
+        {/* ── Stats ── */}
         <Animated.View
-          style={[styles.section, { transform: [{ translateY: slideAnim }] }]}
+          style={[st.section, { transform: [{ translateY: slideAnim }] }]}
         >
-          <Text style={styles.sectionLabel}>STATISTIQUES</Text>
-          <View style={styles.statsRow}>
-            <View style={[styles.statCard, styles.statBlocked]}>
-              <Text style={[styles.statNum, { color: "#D04070" }]}>
+          <Text style={st.sectionLabel}>STATISTIQUES</Text>
+
+          <View style={st.statsRow}>
+            <View style={[st.statCard, st.statBlocked]}>
+              <Text style={[st.statNum, { color: "#C04060" }]}>
                 {stats.blocked}
               </Text>
-              <View style={styles.statLabelRow}>
-                <View
-                  style={[styles.statDot, { backgroundColor: "#D04070" }]}
-                />
-                <Text style={styles.statLabel}>Bloquées</Text>
+              <View style={st.statLabelRow}>
+                <View style={[st.statDot, { backgroundColor: "#C04060" }]} />
+                <Text style={st.statLabel}>Bloquées</Text>
               </View>
             </View>
-            <View style={[styles.statCard, styles.statAllowed]}>
-              <Text style={[styles.statNum, { color: "#3DDB8A" }]}>
+            <View style={[st.statCard, st.statAllowed]}>
+              <Text style={[st.statNum, { color: "#2DB870" }]}>
                 {stats.allowed}
               </Text>
-              <View style={styles.statLabelRow}>
-                <View
-                  style={[styles.statDot, { backgroundColor: "#3DDB8A" }]}
-                />
-                <Text style={styles.statLabel}>Autorisées</Text>
+              <View style={st.statLabelRow}>
+                <View style={[st.statDot, { backgroundColor: "#2DB870" }]} />
+                <Text style={st.statLabel}>Autorisées</Text>
               </View>
             </View>
-            <View style={[styles.statCard, styles.statTotal]}>
-              <Text style={[styles.statNum, { color: "#9B8FFF" }]}>
+            <View style={[st.statCard, st.statPct]}>
+              <Text style={[st.statNum, { color: "#9B8FFF" }]}>
                 {blockedPercent}%
               </Text>
-              <View style={styles.statLabelRow}>
-                <View
-                  style={[styles.statDot, { backgroundColor: "#9B8FFF" }]}
-                />
-                <Text style={styles.statLabel}>Bloqué</Text>
+              <View style={st.statLabelRow}>
+                <View style={[st.statDot, { backgroundColor: "#9B8FFF" }]} />
+                <Text style={st.statLabel}>Bloqué</Text>
               </View>
             </View>
           </View>
 
           {total > 0 && (
-            <View style={{ marginTop: 10, marginBottom: 14 }}>
-              <ProgressBar pct={blockedPct} color="#D04070" track="#0D2218" />
+            <View style={{ marginTop: 12, marginBottom: 14 }}>
+              <ProgressBar pct={blockedPct} color="#C04060" track="#14141E" />
             </View>
           )}
 
           <TouchableOpacity
-            style={styles.simulateBtn}
+            style={st.simulateBtn}
             onPress={simulateAttempt}
             activeOpacity={0.8}
           >
-            <Text style={styles.simulateBtnIcon}>◎</Text>
-            <Text style={styles.simulateBtnText}>Simuler une connexion</Text>
+            <Text style={st.simulateBtnIcon}>◎</Text>
+            <Text style={st.simulateBtnText}>Simuler une connexion</Text>
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Schedule */}
+        {/* ── Planification ── */}
         <Animated.View
-          style={[styles.section, { transform: [{ translateY: slideAnim }] }]}
+          style={[st.section, { transform: [{ translateY: slideAnim }] }]}
         >
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionLabel}>PLANIFICATION</Text>
+          <View style={st.sectionHeaderRow}>
+            <Text style={st.sectionLabel}>PLANIFICATION</Text>
             <TouchableOpacity
-              style={styles.addBtn}
-              onPress={openAddModal}
+              style={[st.addBtn, scheduleLimitReached && st.addBtnLocked]}
+              onPress={() => {
+                if (!scheduleLimitReached) openAddModal();
+              }}
               activeOpacity={0.8}
             >
-              <Text style={styles.addBtnPlus}>+</Text>
-              <Text style={styles.addBtnText}>Ajouter</Text>
+              <Text
+                style={[
+                  st.addBtnText,
+                  scheduleLimitReached && st.addBtnTextLocked,
+                ]}
+              >
+                {scheduleLimitReached ? "🔒 Premium" : "+ Ajouter"}
+              </Text>
             </TouchableOpacity>
           </View>
 
           {schedules.length === 0 ? (
-            <View style={styles.emptySchedule}>
-              <View style={styles.emptyIconWrap}>
-                <Text style={styles.emptyIconText}>◷</Text>
+            <View style={st.emptySchedule}>
+              <View style={st.emptyIconWrap}>
+                <Text style={st.emptyIconText}>◷</Text>
               </View>
-              <Text style={styles.emptyTitle}>Aucune planification</Text>
-              <Text style={styles.emptySubtitle}>
+              <Text style={st.emptyTitle}>Aucune planification</Text>
+              <Text style={st.emptySubtitle}>
                 Définissez des plages horaires pour bloquer ou autoriser
                 automatiquement Internet.
               </Text>
               <TouchableOpacity
-                style={styles.emptyBtn}
+                style={st.emptyBtn}
                 onPress={openAddModal}
                 activeOpacity={0.8}
               >
-                <Text style={styles.emptyBtnText}>Créer une planification</Text>
+                <Text style={st.emptyBtnText}>Créer une planification</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -581,60 +635,56 @@ export default function AppDetailScreen() {
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* ── Schedule Modal */}
+      {/* ── Modal planification ── */}
       <Modal
         visible={showModal}
         transparent
         animationType="none"
         onRequestClose={closeModal}
       >
-        <Animated.View style={[modalStyles.overlay, { opacity: modalOpacity }]}>
+        <Animated.View style={[ms.overlay, { opacity: modalOpacity }]}>
           <TouchableOpacity
             style={{ flex: 1 }}
             activeOpacity={1}
             onPress={closeModal}
           />
-
           <Animated.View
             style={[
-              modalStyles.sheet,
+              ms.sheet,
               {
                 transform: [{ translateY: modalSlide }],
                 paddingBottom: insets.bottom + 20,
               },
             ]}
           >
-            <View style={modalStyles.handle} />
-
-            <View style={modalStyles.sheetHeader}>
-              <Text style={modalStyles.sheetTitle}>
+            <View style={ms.handle} />
+            <View style={ms.sheetHeader}>
+              <Text style={ms.sheetTitle}>
                 {editingSchedule ? "Modifier" : "Nouvelle planification"}
               </Text>
-              <TouchableOpacity
-                onPress={closeModal}
-                style={modalStyles.closeBtn}
-              >
-                <View style={modalStyles.closeIcon}>
-                  <Text style={modalStyles.closeIconText}>✕</Text>
-                </View>
+              <TouchableOpacity onPress={closeModal} style={ms.closeIcon}>
+                <Text style={ms.closeIconText}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Action toggle */}
-              <Text style={modalStyles.fieldLabel}>ACTION</Text>
-              <View style={modalStyles.actionRow}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Action */}
+              <Text style={ms.fieldLabel}>ACTION</Text>
+              <View style={ms.actionRow}>
                 {(["block", "allow"] as const).map((a) => {
                   const active = formAction === a;
                   const c =
                     a === "block"
-                      ? { bg: "#1E0E16", border: "#6A1A35", text: "#D04070" }
-                      : { bg: "#0D2218", border: "#1E6A46", text: "#3DDB8A" };
+                      ? { bg: "#140810", border: "#3A1020", text: "#C04060" }
+                      : { bg: "#081410", border: "#0E3020", text: "#2DB870" };
                   return (
                     <TouchableOpacity
                       key={a}
                       style={[
-                        modalStyles.actionChip,
+                        ms.actionChip,
                         active && {
                           backgroundColor: c.bg,
                           borderColor: c.border,
@@ -645,15 +695,12 @@ export default function AppDetailScreen() {
                     >
                       <View
                         style={[
-                          modalStyles.actionChipDot,
+                          ms.actionDot,
                           active && { backgroundColor: c.text },
                         ]}
                       />
                       <Text
-                        style={[
-                          modalStyles.actionChipText,
-                          active && { color: c.text },
-                        ]}
+                        style={[ms.actionChipText, active && { color: c.text }]}
                       >
                         {a === "block" ? "Bloquer" : "Autoriser"}
                       </Text>
@@ -662,40 +709,40 @@ export default function AppDetailScreen() {
                 })}
               </View>
 
-              {/* Time blocks */}
-              <View style={modalStyles.timeRow}>
+              {/* Horaires */}
+              <View style={ms.timeRow}>
                 {(["start", "end"] as const).map((target, idx) => {
                   const h = target === "start" ? formStartHour : formEndHour;
                   const m =
                     target === "start" ? formStartMinute : formEndMinute;
                   return (
                     <React.Fragment key={target}>
-                      {idx === 1 && <Text style={modalStyles.timeSep}>→</Text>}
+                      {idx === 1 && <Text style={ms.timeSep}>→</Text>}
                       <View style={{ flex: 1 }}>
-                        <Text style={modalStyles.fieldLabel}>
+                        <Text style={ms.fieldLabel}>
                           {target === "start" ? "DÉBUT" : "FIN"}
                         </Text>
                         <TouchableOpacity
                           style={[
-                            modalStyles.timeDisplay,
+                            ms.timeDisplay,
                             timePickerTarget === target &&
                               showTimePicker &&
-                              modalStyles.timeDisplayActive,
+                              ms.timeDisplayActive,
                           ]}
                           onPress={() => {
-                            if (timePickerTarget === target && showTimePicker) {
-                              setShowTimePicker(false); // toggle off si même bouton
-                            } else {
+                            if (timePickerTarget === target && showTimePicker)
+                              setShowTimePicker(false);
+                            else {
                               setTimePickerTarget(target);
                               setShowTimePicker(true);
                             }
                           }}
                           activeOpacity={0.8}
                         >
-                          <Text style={modalStyles.timeDisplayText}>
+                          <Text style={ms.timeDisplayText}>
                             {ScheduleService.formatTime(h, m)}
                           </Text>
-                          <Text style={modalStyles.timeDisplayCaret}>
+                          <Text style={ms.timeDisplayCaret}>
                             {timePickerTarget === target && showTimePicker
                               ? "▲"
                               : "▼"}
@@ -707,27 +754,23 @@ export default function AppDetailScreen() {
                 })}
               </View>
 
-              {/* DateTimePicker natif — dialog Android / spinner iOS */}
               {showTimePicker && (
                 <DateTimePicker
                   value={(() => {
                     const d = new Date();
-                    if (timePickerTarget === "start") {
+                    if (timePickerTarget === "start")
                       d.setHours(formStartHour, formStartMinute, 0, 0);
-                    } else {
-                      d.setHours(formEndHour, formEndMinute, 0, 0);
-                    }
+                    else d.setHours(formEndHour, formEndMinute, 0, 0);
                     return d;
                   })()}
                   mode="time"
-                  is24Hour={true}
+                  is24Hour
                   display={Platform.OS === "ios" ? "spinner" : "default"}
                   onChange={(event, date) => {
-                    // Android : dialog se ferme automatiquement
                     if (Platform.OS === "android") setShowTimePicker(false);
                     if (event.type !== "dismissed" && date) {
-                      const h = date.getHours();
-                      const m = date.getMinutes();
+                      const h = date.getHours(),
+                        m = date.getMinutes();
                       if (timePickerTarget === "start") {
                         setFormStartHour(h);
                         setFormStartMinute(m);
@@ -739,42 +782,33 @@ export default function AppDetailScreen() {
                   }}
                   themeVariant="dark"
                   textColor="#F0F0FF"
-                  style={
-                    Platform.OS === "ios" ? modalStyles.iosPicker : undefined
-                  }
+                  style={Platform.OS === "ios" ? ms.iosPicker : undefined}
                 />
               )}
-              {/* iOS uniquement : bouton Valider pour fermer le spinner inline */}
               {showTimePicker && Platform.OS === "ios" && (
                 <TouchableOpacity
-                  style={modalStyles.confirmBtn}
+                  style={ms.confirmBtn}
                   onPress={() => setShowTimePicker(false)}
                   activeOpacity={0.8}
                 >
-                  <Text style={modalStyles.confirmBtnText}>Valider</Text>
+                  <Text style={ms.confirmBtnText}>Valider</Text>
                 </TouchableOpacity>
               )}
 
-              {/* Days */}
-              <Text style={modalStyles.fieldLabel}>JOURS</Text>
-              <View style={modalStyles.daysRow}>
+              {/* Jours */}
+              <Text style={ms.fieldLabel}>JOURS</Text>
+              <View style={ms.daysRow}>
                 {DAYS.map((d, i) => {
                   const active = formDays.includes(i);
                   return (
                     <TouchableOpacity
                       key={i}
-                      style={[
-                        modalStyles.dayChip,
-                        active && modalStyles.dayChipActive,
-                      ]}
+                      style={[ms.dayChip, active && ms.dayChipActive]}
                       onPress={() => toggleDay(i)}
                       activeOpacity={0.8}
                     >
                       <Text
-                        style={[
-                          modalStyles.dayChipText,
-                          active && modalStyles.dayChipTextActive,
-                        ]}
+                        style={[ms.dayChipText, active && ms.dayChipTextActive]}
                       >
                         {d}
                       </Text>
@@ -783,7 +817,7 @@ export default function AppDetailScreen() {
                 })}
               </View>
 
-              <View style={modalStyles.shortcutsRow}>
+              <View style={ms.shortcutsRow}>
                 {[
                   { label: "Semaine", days: [1, 2, 3, 4, 5] },
                   { label: "Week-end", days: [0, 6] },
@@ -791,62 +825,73 @@ export default function AppDetailScreen() {
                 ].map(({ label, days }) => (
                   <TouchableOpacity
                     key={label}
-                    style={modalStyles.shortcut}
+                    style={ms.shortcut}
                     onPress={() => setFormDays(days)}
                     activeOpacity={0.8}
                   >
-                    <Text style={modalStyles.shortcutText}>{label}</Text>
+                    <Text style={ms.shortcutText}>{label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </ScrollView>
 
             <TouchableOpacity
-              style={modalStyles.saveBtn}
+              style={ms.saveBtn}
               onPress={saveSchedule}
               activeOpacity={0.85}
             >
-              <Text style={modalStyles.saveBtnText}>
+              <Text style={ms.saveBtnText}>
                 {editingSchedule ? "Enregistrer" : "Créer la planification"}
               </Text>
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
       </Modal>
+
+      <PaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason="blocked_apps"
+        onUpgraded={() => {
+          setPaywallVisible(false);
+          loadAll();
+        }}
+      />
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#080810" },
+// ─── Styles principaux ────────────────────────────────────────────────────────
+const st = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#07070F" },
 
-  // ── Header
+  // Header
   header: {
     paddingHorizontal: 22,
     paddingBottom: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#13131F",
+    borderBottomColor: "#111120",
+    backgroundColor: "#07070F",
   },
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 24,
+    marginBottom: 22,
   },
-  backArrow: { fontSize: 18, color: "#9B8FFF", lineHeight: 20 },
-  backText: { fontSize: 14, color: "#9B8FFF", fontWeight: "600" },
+  backArrow: { fontSize: 18, color: "#7B6EF6", lineHeight: 20 },
+  backText: { fontSize: 14, color: "#7B6EF6", fontWeight: "600" },
 
   heroSection: { alignItems: "center" },
-  heroIcon: { width: 80, height: 80, borderRadius: 22, marginBottom: 12 },
+  heroIcon: { width: 80, height: 80, borderRadius: 22, marginBottom: 14 },
   heroIconPlaceholder: {
     width: 80,
     height: 80,
     borderRadius: 22,
-    backgroundColor: "#16162A",
+    backgroundColor: "#14142A",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: "#2A2A40",
   },
@@ -854,15 +899,15 @@ const styles = StyleSheet.create({
   heroName: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#F0F0FF",
+    color: "#EDEDFF",
     letterSpacing: -0.5,
-    marginBottom: 4,
+    marginBottom: 5,
   },
   heroPackage: {
     fontSize: 11,
-    color: "#2E2E44",
+    color: "#1E1E38",
     fontFamily: "monospace",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   sysBadge: {
     paddingHorizontal: 10,
@@ -872,37 +917,37 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1C1C2C",
   },
-  sysBadgeText: { fontSize: 11, color: "#3A3A58", fontWeight: "600" },
+  sysBadgeText: { fontSize: 10, color: "#3A3A58", fontWeight: "600" },
 
-  // ── Scroll
-  scroll: { paddingHorizontal: 22, paddingTop: 22 },
-  section: { marginBottom: 26 },
+  // Scroll
+  scroll: { paddingHorizontal: 20, paddingTop: 22 },
+  section: { marginBottom: 28 },
   sectionLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 2,
-    marginBottom: 10,
+    color: "#2A2A48",
+    letterSpacing: 2.5,
+    marginBottom: 12,
   },
   sectionHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
 
-  // ── Control card
+  // Contrôle
   controlCard: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 18,
     borderWidth: 1,
     overflow: "hidden",
-    gap: 16,
+    gap: 14,
   },
-  controlCardBlocked: { backgroundColor: "#0E0A10", borderColor: "#2A1525" },
-  controlCardAllowed: { backgroundColor: "#0A0E0C", borderColor: "#152518" },
+  controlCardBlocked: { backgroundColor: "#0E0608", borderColor: "#2A1018" },
+  controlCardAllowed: { backgroundColor: "#060E08", borderColor: "#0E2818" },
   controlAccent: {
     position: "absolute",
     left: 0,
@@ -911,99 +956,95 @@ const styles = StyleSheet.create({
     width: 3,
     borderRadius: 2,
   },
+  controlIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  controlIconBlocked: {
+    backgroundColor: "#180810",
+    borderWidth: 1,
+    borderColor: "#3A1020",
+  },
+  controlIconAllowed: {
+    backgroundColor: "#081808",
+    borderWidth: 1,
+    borderColor: "#0E3020",
+  },
+  controlIcon: { fontSize: 18, color: "#5A5A80" },
   controlTitle: {
     fontSize: 15,
-    fontWeight: "700",
-    color: "#E8E8F8",
+    fontWeight: "800",
     marginBottom: 3,
-    paddingLeft: 8,
+    letterSpacing: -0.3,
   },
-  controlSub: { fontSize: 12, color: "#3A3A58", paddingLeft: 8 },
-  bigToggle: {
-    width: 54,
-    height: 30,
-    borderRadius: 15,
-    justifyContent: "center",
-    padding: 3,
-    borderWidth: 1,
-  },
-  bigToggleAllowed: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
-  bigToggleBlocked: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
-  bigThumb: { width: 22, height: 22, borderRadius: 11 },
-  bigThumbAllowed: { backgroundColor: "#3DDB8A", alignSelf: "flex-end" },
-  bigThumbBlocked: { backgroundColor: "#4A2030", alignSelf: "flex-start" },
+  controlSub: { fontSize: 11, color: "#2E2E48" },
 
-  // ── Stats
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 2 },
+  // Stats
+  statsRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
   statCard: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
     borderWidth: 1,
     alignItems: "center",
     gap: 6,
   },
-  statBlocked: { backgroundColor: "#1E0E16", borderColor: "#4A1A2A" },
-  statAllowed: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
-  statTotal: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
-  statNum: { fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
+  statBlocked: { backgroundColor: "#0E0608", borderColor: "#2A1018" },
+  statAllowed: { backgroundColor: "#060E08", borderColor: "#0E2818" },
+  statPct: { backgroundColor: "#0C0C18", borderColor: "#2A2460" },
+  statNum: { fontSize: 24, fontWeight: "800", letterSpacing: -0.5 },
   statLabelRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   statDot: { width: 5, height: 5, borderRadius: 3 },
   statLabel: {
-    fontSize: 10,
-    color: "#3A3A58",
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    fontSize: 9,
+    color: "#2A2A48",
+    fontWeight: "700",
+    letterSpacing: 1,
   },
 
-  // ── Simulate button
+  // Simulate
   simulateBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#0E0E18",
-    borderRadius: 12,
+    backgroundColor: "#0C0C16",
+    borderRadius: 14,
     paddingVertical: 14,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
   },
-  simulateBtnIcon: { fontSize: 14, color: "#3A3A58" },
-  simulateBtnText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
+  simulateBtnIcon: { fontSize: 13, color: "#3A3A58" },
+  simulateBtnText: { color: "#3A3A58", fontSize: 13, fontWeight: "600" },
 
-  // ── Add button
+  // Add button
   addBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 10,
     backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: "#3A3480",
   },
-  addBtnPlus: {
-    fontSize: 14,
-    color: "#9B8FFF",
-    lineHeight: 16,
-    fontWeight: "300",
-  },
+  addBtnLocked: { backgroundColor: "#14141E", borderColor: "#1C1C2C" },
   addBtnText: { fontSize: 12, color: "#9B8FFF", fontWeight: "700" },
+  addBtnTextLocked: { color: "#3A3A58" },
 
-  // ── Schedule cards
+  // Schedule cards
   scheduleCard: {
     flexDirection: "row",
-    backgroundColor: "#0E0E18",
+    backgroundColor: "#0C0C16",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     marginBottom: 8,
     overflow: "hidden",
   },
-  scheduleCardDim: { opacity: 0.45 },
+  scheduleCardDim: { opacity: 0.4 },
   scheduleAccent: {
     position: "absolute",
     left: 0,
@@ -1012,7 +1053,7 @@ const styles = StyleSheet.create({
     width: 3,
     borderRadius: 2,
   },
-  scheduleLeft: { flex: 1, paddingLeft: 8 },
+  scheduleLeft: { flex: 1, paddingLeft: 10 },
   scheduleTopRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1037,71 +1078,55 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 7,
-    backgroundColor: "#0D2218",
+    backgroundColor: "#081410",
     borderWidth: 1,
-    borderColor: "#1E6A46",
+    borderColor: "#0E3020",
   },
-  nowDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#3DDB8A" },
+  nowDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#2DB870" },
   nowBadgeText: {
     fontSize: 9,
-    color: "#3DDB8A",
+    color: "#2DB870",
     fontWeight: "800",
     letterSpacing: 0.8,
   },
-
   scheduleTime: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#E8E8F8",
+    color: "#D8D8F0",
     letterSpacing: -0.5,
     marginBottom: 8,
   },
-  scheduleTimeSep: { color: "#3A3A58", fontWeight: "400" },
-
+  scheduleTimeSep: { color: "#2A2A48", fontWeight: "400" },
   daysRow: { flexDirection: "row", gap: 4 },
   dayChip: {
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 6,
-    backgroundColor: "#14141E",
+    backgroundColor: "#0E0E18",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
   },
-  dayChipText: { fontSize: 9, color: "#2E2E44", fontWeight: "700" },
-
+  dayChipText: { fontSize: 9, color: "#2A2A48", fontWeight: "700" },
   scheduleRight: { alignItems: "center", gap: 10, paddingLeft: 12 },
-  scheduleToggle: {
-    width: 40,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: "center",
-    padding: 3,
-    borderWidth: 1,
-  },
-  toggleOn: { backgroundColor: "#0D2218", borderColor: "#1E6A46" },
-  toggleOff: { backgroundColor: "#14141E", borderColor: "#1C1C2C" },
-  toggleThumb: { width: 14, height: 14, borderRadius: 7 },
-  thumbOn: { backgroundColor: "#3DDB8A", alignSelf: "flex-end" },
-  thumbOff: { backgroundColor: "#2A2A3A", alignSelf: "flex-start" },
   scheduleDeleteBtn: {
-    width: 32,
-    height: 32,
+    width: 30,
+    height: 30,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#14080A",
+    backgroundColor: "#140810",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#2A1520",
+    borderColor: "#2A1018",
   },
-  scheduleDeleteIcon: { fontSize: 13, color: "#5A2030" },
+  scheduleDeleteIcon: { fontSize: 12, color: "#4A2030" },
 
-  // ── Empty schedule
+  // Empty
   emptySchedule: {
-    backgroundColor: "#0E0E18",
-    borderRadius: 16,
+    backgroundColor: "#0C0C16",
+    borderRadius: 18,
     padding: 28,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     alignItems: "center",
   },
   emptyIconWrap: {
@@ -1110,21 +1135,21 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: "#3A3480",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
   },
-  emptyIconText: { fontSize: 28, color: "#7B6EF6" },
+  emptyIconText: { fontSize: 26, color: "#5A4A9A" },
   emptyTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#E8E8F8",
+    color: "#C0C0D8",
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 12,
-    color: "#3A3A58",
+    color: "#2A2A48",
     textAlign: "center",
     lineHeight: 19,
     marginBottom: 20,
@@ -1135,26 +1160,26 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: "#3A3480",
   },
   emptyBtnText: { color: "#9B8FFF", fontSize: 13, fontWeight: "700" },
 });
 
 // ─── Modal styles ─────────────────────────────────────────────────────────────
-const modalStyles = StyleSheet.create({
+const ms = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "#00000088",
+    backgroundColor: "#00000099",
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: "#0E0E18",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingHorizontal: 24,
+    backgroundColor: "#0C0C16",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 22,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     maxHeight: "92%",
   },
   handle: {
@@ -1175,29 +1200,30 @@ const modalStyles = StyleSheet.create({
   sheetTitle: {
     fontSize: 19,
     fontWeight: "800",
-    color: "#F0F0FF",
+    color: "#EDEDFF",
     letterSpacing: -0.5,
   },
-  closeBtn: {},
   closeIcon: {
     width: 28,
     height: 28,
     borderRadius: 9,
-    backgroundColor: "#1C1C2C",
+    backgroundColor: "#14141E",
+    borderWidth: 1,
+    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
   closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
 
   fieldLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 1.8,
+    color: "#2A2A48",
+    letterSpacing: 2,
     marginBottom: 10,
   },
 
-  actionRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
+  actionRow: { flexDirection: "row", gap: 10, marginBottom: 22 },
   actionChip: {
     flex: 1,
     flexDirection: "row",
@@ -1205,12 +1231,12 @@ const modalStyles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
     padding: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: "#0E0E18",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
   },
-  actionChipDot: {
+  actionDot: {
     width: 7,
     height: 7,
     borderRadius: 4,
@@ -1225,45 +1251,30 @@ const modalStyles = StyleSheet.create({
     marginBottom: 14,
   },
   timeSep: {
-    color: "#3A3A58",
+    color: "#2A2A48",
     fontSize: 16,
     fontWeight: "700",
     paddingBottom: 14,
   },
   timeDisplay: {
-    backgroundColor: "#080810",
-    borderRadius: 12,
+    backgroundColor: "#07070F",
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  timeDisplayActive: { borderColor: "#4A3F8A", backgroundColor: "#0D0C1A" },
+  timeDisplayActive: { borderColor: "#3A3480", backgroundColor: "#0C0C1A" },
   timeDisplayText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "800",
-    color: "#E8E8F8",
+    color: "#D8D8F0",
     letterSpacing: 1,
   },
-  timeDisplayCaret: { fontSize: 10, color: "#3A3A58" },
+  timeDisplayCaret: { fontSize: 10, color: "#2A2A48" },
 
-  timePickerWrap: {
-    backgroundColor: "#080810",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 18,
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-  },
-  timePickerTitle: {
-    fontSize: 11,
-    color: "#3A3A58",
-    fontWeight: "700",
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
   confirmBtn: {
     backgroundColor: "#16103A",
     borderRadius: 10,
@@ -1271,7 +1282,7 @@ const modalStyles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: "#3A3480",
   },
   confirmBtnText: { color: "#9B8FFF", fontSize: 14, fontWeight: "700" },
 
@@ -1280,29 +1291,29 @@ const modalStyles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: "#080810",
+    backgroundColor: "#07070F",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
   },
-  dayChipActive: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
-  dayChipText: { fontSize: 12, color: "#3A3A58", fontWeight: "700" },
+  dayChipActive: { backgroundColor: "#16103A", borderColor: "#3A3480" },
+  dayChipText: { fontSize: 12, color: "#2A2A48", fontWeight: "700" },
   dayChipTextActive: { color: "#9B8FFF" },
 
   shortcutsRow: { flexDirection: "row", gap: 8, marginBottom: 22 },
   shortcut: {
     flex: 1,
-    backgroundColor: "#080810",
+    backgroundColor: "#07070F",
     borderRadius: 10,
-    padding: 8,
+    padding: 9,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
   },
   shortcutText: { fontSize: 11, color: "#3A3A58", fontWeight: "600" },
 
   saveBtn: {
     backgroundColor: "#7B6EF6",
-    borderRadius: 14,
+    borderRadius: 16,
     paddingVertical: 15,
     alignItems: "center",
     marginTop: 8,
@@ -1311,7 +1322,7 @@ const modalStyles = StyleSheet.create({
     color: "#F0F0FF",
     fontSize: 15,
     fontWeight: "800",
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   iosPicker: { width: "100%", height: 150, marginBottom: 4 },
 });

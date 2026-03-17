@@ -1,9 +1,12 @@
+import PaywallModal from "@/components/PaywallModal";
+import { usePremium } from "@/hooks/usePremium";
 import AppListService from "@/services/app-list.service";
 import ConnectionLogService, {
   AppLogStats,
   LogEntry,
   LogSummary,
 } from "@/services/connection-log.service";
+import { FREE_LIMITS } from "@/services/subscription.service";
 import React, {
   useCallback,
   useEffect,
@@ -26,11 +29,10 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ─── Types enrichis (nom résolu en local, jamais sur LogEntry) ────────────────
 type Tab = "overview" | "history" | "apps";
 
 interface LogEntryWithName extends LogEntry {
-  appName: string; // toujours défini après résolution
+  appName: string;
 }
 interface AppStatWithName extends AppLogStats {
   appName: string;
@@ -40,7 +42,7 @@ interface AppStatWithName extends AppLogStats {
 function ProgressBar({
   pct,
   color,
-  trackColor = "#1C1C2C",
+  trackColor = "#141428",
   height = 4,
 }: {
   pct: number;
@@ -63,26 +65,21 @@ function ProgressBar({
   });
   return (
     <View
-      style={[
-        pb.track,
-        { backgroundColor: trackColor, height, borderRadius: height },
-      ]}
+      style={{
+        overflow: "hidden",
+        width: "100%",
+        height,
+        borderRadius: height,
+        backgroundColor: trackColor,
+      }}
     >
       <Animated.View
-        style={[
-          pb.fill,
-          { width, backgroundColor: color, height, borderRadius: height },
-        ]}
+        style={{ width, backgroundColor: color, height, borderRadius: height }}
       />
     </View>
   );
 }
-const pb = StyleSheet.create({
-  track: { overflow: "hidden", width: "100%" },
-  fill: {},
-});
 
-// ─── Tab bar ──────────────────────────────────────────────────────────────────
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: "overview", label: "Vue d'ensemble", icon: "◈" },
   { key: "history", label: "Historique", icon: "◷" },
@@ -103,6 +100,8 @@ export default function StatsScreen() {
   const [appStats, setAppStats] = useState<AppStatWithName[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const { isPremium, refresh: refreshPremium } = usePremium();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const tabAnim = useRef(new Animated.Value(1)).current;
@@ -111,29 +110,35 @@ export default function StatsScreen() {
     loadAll();
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 400,
+      duration: 420,
       useNativeDriver: true,
     }).start();
   }, []);
 
-  // Tab cross-fade
-  const switchTab = useCallback((next: Tab) => {
-    Animated.sequence([
-      Animated.timing(tabAnim, {
-        toValue: 0,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(tabAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    setTab(next);
-  }, []);
+  const switchTab = useCallback(
+    (next: Tab) => {
+      // ── Gate premium : bloquer les onglets non autorisés ──────────────────────
+      if (!isPremium && !FREE_LIMITS.STATS_TABS_FREE.includes(next)) {
+        setPaywallVisible(true);
+        return;
+      }
+      Animated.sequence([
+        Animated.timing(tabAnim, {
+          toValue: 0,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(tabAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      setTab(next);
+    },
+    [isPremium],
+  );
 
-  // ── Résolution des noms d'apps ──────────────────────────────────────────
   const resolveAppNames = async (
     pkgs: string[],
   ): Promise<Map<string, string>> => {
@@ -154,7 +159,6 @@ export default function StatsScreen() {
     [],
   );
 
-  // ── Chargement ──────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -163,12 +167,10 @@ export default function StatsScreen() {
         ConnectionLogService.getLogs(300),
       ]);
       setSummary(s);
-      // Affichage immédiat sans noms
       setLogs(l.map((e) => ({ ...e, appName: displayName(e.packageName) })));
       setAppStats(
         s.perApp.map((a) => ({ ...a, appName: displayName(a.packageName) })),
       );
-      // Résolution en arrière-plan
       const pkgs = [
         ...new Set([
           ...l.map((e) => e.packageName),
@@ -220,15 +222,12 @@ export default function StatsScreen() {
 
   const grouped = useMemo(() => ConnectionLogService.groupByDate(logs), [logs]);
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // ── Overview Tab
-  // ────────────────────────────────────────────────────────────────────────────
+  // ── Overview ──────────────────────────────────────────────────────────────
   const OverviewTab = useCallback(() => {
     const blockedPct =
       summary.totalEvents > 0
         ? Math.round((summary.totalBlocked / summary.totalEvents) * 100)
         : 0;
-
     return (
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -238,7 +237,7 @@ export default function StatsScreen() {
             onRefresh={handleRefresh}
             tintColor="#7B6EF6"
             colors={["#7B6EF6"]}
-            progressBackgroundColor="#0E0E18"
+            progressBackgroundColor="#0C0C16"
           />
         }
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
@@ -251,57 +250,56 @@ export default function StatsScreen() {
           />
         ) : (
           <>
-            {/* ── Big counters */}
             <View style={s.statsGrid}>
               <View style={[s.statBig, s.statBigBlocked]}>
-                <View style={s.statBigAccent} />
-                <Text style={[s.statBigNum, { color: "#D04070" }]}>
+                <View
+                  style={[s.statBigAccent, { backgroundColor: "#C04060" }]}
+                />
+                <Text style={[s.statBigNum, { color: "#C04060" }]}>
                   {summary.totalBlocked}
                 </Text>
                 <Text style={s.statBigLabel}>Bloquées</Text>
                 <ProgressBar
                   pct={blockedPct}
-                  color="#D04070"
-                  trackColor="#2A0E16"
+                  color="#C04060"
+                  trackColor="#200A10"
                 />
-                <Text style={[s.statBigPct, { color: "#D04070" }]}>
+                <Text style={[s.statBigPct, { color: "#C04060" }]}>
                   {blockedPct}%
                 </Text>
               </View>
               <View style={[s.statBig, s.statBigAllowed]}>
                 <View
-                  style={[s.statBigAccent, { backgroundColor: "#3DDB8A" }]}
+                  style={[s.statBigAccent, { backgroundColor: "#2DB870" }]}
                 />
-                <Text style={[s.statBigNum, { color: "#3DDB8A" }]}>
+                <Text style={[s.statBigNum, { color: "#2DB870" }]}>
                   {summary.totalAllowed}
                 </Text>
                 <Text style={s.statBigLabel}>Autorisées</Text>
                 <ProgressBar
                   pct={100 - blockedPct}
-                  color="#3DDB8A"
-                  trackColor="#0A1E14"
+                  color="#2DB870"
+                  trackColor="#081410"
                 />
-                <Text style={[s.statBigPct, { color: "#3DDB8A" }]}>
+                <Text style={[s.statBigPct, { color: "#2DB870" }]}>
                   {100 - blockedPct}%
                 </Text>
               </View>
             </View>
 
-            {/* ── Total */}
             <View style={s.totalCard}>
-              <View style={s.totalLeft}>
+              <View>
                 <Text style={s.totalNum}>{summary.totalEvents}</Text>
                 <Text style={s.totalLabel}>événements enregistrés</Text>
               </View>
-              <View style={s.totalRight}>
-                {/* Split bar */}
+              <View style={{ alignItems: "flex-end", gap: 6 }}>
                 <View style={s.splitBar}>
                   <View
                     style={[
                       s.splitFill,
                       {
                         flex: summary.totalBlocked,
-                        backgroundColor: "#D04070",
+                        backgroundColor: "#C04060",
                       },
                     ]}
                   />
@@ -310,7 +308,7 @@ export default function StatsScreen() {
                       s.splitFill,
                       {
                         flex: summary.totalAllowed,
-                        backgroundColor: "#3DDB8A",
+                        backgroundColor: "#2DB870",
                       },
                     ]}
                   />
@@ -319,7 +317,6 @@ export default function StatsScreen() {
               </View>
             </View>
 
-            {/* ── Top 5 */}
             {appStats.length > 0 && (
               <>
                 <Text style={s.sectionLabel}>TOP APPS BLOQUÉES</Text>
@@ -349,8 +346,8 @@ export default function StatsScreen() {
                           </View>
                           <ProgressBar
                             pct={pct}
-                            color="#D04070"
-                            trackColor="#1C1C2C"
+                            color="#C04060"
+                            trackColor="#141428"
                             height={3}
                           />
                           <Text style={s.topAppPkg} numberOfLines={1}>
@@ -368,9 +365,7 @@ export default function StatsScreen() {
     );
   }, [summary, appStats, refreshing, insets]);
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // ── History Tab
-  // ────────────────────────────────────────────────────────────────────────────
+  // ── History ───────────────────────────────────────────────────────────────
   const HistoryTab = useCallback(
     () => (
       <FlatList
@@ -384,7 +379,7 @@ export default function StatsScreen() {
             onRefresh={handleRefresh}
             tintColor="#7B6EF6"
             colors={["#7B6EF6"]}
-            progressBackgroundColor="#0E0E18"
+            progressBackgroundColor="#0C0C16"
           />
         }
         ListEmptyComponent={
@@ -404,11 +399,10 @@ export default function StatsScreen() {
                   key={`${entry.packageName}-${entry.timestamp}-${i}`}
                   style={s.logRow}
                 >
-                  {/* Accent bar */}
                   <View
                     style={[
                       s.logAccent,
-                      { backgroundColor: blocked ? "#D04070" : "#3DDB8A" },
+                      { backgroundColor: blocked ? "#C04060" : "#2DB870" },
                     ]}
                   />
                   <View style={{ flex: 1, paddingLeft: 4 }}>
@@ -429,13 +423,13 @@ export default function StatsScreen() {
                       <View
                         style={[
                           s.logBadgeDot,
-                          { backgroundColor: blocked ? "#D04070" : "#3DDB8A" },
+                          { backgroundColor: blocked ? "#C04060" : "#2DB870" },
                         ]}
                       />
                       <Text
                         style={[
                           s.logBadgeText,
-                          { color: blocked ? "#D04070" : "#3DDB8A" },
+                          { color: blocked ? "#C04060" : "#2DB870" },
                         ]}
                       >
                         {blocked ? "Bloqué" : "Autorisé"}
@@ -455,9 +449,7 @@ export default function StatsScreen() {
     [grouped, refreshing, insets],
   );
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // ── Apps Tab
-  // ────────────────────────────────────────────────────────────────────────────
+  // ── Apps ──────────────────────────────────────────────────────────────────
   const AppsTab = useCallback(
     () => (
       <FlatList
@@ -478,7 +470,7 @@ export default function StatsScreen() {
             onRefresh={handleRefresh}
             tintColor="#7B6EF6"
             colors={["#7B6EF6"]}
-            progressBackgroundColor="#0E0E18"
+            progressBackgroundColor="#0C0C16"
           />
         }
         ListEmptyComponent={
@@ -494,11 +486,10 @@ export default function StatsScreen() {
             total > 0 ? Math.round((app.blockedCount / total) * 100) : 0;
           return (
             <View style={s.appStatCard}>
-              {/* Accent bar left */}
               <View
                 style={[
                   s.appStatAccent,
-                  { backgroundColor: pct > 50 ? "#D04070" : "#3DDB8A" },
+                  { backgroundColor: pct > 50 ? "#C04060" : "#2DB870" },
                 ]}
               />
               <View style={s.appStatHeader}>
@@ -521,25 +512,26 @@ export default function StatsScreen() {
               </View>
               <View style={s.appStatCounts}>
                 <View style={s.appStatCount}>
-                  <Text style={[s.appStatCountNum, { color: "#D04070" }]}>
+                  <Text style={[s.appStatCountNum, { color: "#C04060" }]}>
                     {app.blockedCount}
                   </Text>
                   <Text style={s.appStatCountLabel}>bloquées</Text>
                 </View>
                 <View style={s.appStatDivider} />
                 <View style={s.appStatCount}>
-                  <Text style={[s.appStatCountNum, { color: "#3DDB8A" }]}>
+                  <Text style={[s.appStatCountNum, { color: "#2DB870" }]}>
                     {app.allowedCount}
                   </Text>
                   <Text style={s.appStatCountLabel}>autorisées</Text>
                 </View>
                 <View style={s.appStatDivider} />
                 <View style={s.appStatCount}>
-                  <Text style={s.appStatCountNum}>{total}</Text>
+                  <Text style={[s.appStatCountNum, { color: "#9B8FFF" }]}>
+                    {total}
+                  </Text>
                   <Text style={s.appStatCountLabel}>total</Text>
                 </View>
               </View>
-              {/* Split bar bloqué / autorisé */}
               <View style={s.appStatBar}>
                 <View
                   style={[
@@ -563,25 +555,27 @@ export default function StatsScreen() {
     [appStats, refreshing, insets],
   );
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // ── Render
-  // ────────────────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080810" />
+      <StatusBar barStyle="light-content" backgroundColor="#07070F" />
 
-      {/* Header */}
+      {/* ── Header ── */}
       <Animated.View
-        style={[s.header, { paddingTop: insets.top + 12, opacity: fadeAnim }]}
+        style={[s.header, { paddingTop: insets.top + 14, opacity: fadeAnim }]}
       >
         <View style={s.headerRow}>
-          <View>
-            <Text style={s.headerTitle}>Statistiques</Text>
-            <Text style={s.headerSub}>
-              {summary.totalEvents > 0
-                ? `${summary.totalEvents} événements • ${summary.totalBlocked} bloqués`
-                : "Aucun événement enregistré"}
-            </Text>
+          <View style={s.headerLeft}>
+            <View style={s.headerIconWrap}>
+              <Text style={s.headerIconText}>◈</Text>
+            </View>
+            <View>
+              <Text style={s.headerTitle}>Statistiques</Text>
+              <Text style={s.headerSub}>
+                {summary.totalEvents > 0
+                  ? `${summary.totalEvents} événements · ${summary.totalBlocked} bloqués`
+                  : "Aucun événement enregistré"}
+              </Text>
+            </View>
           </View>
           {summary.totalEvents > 0 && (
             <TouchableOpacity
@@ -596,30 +590,51 @@ export default function StatsScreen() {
 
         {/* Tab bar */}
         <View style={s.tabs}>
-          {TABS.map(({ key, label, icon }) => (
-            <TouchableOpacity
-              key={key}
-              style={[s.tab, tab === key && s.tabActive]}
-              onPress={() => switchTab(key)}
-              activeOpacity={0.75}
-            >
-              <Text style={[s.tabIcon, tab === key && s.tabIconActive]}>
-                {icon}
-              </Text>
-              <Text style={[s.tabText, tab === key && s.tabTextActive]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {TABS.map(({ key, label, icon }) => {
+            const locked =
+              !isPremium && !FREE_LIMITS.STATS_TABS_FREE.includes(key);
+            const active = tab === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[s.tab, active && s.tabActive, locked && s.tabLocked]}
+                onPress={() => switchTab(key)}
+                activeOpacity={0.75}
+              >
+                <Text style={[s.tabIcon, active && s.tabIconActive]}>
+                  {locked ? "🔒" : icon}
+                </Text>
+                <Text
+                  style={[
+                    s.tabText,
+                    active && s.tabTextActive,
+                    locked && s.tabTextLocked,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </Animated.View>
 
-      {/* Content */}
+      {/* ── Content ── */}
       <Animated.View style={[s.content, { opacity: tabAnim }]}>
         {tab === "overview" && <OverviewTab />}
         {tab === "history" && <HistoryTab />}
         {tab === "apps" && <AppsTab />}
       </Animated.View>
+
+      <PaywallModal
+        visible={paywallVisible}
+        reason="stats"
+        onClose={() => setPaywallVisible(false)}
+        onUpgraded={() => {
+          refreshPremium();
+          setPaywallVisible(false);
+        }}
+      />
     </View>
   );
 }
@@ -647,68 +662,84 @@ function EmptyState({
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#080810" },
+  container: { flex: 1, backgroundColor: "#07070F" },
 
   // Header
   header: {
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     paddingBottom: 0,
     borderBottomWidth: 1,
-    borderBottomColor: "#13131F",
+    borderBottomColor: "#111120",
+    backgroundColor: "#07070F",
   },
   headerRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16,
   },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
+  headerIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: "#16103A",
+    borderWidth: 1,
+    borderColor: "#3A3480",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerIconText: { fontSize: 20, color: "#7B6EF6" },
   headerTitle: {
-    fontSize: 34,
+    fontSize: 26,
     fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -1.5,
+    color: "#EDEDFF",
+    letterSpacing: -1,
   },
   headerSub: {
     fontSize: 11,
-    color: "#3A3A58",
-    marginTop: 3,
+    color: "#2A2A48",
+    marginTop: 2,
     fontWeight: "500",
   },
   clearBtn: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: "#14080A",
+    backgroundColor: "#140810",
     borderWidth: 1,
-    borderColor: "#2A1520",
+    borderColor: "#2A1018",
     justifyContent: "center",
     alignItems: "center",
   },
-  clearBtnText: { fontSize: 16, color: "#D04070" },
-  content: { flex: 1, paddingHorizontal: 22, paddingTop: 18 },
+  clearBtnText: { fontSize: 16, color: "#C04060" },
 
   // Tabs
   tabs: { flexDirection: "row", gap: 6, paddingBottom: 16 },
   tab: {
     flex: 1,
     paddingVertical: 9,
-    borderRadius: 11,
-    backgroundColor: "#0E0E18",
+    borderRadius: 12,
+    backgroundColor: "#0C0C16",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     alignItems: "center",
     gap: 2,
   },
-  tabActive: { backgroundColor: "#16103A", borderColor: "#7B6EF6" },
-  tabIcon: { fontSize: 13, color: "#2E2E48" },
-  tabIconActive: { color: "#7B6EF6" },
+  tabActive: { backgroundColor: "#16103A", borderColor: "#3A3480" },
+  tabLocked: { opacity: 0.45 },
+  tabIcon: { fontSize: 13, color: "#2A2A48" },
+  tabIconActive: { color: "#9B8FFF" },
   tabText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#3A3A58",
+    color: "#2A2A48",
     letterSpacing: 0.2,
   },
   tabTextActive: { color: "#9B8FFF" },
+  tabTextLocked: { color: "#1E1E30" },
+
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 18 },
 
   // Overview — big counters
   statsGrid: { flexDirection: "row", gap: 10, marginBottom: 12 },
@@ -719,8 +750,8 @@ const s = StyleSheet.create({
     padding: 16,
     overflow: "hidden",
   },
-  statBigBlocked: { backgroundColor: "#0E0A0C", borderColor: "#251520" },
-  statBigAllowed: { backgroundColor: "#0A0E0C", borderColor: "#152518" },
+  statBigBlocked: { backgroundColor: "#0E0608", borderColor: "#2A1018" },
+  statBigAllowed: { backgroundColor: "#060E08", borderColor: "#0E2818" },
   statBigAccent: {
     position: "absolute",
     left: 0,
@@ -728,7 +759,6 @@ const s = StyleSheet.create({
     bottom: 14,
     width: 3,
     borderRadius: 2,
-    backgroundColor: "#D04070",
   },
   statBigNum: {
     fontSize: 32,
@@ -737,9 +767,10 @@ const s = StyleSheet.create({
     marginBottom: 3,
   },
   statBigLabel: {
-    fontSize: 10,
-    color: "#3A3A58",
-    fontWeight: "600",
+    fontSize: 9,
+    color: "#2A2A48",
+    fontWeight: "700",
+    letterSpacing: 1,
     marginBottom: 8,
   },
   statBigPct: { fontSize: 10, fontWeight: "700", marginTop: 4 },
@@ -749,27 +780,25 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#0E0E18",
-    borderRadius: 14,
+    backgroundColor: "#0C0C16",
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     padding: 16,
-    marginBottom: 22,
+    marginBottom: 24,
   },
-  totalLeft: {},
   totalNum: {
     fontSize: 36,
     fontWeight: "800",
-    color: "#F0F0FF",
+    color: "#EDEDFF",
     letterSpacing: -1.5,
   },
   totalLabel: {
     fontSize: 11,
-    color: "#3A3A58",
+    color: "#2A2A48",
     marginTop: 2,
     fontWeight: "500",
   },
-  totalRight: { alignItems: "flex-end", gap: 6 },
   splitBar: {
     flexDirection: "row",
     height: 5,
@@ -778,14 +807,14 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   splitFill: { height: 5 },
-  splitLabel: { fontSize: 10, color: "#5A5A80", fontWeight: "600" },
+  splitLabel: { fontSize: 10, color: "#3A3A58", fontWeight: "600" },
 
   // Top apps
   sectionLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 2,
+    color: "#2A2A48",
+    letterSpacing: 2.5,
     marginBottom: 12,
   },
   topAppRow: {
@@ -798,9 +827,9 @@ const s = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 8,
-    backgroundColor: "#14141E",
+    backgroundColor: "#0C0C16",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -810,16 +839,16 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 5,
   },
-  topAppName: { fontSize: 13, fontWeight: "700", color: "#E8E8F8", flex: 1 },
-  topAppBlocked: { fontSize: 12, color: "#D04070", fontWeight: "700" },
-  topAppPkg: { fontSize: 9, color: "#2E2E48", marginTop: 3 },
+  topAppName: { fontSize: 13, fontWeight: "700", color: "#D8D8F0", flex: 1 },
+  topAppBlocked: { fontSize: 12, color: "#C04060", fontWeight: "700" },
+  topAppPkg: { fontSize: 9, color: "#1E1E38", marginTop: 3 },
 
   // History
   dateLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 1.5,
+    color: "#2A2A48",
+    letterSpacing: 2,
     textTransform: "uppercase",
     marginTop: 16,
     marginBottom: 8,
@@ -828,10 +857,10 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "#0E0E18",
+    backgroundColor: "#0C0C16",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     padding: 12,
     marginBottom: 6,
     overflow: "hidden",
@@ -847,10 +876,10 @@ const s = StyleSheet.create({
   logAppName: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#E8E8F8",
+    color: "#D8D8F0",
     marginBottom: 2,
   },
-  logPkg: { fontSize: 10, color: "#2E2E48", fontFamily: "monospace" },
+  logPkg: { fontSize: 10, color: "#1E1E38", fontFamily: "monospace" },
   logBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -860,18 +889,18 @@ const s = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
   },
-  logBadgeBlocked: { backgroundColor: "#14080A", borderColor: "#2A1520" },
-  logBadgeAllowed: { backgroundColor: "#0A140A", borderColor: "#1A3A1A" },
+  logBadgeBlocked: { backgroundColor: "#140810", borderColor: "#2A1018" },
+  logBadgeAllowed: { backgroundColor: "#081410", borderColor: "#0E2818" },
   logBadgeDot: { width: 5, height: 5, borderRadius: 3 },
   logBadgeText: { fontSize: 10, fontWeight: "700" },
-  logTime: { fontSize: 10, color: "#2E2E48" },
+  logTime: { fontSize: 10, color: "#2A2A48" },
 
   // App stat card
   appStatCard: {
-    backgroundColor: "#0E0E18",
+    backgroundColor: "#0C0C16",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
+    borderColor: "#141428",
     padding: 16,
     marginBottom: 10,
     overflow: "hidden",
@@ -894,21 +923,21 @@ const s = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: "#16161E",
+    backgroundColor: "#141420",
     borderWidth: 1,
-    borderColor: "#2A2A3A",
+    borderColor: "#1E1E30",
     justifyContent: "center",
     alignItems: "center",
   },
-  appStatIconText: { fontSize: 17, fontWeight: "700", color: "#5A5A80" },
+  appStatIconText: { fontSize: 17, fontWeight: "700", color: "#4A4A68" },
   appStatName: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#E8E8F8",
+    color: "#D8D8F0",
     marginBottom: 2,
   },
-  appStatPkg: { fontSize: 10, color: "#2E2E48", fontFamily: "monospace" },
-  appStatLast: { fontSize: 10, color: "#3A3A58" },
+  appStatPkg: { fontSize: 10, color: "#1E1E38", fontFamily: "monospace" },
+  appStatLast: { fontSize: 10, color: "#2A2A48" },
   appStatCounts: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -916,30 +945,25 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
   appStatCount: { alignItems: "center", flex: 1 },
-  appStatDivider: { width: 1, height: 28, backgroundColor: "#1C1C2C" },
-  appStatCountNum: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -0.5,
-  },
+  appStatDivider: { width: 1, height: 28, backgroundColor: "#141428" },
+  appStatCountNum: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   appStatCountLabel: {
     fontSize: 9,
-    color: "#3A3A58",
-    fontWeight: "600",
+    color: "#2A2A48",
+    fontWeight: "700",
     letterSpacing: 1,
     marginTop: 2,
   },
   appStatBar: {
     flexDirection: "row",
-    height: 4,
+    height: 3,
     borderRadius: 2,
     overflow: "hidden",
     marginBottom: 6,
   },
-  appStatFillBlocked: { backgroundColor: "#D04070" },
-  appStatFillAllowed: { backgroundColor: "#3DDB8A" },
-  appStatPct: { fontSize: 10, color: "#3A3A58", textAlign: "right" },
+  appStatFillBlocked: { backgroundColor: "#C04060" },
+  appStatFillAllowed: { backgroundColor: "#2DB870" },
+  appStatPct: { fontSize: 10, color: "#2A2A48", textAlign: "right" },
 
   // Empty state
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
@@ -949,7 +973,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: "#3A3480",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
@@ -963,7 +987,7 @@ const s = StyleSheet.create({
   },
   emptySub: {
     fontSize: 12,
-    color: "#2E2E48",
+    color: "#2A2A48",
     textAlign: "center",
     lineHeight: 18,
   },
