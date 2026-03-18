@@ -6,51 +6,38 @@ import {
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
-import { Platform } from "react-native";
 import { Provider as PaperProvider } from "react-native-paper";
 import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import FocusService from "@/services/focus.service";
 import StorageService from "@/services/storage.service";
+import SubscriptionService from "@/services/subscription.service";
 import { NetOffThemeProvider } from "@/theme";
 
 export const unstable_settings = { anchor: "(tabs)" };
-
-// ── RevenueCat — init conditionnelle ──────────────────────────────────────────
-// Clés API à remplacer par vos vraies clés RevenueCat
-const RC_API_KEY_ANDROID = "goog_xxxx"; // Google Play
-const RC_API_KEY_IOS = "appl_xxxx"; // App Store
-
-let Purchases: any = null;
-try {
-  Purchases = require("react-native-purchases").default;
-} catch {
-  console.warn(
-    "[_layout] react-native-purchases non installé — RevenueCat désactivé",
-  );
-}
-
-function initRevenueCat() {
-  if (!Purchases) return;
-  try {
-    const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
-    Purchases.configure({ apiKey });
-    console.log("[RevenueCat] Initialisé avec succès");
-  } catch (e) {
-    console.error("[RevenueCat] Erreur d'initialisation:", e);
-  }
-}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Initialiser RevenueCat au démarrage de l'app
-    initRevenueCat();
-    setReady(true);
+    bootstrap();
   }, []);
+
+  const bootstrap = async () => {
+    try {
+      // ✅ Initialise RevenueCat via le service centralisé
+      await SubscriptionService.configure();
+
+      // ✅ Sync statut premium avec RevenueCat (si SDK configuré)
+      await SubscriptionService.syncWithRevenueCat();
+    } catch (e) {
+      console.error("[bootstrap] Erreur init:", e);
+    } finally {
+      setReady(true);
+    }
+  };
 
   useEffect(() => {
     if (!ready) return;
@@ -83,9 +70,7 @@ export default function RootLayout() {
                 if (last?.name === "settings") {
                   try {
                     const status = await FocusService.getStatus();
-                    if (status.isActive) {
-                      router.back();
-                    }
+                    if (status.isActive) router.back();
                   } catch {}
                 }
               },

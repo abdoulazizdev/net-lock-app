@@ -1,3 +1,4 @@
+import { Colors, useTheme } from "@/theme";
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, StatusBar, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,12 +10,14 @@ function Bone({
   borderRadius = 8,
   opacity,
   style,
+  boneColor,
 }: {
   width?: number | string;
   height: number;
   borderRadius?: number;
   opacity: Animated.AnimatedInterpolation<number>;
   style?: object;
+  boneColor: string;
 }) {
   return (
     <Animated.View
@@ -23,7 +26,7 @@ function Bone({
           width: width ?? "100%",
           height,
           borderRadius,
-          backgroundColor: "#1E1E2C",
+          backgroundColor: boneColor,
           opacity,
         },
         style,
@@ -35,6 +38,7 @@ function Bone({
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 export default function AppDetailSkeleton() {
   const insets = useSafeAreaInsets();
+  const { t, isDark } = useTheme();
   const shimmer = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -58,41 +62,54 @@ export default function AppDetailSkeleton() {
 
   const opacity = shimmer.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.18, 0.45],
+    outputRange: isDark ? [0.18, 0.45] : [0.3, 0.65],
   });
 
+  // Couleur des bones adaptée au thème
+  const boneColor = isDark ? Colors.dark[200] : Colors.gray[200];
+
+  // Raccourci pour ne pas répéter boneColor partout
+  const B = (
+    props: Omit<React.ComponentProps<typeof Bone>, "boneColor" | "opacity">,
+  ) => <Bone {...props} boneColor={boneColor} opacity={opacity} />;
+
   return (
-    <View style={[styles.container]}>
-      <StatusBar barStyle="light-content" backgroundColor="#080810" />
+    <View style={[styles.container, { backgroundColor: t.bg.page }]}>
+      <StatusBar barStyle={t.statusBar} backgroundColor={t.bg.page} />
 
       {/* ── Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top + 12,
+            borderBottomColor: t.border.light,
+          },
+        ]}
+      >
         {/* Back button */}
-        <Bone
+        <B
           width={80}
           height={14}
           borderRadius={6}
-          opacity={opacity}
           style={{ marginBottom: 28 }}
         />
 
         {/* App hero */}
         <View style={styles.heroSection}>
-          <Bone
+          <B
             width={80}
             height={80}
             borderRadius={22}
-            opacity={opacity}
             style={{ marginBottom: 14 }}
           />
-          <Bone
+          <B
             width={140}
             height={20}
             borderRadius={6}
-            opacity={opacity}
             style={{ marginBottom: 8 }}
           />
-          <Bone width={200} height={11} borderRadius={5} opacity={opacity} />
+          <B width={200} height={11} borderRadius={5} />
         </View>
       </View>
 
@@ -100,117 +117,84 @@ export default function AppDetailSkeleton() {
       <View style={styles.body}>
         {/* Access control card */}
         <View style={styles.sectionGap}>
-          <Bone
+          <B
             width={120}
             height={10}
             borderRadius={4}
-            opacity={opacity}
             style={{ marginBottom: 10 }}
           />
-          <View style={styles.controlCard}>
+          <View
+            style={[
+              styles.controlCard,
+              { backgroundColor: t.bg.card, borderColor: t.border.light },
+            ]}
+          >
             <View style={{ flex: 1, gap: 8 }}>
-              <Bone
-                width="55%"
-                height={14}
-                borderRadius={6}
-                opacity={opacity}
-              />
-              <Bone
-                width="75%"
-                height={11}
-                borderRadius={5}
-                opacity={opacity}
-              />
+              <B width="55%" height={14} borderRadius={6} />
+              <B width="75%" height={11} borderRadius={5} />
             </View>
-            <Bone width={56} height={32} borderRadius={16} opacity={opacity} />
+            <B width={56} height={32} borderRadius={16} />
           </View>
         </View>
 
         {/* Stats row */}
         <View style={styles.sectionGap}>
-          <Bone
+          <B
             width={100}
             height={10}
             borderRadius={4}
-            opacity={opacity}
             style={{ marginBottom: 10 }}
           />
           <View style={styles.statsRow}>
             {[0, 1, 2].map((i) => (
-              <View key={i} style={styles.statCard}>
-                <Bone
+              <View
+                key={i}
+                style={[
+                  styles.statCard,
+                  { backgroundColor: t.bg.card, borderColor: t.border.light },
+                ]}
+              >
+                <B
                   width={40}
                   height={26}
                   borderRadius={6}
-                  opacity={opacity}
                   style={{ marginBottom: 6 }}
                 />
-                <Bone
-                  width={52}
-                  height={10}
-                  borderRadius={4}
-                  opacity={opacity}
-                />
+                <B width={52} height={10} borderRadius={4} />
               </View>
             ))}
           </View>
           {/* Progress bar */}
-          <Bone
-            height={4}
-            borderRadius={2}
-            opacity={opacity}
-            style={{ marginTop: 4 }}
-          />
+          <B height={4} borderRadius={2} style={{ marginTop: 4 }} />
           {/* Simulate button */}
-          <Bone
-            height={46}
-            borderRadius={12}
-            opacity={opacity}
-            style={{ marginTop: 12 }}
-          />
+          <B height={46} borderRadius={12} style={{ marginTop: 12 }} />
         </View>
 
         {/* Schedule section */}
         <View style={styles.sectionGap}>
           <View style={styles.sectionHeaderRow}>
-            <Bone width={110} height={10} borderRadius={4} opacity={opacity} />
-            <Bone width={72} height={28} borderRadius={10} opacity={opacity} />
+            <B width={110} height={10} borderRadius={4} />
+            <B width={72} height={28} borderRadius={10} />
           </View>
           {/* Schedule card placeholder */}
-          <View style={styles.scheduleCard}>
+          <View
+            style={[
+              styles.scheduleCard,
+              { backgroundColor: t.bg.card, borderColor: t.border.light },
+            ]}
+          >
             <View style={{ flex: 1, gap: 10 }}>
-              <Bone
-                width="40%"
-                height={12}
-                borderRadius={5}
-                opacity={opacity}
-              />
-              <Bone
-                width="55%"
-                height={22}
-                borderRadius={6}
-                opacity={opacity}
-              />
+              <B width="40%" height={12} borderRadius={5} />
+              <B width="55%" height={22} borderRadius={6} />
               <View style={{ flexDirection: "row", gap: 5 }}>
                 {[28, 28, 28, 28, 28, 28, 28].map((w, i) => (
-                  <Bone
-                    key={i}
-                    width={w}
-                    height={20}
-                    borderRadius={6}
-                    opacity={opacity}
-                  />
+                  <B key={i} width={w} height={20} borderRadius={6} />
                 ))}
               </View>
             </View>
             <View style={{ gap: 12, paddingLeft: 12, alignItems: "center" }}>
-              <Bone
-                width={40}
-                height={22}
-                borderRadius={11}
-                opacity={opacity}
-              />
-              <Bone width={24} height={24} borderRadius={8} opacity={opacity} />
+              <B width={40} height={22} borderRadius={11} />
+              <B width={24} height={24} borderRadius={8} />
             </View>
           </View>
         </View>
@@ -220,23 +204,19 @@ export default function AppDetailSkeleton() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#080810" },
-
+  container: { flex: 1 },
   header: {
     paddingHorizontal: 22,
     paddingBottom: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#13131F",
   },
   heroSection: {
     alignItems: "center",
   },
-
   body: {
     paddingHorizontal: 22,
     paddingTop: 22,
   },
-
   sectionGap: {
     marginBottom: 26,
   },
@@ -246,38 +226,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-
   controlCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#0E0E18",
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     gap: 16,
   },
-
   statsRow: {
     flexDirection: "row",
     gap: 10,
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#0E0E18",
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     alignItems: "center",
   },
-
   scheduleCard: {
     flexDirection: "row",
-    backgroundColor: "#0E0E18",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
   },
 });

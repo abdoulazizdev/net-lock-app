@@ -14,7 +14,12 @@ import { Text } from "react-native-paper";
 
 type Mode = "pin" | "bio" | "both";
 
-export default function AuthScreen() {
+// ✅ Props typées
+type Props = {
+  onAuthenticated?: () => void;
+};
+
+export default function AuthScreen({ onAuthenticated }: Props) {
   const [mode, setMode] = useState<Mode>("pin");
   const [step, setStep] = useState<"pin" | "confirm">("pin");
   const [isFirstTime, setIsFirstTime] = useState(false);
@@ -63,7 +68,6 @@ export default function AuthScreen() {
     const bioOn = config.isBiometricEnabled && bioOk;
 
     if (!pinOn && !bioOn) {
-      // Premier lancement — création du PIN
       setIsFirstTime(true);
       setMode("pin");
       return;
@@ -73,11 +77,17 @@ export default function AuthScreen() {
     else if (bioOn) setMode("bio");
     else setMode("pin");
 
-    // Lance la bio automatiquement si disponible
     if (bioOn) setTimeout(() => triggerBio(), 400);
   };
 
-  const navigate = () => router.replace("/(tabs)");
+  // ✅ navigate utilise onAuthenticated si dispo, sinon router
+  const navigate = () => {
+    if (onAuthenticated) {
+      onAuthenticated();
+    } else {
+      router.replace("/(tabs)");
+    }
+  };
 
   const shake = () =>
     Animated.sequence([
@@ -162,9 +172,6 @@ export default function AuthScreen() {
     }
   };
 
-  // ── Détermine ce qu'on affiche ────────────────────────────────────────────
-  // "bio" seul → on n'affiche pas le pavé, juste le bouton bio
-  // "pin" seul ou "both" → on affiche le pavé (avec bouton bio en bas si "both")
   const showPad = mode === "pin" || mode === "both" || isFirstTime;
   const showBioButton =
     (mode === "bio" || mode === "both") && bioAvailable && !isFirstTime;
@@ -173,7 +180,6 @@ export default function AuthScreen() {
     <View style={st.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080810" />
       <Animated.View style={[st.content, { opacity: fadeAnim }]}>
-        {/* Logo */}
         <View style={st.logo}>
           <View style={st.logoWrap}>
             <Text style={st.logoEmoji}>🛡️</Text>
@@ -181,15 +187,12 @@ export default function AuthScreen() {
           <Text style={st.logoTitle}>NetOff</Text>
         </View>
 
-        {/* Titre */}
         <Text style={st.title}>
           {isFirstTime
             ? step === "pin"
               ? "Créer votre PIN"
               : "Confirmer le PIN"
-            : mode === "bio"
-              ? "Déverrouiller"
-              : "Déverrouiller"}
+            : "Déverrouiller"}
         </Text>
         <Text style={st.subtitle}>
           {isFirstTime
@@ -203,7 +206,6 @@ export default function AuthScreen() {
                 : "Entrez votre code PIN applicatif"}
         </Text>
 
-        {/* Étapes premier lancement */}
         {isFirstTime && (
           <View style={st.steps}>
             <View
@@ -218,7 +220,6 @@ export default function AuthScreen() {
           </View>
         )}
 
-        {/* Mode bio seul : grand bouton central */}
         {mode === "bio" && !isFirstTime && (
           <TouchableOpacity
             style={st.bioBigBtn}
@@ -230,7 +231,6 @@ export default function AuthScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Pavé numérique */}
         {showPad && (
           <>
             <Animated.View
@@ -316,7 +316,6 @@ export default function AuthScreen() {
           </>
         )}
 
-        {/* Bouton bio secondaire (mode "both") */}
         {showBioButton && mode === "both" && (
           <TouchableOpacity
             style={st.bioSecondaryBtn}
@@ -328,7 +327,6 @@ export default function AuthScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Bouton bio plein écran si mode bio seul */}
         {showBioButton && mode === "bio" && (
           <TouchableOpacity
             style={st.bioRetryBtn}
@@ -384,8 +382,6 @@ const st = StyleSheet.create({
   stepActive: { backgroundColor: "#7B6EF6" },
   stepDone: { backgroundColor: "#3DDB8A" },
   stepInactive: { backgroundColor: "#1C1C2C" },
-
-  // Bio seul : grand bouton central
   bioBigBtn: {
     width: 140,
     height: 140,
@@ -404,8 +400,6 @@ const st = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
-
-  // PIN pad
   dotsRow: {
     flexDirection: "row",
     gap: 14,
@@ -463,8 +457,6 @@ const st = StyleSheet.create({
   },
   submitBtnOff: { backgroundColor: "#7B6EF620" },
   submitBtnText: { color: "#F0F0FF", fontSize: 16, fontWeight: "800" },
-
-  // Bio secondaire (mode "both")
   bioSecondaryBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -479,8 +471,6 @@ const st = StyleSheet.create({
   },
   bioSecondaryIcon: { fontSize: 18 },
   bioSecondaryText: { color: "#5A5A80", fontSize: 14, fontWeight: "600" },
-
-  // Bio retry (mode "bio" seul)
   bioRetryBtn: {
     marginTop: 16,
     paddingVertical: 12,

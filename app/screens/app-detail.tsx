@@ -1,3 +1,4 @@
+import AppDetailSkeleton from "@/components/AppDetailSkeleton"; // ✅ import skeleton
 import PaywallModal from "@/components/PaywallModal";
 import { usePremium } from "@/hooks/usePremium";
 import AppListService from "@/services/app-list.service";
@@ -265,7 +266,7 @@ export default function AppDetailScreen() {
   const [rule, setRule] = useState<AppRule | null>(null);
   const [stats, setStats] = useState({ blocked: 0, allowed: 0 });
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // ✅ démarre à true
   const [paywallVisible, setPaywallVisible] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
@@ -290,6 +291,7 @@ export default function AppDetailScreen() {
   useEffect(() => {
     loadAll();
   }, [packageName]);
+
   useEffect(() => {
     if (!loading) {
       Animated.parallel([
@@ -305,8 +307,13 @@ export default function AppDetailScreen() {
           useNativeDriver: true,
         }),
       ]).start();
+    } else {
+      // ✅ Reset les anims quand on recharge
+      fadeAnim.setValue(0);
+      slideAnim.setValue(16);
     }
   }, [loading]);
+
   useEffect(() => {
     if (showModal) {
       Animated.parallel([
@@ -330,7 +337,7 @@ export default function AppDetailScreen() {
 
   const loadAll = async () => {
     try {
-      setLoading(true);
+      setLoading(true); // ✅ skeleton visible dès le début
       const appData = await AppListService.getAppByPackage(packageName);
       setApp(appData);
       const existingRule = await StorageService.getRuleByPackage(packageName);
@@ -346,7 +353,7 @@ export default function AppDetailScreen() {
     } catch (e) {
       console.error("Erreur chargement:", e);
     } finally {
-      setLoading(false);
+      setLoading(false); // ✅ skeleton disparaît, contenu fade-in
     }
   };
 
@@ -458,8 +465,8 @@ export default function AppDetailScreen() {
   const blockedPct = total > 0 ? stats.blocked / total : 0;
   const blockedPct100 = Math.round(blockedPct * 100);
 
-  if (loading)
-    return <View style={[{ flex: 1, backgroundColor: t.bg.page }]} />;
+  // ✅ Skeleton pendant le chargement initial
+  if (loading) return <AppDetailSkeleton />;
 
   return (
     <View style={[st.container, { backgroundColor: t.bg.page }]}>
@@ -1276,6 +1283,7 @@ const st = StyleSheet.create({
   },
   emptyBtnText: { fontSize: 13, fontWeight: "700" },
 });
+
 const ms = StyleSheet.create({
   overlay: {
     flex: 1,

@@ -1,16 +1,17 @@
+import { Colors, useTheme } from "@/theme";
 import { ProfileSchedule } from "@/types";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Easing,
-    Modal,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Animated,
+  Easing,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,12 +29,11 @@ const DAYS_SHORT = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 const fmtTime = (h: number, m: number) =>
   `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 
-const ITEM_H = 54; // height of each drum item
-const VISIBLE_ITEMS = 5; // items visible in the drum (odd number, selected is center)
+const ITEM_H = 54;
+const VISIBLE_ITEMS = 5;
 const DRUM_H = ITEM_H * VISIBLE_ITEMS;
 
 // ─── DrumRoller ───────────────────────────────────────────────────────────────
-// Fully controlled drum roller with live highlight + snap commit
 function DrumRoller({
   values,
   selected,
@@ -49,30 +49,24 @@ function DrumRoller({
   label: string;
   accent?: string;
 }) {
+  const { t } = useTheme();
   const scrollRef = useRef<ScrollView>(null);
-
-  // localIdx drives the visual highlight in real-time as user scrolls
   const [localIdx, setLocalIdx] = useState(() =>
     Math.max(0, values.indexOf(selected)),
   );
-
-  // Prevents double-commit from onScrollEndDrag + onMomentumScrollEnd
   const momentumStarted = useRef(false);
   const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Scroll to correct position when modal opens or selected changes from parent
   useEffect(() => {
     const idx = values.indexOf(selected);
     if (idx < 0) return;
     setLocalIdx(idx);
-    // Delay to ensure ScrollView is mounted and laid out
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       scrollRef.current?.scrollTo({ y: idx * ITEM_H, animated: false });
     }, 120);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [selected]);
 
-  // Called during scroll — updates highlight live, no state commit
   const handleScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const rawIdx = e.nativeEvent.contentOffset.y / ITEM_H;
@@ -82,7 +76,6 @@ function DrumRoller({
     [values.length],
   );
 
-  // Final commit — snap and call onChange
   const commit = useCallback(
     (offsetY: number) => {
       if (snapTimer.current) clearTimeout(snapTimer.current);
@@ -92,7 +85,6 @@ function DrumRoller({
       );
       setLocalIdx(idx);
       onChange(values[idx]);
-      // Correct snap to exact position
       scrollRef.current?.scrollTo({ y: idx * ITEM_H, animated: true });
     },
     [values, onChange],
@@ -101,7 +93,6 @@ function DrumRoller({
   const handleMomentumBegin = useCallback(() => {
     momentumStarted.current = true;
   }, []);
-
   const handleMomentumEnd = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       momentumStarted.current = false;
@@ -109,12 +100,9 @@ function DrumRoller({
     },
     [commit],
   );
-
   const handleScrollEndDrag = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const y = e.nativeEvent.contentOffset.y;
-      // If momentum will follow, let onMomentumScrollEnd handle it
-      // Otherwise (slow drag), commit after a short delay
       snapTimer.current = setTimeout(() => {
         if (!momentumStarted.current) commit(y);
       }, 80);
@@ -126,9 +114,8 @@ function DrumRoller({
 
   return (
     <View style={dr.col}>
-      <Text style={dr.colLabel}>{label}</Text>
-      <View style={dr.wrap}>
-        {/* Selection ring — sits between bg and scroll content */}
+      <Text style={[dr.colLabel, { color: t.text.muted }]}>{label}</Text>
+      <View style={[dr.wrap, { backgroundColor: t.bg.cardAlt }]}>
         <View
           style={[
             dr.selector,
@@ -136,11 +123,6 @@ function DrumRoller({
           ]}
           pointerEvents="none"
         />
-
-        {/*
-          CRITICAL: ScrollView must be ABOVE the selector in the tree
-          so touches hit it first. Fades go AFTER ScrollView in JSX.
-        */}
         <ScrollView
           ref={scrollRef}
           style={dr.scroll}
@@ -176,9 +158,10 @@ function DrumRoller({
                 <Text
                   style={[
                     dr.itemText,
+                    { color: t.text.muted },
                     isSelected && [dr.itemSelected, { color: accent }],
-                    dist === 1 && dr.itemNear,
-                    dist >= 2 && dr.itemFar,
+                    dist === 1 && [dr.itemNear, { color: t.text.secondary }],
+                    dist >= 2 && [dr.itemFar, { color: t.border.normal }],
                   ]}
                 >
                   {format(v)}
@@ -187,10 +170,15 @@ function DrumRoller({
             );
           })}
         </ScrollView>
-
-        {/* Fade overlays — AFTER ScrollView in JSX = higher z-index but pointerEvents none */}
-        <View style={dr.fadeTop} pointerEvents="none" />
-        <View style={dr.fadeBottom} pointerEvents="none" />
+        {/* Fades adaptées au thème */}
+        <View
+          style={[dr.fadeTop, { backgroundColor: t.bg.cardAlt }]}
+          pointerEvents="none"
+        />
+        <View
+          style={[dr.fadeBottom, { backgroundColor: t.bg.cardAlt }]}
+          pointerEvents="none"
+        />
       </View>
     </View>
   );
@@ -210,6 +198,7 @@ function TimeSelector({
   onChangeMinute: (m: number) => void;
   accent: string;
 }) {
+  const { t } = useTheme();
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
   const MINS = Array.from({ length: 12 }, (_, i) => i * 5);
 
@@ -224,7 +213,7 @@ function TimeSelector({
         accent={accent}
       />
       <View style={ts.separator}>
-        <Text style={ts.colon}>:</Text>
+        <Text style={[ts.colon, { color: t.text.muted }]}>:</Text>
       </View>
       <DrumRoller
         key={`m-${minute}`}
@@ -253,6 +242,7 @@ export default function ScheduleModal({
   editingSchedule,
 }: ScheduleModalProps) {
   const insets = useSafeAreaInsets();
+  const { t } = useTheme();
 
   const [label, setLabel] = useState("");
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
@@ -270,7 +260,6 @@ export default function ScheduleModal({
   useEffect(() => {
     if (visible) {
       editingIdRef.current = editingSchedule?.id ?? null;
-
       if (editingSchedule) {
         setLabel(editingSchedule.label ?? "");
         setDays([...editingSchedule.days]);
@@ -289,7 +278,6 @@ export default function ScheduleModal({
         setAction("activate");
         setTimeTab("start");
       }
-
       Animated.parallel([
         Animated.timing(overlayAnim, {
           toValue: 1,
@@ -369,7 +357,7 @@ export default function ScheduleModal({
   ];
 
   const isActivate = action === "activate";
-  const accentColor = isActivate ? "#3DDB8A" : "#D04070";
+  const accentColor = isActivate ? t.allowed.accent : t.blocked.accent;
   const currentHour = timeTab === "start" ? startHour : endHour;
   const currentMinute = timeTab === "start" ? startMinute : endMinute;
 
@@ -392,28 +380,35 @@ export default function ScheduleModal({
           style={[
             m.sheet,
             {
+              backgroundColor: t.bg.card,
+              borderColor: t.border.light,
               transform: [{ translateY: slideAnim }],
               paddingBottom: insets.bottom + 16,
             },
           ]}
         >
           {/* Handle */}
-          <View style={m.handle} />
+          <View style={[m.handle, { backgroundColor: t.border.normal }]} />
 
           {/* Header */}
           <View style={m.header}>
             <View style={{ flex: 1 }}>
-              <Text style={m.title}>
+              <Text style={[m.title, { color: t.text.primary }]}>
                 {editingSchedule ? "Modifier la plage" : "Nouvelle plage"}
               </Text>
-              <Text style={m.titleSub}>horaire automatique</Text>
+              <Text style={[m.titleSub, { color: t.text.muted }]}>
+                horaire automatique
+              </Text>
             </View>
             <TouchableOpacity
               onPress={close}
-              style={m.closeBtn}
+              style={[
+                m.closeBtn,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
               activeOpacity={0.7}
             >
-              <Text style={m.closeBtnText}>✕</Text>
+              <Text style={[m.closeBtnText, { color: t.text.muted }]}>✕</Text>
             </TouchableOpacity>
           </View>
 
@@ -423,18 +418,26 @@ export default function ScheduleModal({
             keyboardShouldPersistTaps="handled"
           >
             {/* ── Action */}
-            <Text style={m.sectionLabel}>ACTION</Text>
+            <Text style={[m.sectionLabel, { color: t.text.muted }]}>
+              ACTION
+            </Text>
             <View style={m.actionRow}>
               {(["activate", "deactivate"] as const).map((a) => {
                 const active = action === a;
-                const color = a === "activate" ? "#3DDB8A" : "#D04070";
-                const bg = a === "activate" ? "#0D221880" : "#1E0E1680";
-                const bd = a === "activate" ? "#1E6A46" : "#4A1A2A";
+                const color =
+                  a === "activate" ? t.allowed.accent : t.blocked.accent;
+                const bg = a === "activate" ? t.allowed.bg : t.blocked.bg;
+                const bd =
+                  a === "activate" ? t.allowed.border : t.blocked.border;
                 return (
                   <TouchableOpacity
                     key={a}
                     style={[
                       m.actionBtn,
+                      {
+                        backgroundColor: t.bg.cardAlt,
+                        borderColor: t.border.light,
+                      },
                       active && { backgroundColor: bg, borderColor: bd },
                     ]}
                     onPress={() => setAction(a)}
@@ -443,10 +446,16 @@ export default function ScheduleModal({
                     <View
                       style={[
                         m.actionDot,
-                        { backgroundColor: active ? color : "#2A2A3A" },
+                        { backgroundColor: active ? color : t.border.normal },
                       ]}
                     />
-                    <Text style={[m.actionBtnText, active && { color }]}>
+                    <Text
+                      style={[
+                        m.actionBtnText,
+                        { color: t.text.muted },
+                        active && { color },
+                      ]}
+                    >
                       {a === "activate" ? "▶  Activer" : "■  Désactiver"}
                     </Text>
                   </TouchableOpacity>
@@ -455,7 +464,7 @@ export default function ScheduleModal({
             </View>
 
             {/* ── Days */}
-            <Text style={m.sectionLabel}>JOURS</Text>
+            <Text style={[m.sectionLabel, { color: t.text.muted }]}>JOURS</Text>
             <View style={m.presetsRow}>
               {PRESETS.map((p) => {
                 const match =
@@ -464,11 +473,27 @@ export default function ScheduleModal({
                 return (
                   <TouchableOpacity
                     key={p.label}
-                    style={[m.preset, match && m.presetActive]}
+                    style={[
+                      m.preset,
+                      {
+                        backgroundColor: t.bg.cardAlt,
+                        borderColor: t.border.light,
+                      },
+                      match && {
+                        backgroundColor: t.bg.accent,
+                        borderColor: t.border.focus,
+                      },
+                    ]}
                     onPress={() => setDays([...p.days])}
                     activeOpacity={0.75}
                   >
-                    <Text style={[m.presetText, match && m.presetTextActive]}>
+                    <Text
+                      style={[
+                        m.presetText,
+                        { color: t.text.muted },
+                        match && { color: t.text.link },
+                      ]}
+                    >
                       {p.label}
                     </Text>
                   </TouchableOpacity>
@@ -483,6 +508,10 @@ export default function ScheduleModal({
                     key={i}
                     style={[
                       m.dayBtn,
+                      {
+                        backgroundColor: t.bg.cardAlt,
+                        borderColor: t.border.light,
+                      },
                       active && {
                         backgroundColor: accentColor + "22",
                         borderColor: accentColor + "70",
@@ -491,9 +520,19 @@ export default function ScheduleModal({
                     onPress={() => toggleDay(i)}
                     activeOpacity={0.7}
                   >
-                    <Text style={m.dayBtnShort}>{d.charAt(0)}</Text>
                     <Text
-                      style={[m.dayBtnFull, active && { color: accentColor }]}
+                      style={[
+                        m.dayBtnShort,
+                        { color: active ? accentColor : t.border.strong },
+                      ]}
+                    >
+                      {d.charAt(0)}
+                    </Text>
+                    <Text
+                      style={[
+                        m.dayBtnFull,
+                        { color: active ? accentColor : t.text.muted },
+                      ]}
                     >
                       {d}
                     </Text>
@@ -503,9 +542,9 @@ export default function ScheduleModal({
             </View>
 
             {/* ── Time pickers */}
-            <Text style={m.sectionLabel}>PLAGE HORAIRE</Text>
-
-            {/* Start / End tab buttons */}
+            <Text style={[m.sectionLabel, { color: t.text.muted }]}>
+              PLAGE HORAIRE
+            </Text>
             <View style={m.timeTabs}>
               {(["start", "end"] as const).map((tab) => {
                 const active = timeTab === tab;
@@ -516,30 +555,48 @@ export default function ScheduleModal({
                     key={tab}
                     style={[
                       m.timeTab,
+                      {
+                        backgroundColor: t.bg.cardAlt,
+                        borderColor: t.border.light,
+                      },
                       active && {
-                        backgroundColor: "#7B6EF618",
-                        borderColor: "#7B6EF650",
+                        backgroundColor: t.bg.accent,
+                        borderColor: t.border.focus,
                       },
                     ]}
                     onPress={() => setTimeTab(tab)}
                     activeOpacity={0.75}
                   >
-                    <Text style={m.timeTabLabel}>
+                    <Text style={[m.timeTabLabel, { color: t.text.muted }]}>
                       {tab === "start" ? "DÉBUT" : "FIN"}
                     </Text>
                     <Text
-                      style={[m.timeTabValue, active && { color: "#7B6EF6" }]}
+                      style={[
+                        m.timeTabValue,
+                        { color: active ? t.text.link : t.text.primary },
+                      ]}
                     >
                       {fmtTime(h, min)}
                     </Text>
-                    {active && <View style={m.timeTabDot} />}
+                    {active && (
+                      <View
+                        style={[
+                          m.timeTabDot,
+                          { backgroundColor: t.border.focus },
+                        ]}
+                      />
+                    )}
                   </TouchableOpacity>
                 );
               })}
             </View>
 
-            {/* Drum roller — key forces remount on tab switch so scroll resets */}
-            <View style={m.drumContainer}>
+            <View
+              style={[
+                m.drumContainer,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
               <TimeSelector
                 key={timeTab}
                 hour={currentHour}
@@ -548,48 +605,65 @@ export default function ScheduleModal({
                 onChangeMinute={
                   timeTab === "start" ? setStartMinute : setEndMinute
                 }
-                accent="#7B6EF6"
+                accent={Colors.purple[400]}
               />
             </View>
 
             {/* ── Label */}
-            <Text style={m.sectionLabel}>NOM (optionnel)</Text>
+            <Text style={[m.sectionLabel, { color: t.text.muted }]}>
+              NOM (optionnel)
+            </Text>
             <TextInput
-              style={m.input}
+              style={[
+                m.input,
+                {
+                  backgroundColor: t.bg.cardAlt,
+                  borderColor: t.border.light,
+                  color: t.text.primary,
+                },
+              ]}
               placeholder="Ex : Matin, École, Travail…"
-              placeholderTextColor="#252535"
+              placeholderTextColor={t.text.muted}
               value={label}
               onChangeText={setLabel}
               returnKeyType="done"
             />
 
             {/* ── Summary */}
-            <View style={[m.summary, { borderColor: accentColor + "35" }]}>
+            <View
+              style={[
+                m.summary,
+                {
+                  backgroundColor: t.bg.cardAlt,
+                  borderColor: accentColor + "35",
+                },
+              ]}
+            >
               <View style={[m.summaryBar, { backgroundColor: accentColor }]} />
               <View style={{ flex: 1, gap: 5 }}>
-                <Text style={m.summaryText}>
+                <Text style={[m.summaryText, { color: t.text.secondary }]}>
                   {"Profil "}
                   <Text style={{ color: accentColor, fontWeight: "800" }}>
                     {isActivate ? "activé" : "désactivé"}
                   </Text>
                   {"  "}
-                  <Text style={{ color: "#F0F0FF", fontWeight: "700" }}>
+                  <Text style={{ color: t.text.primary, fontWeight: "700" }}>
                     {fmtTime(startHour, startMinute)}
                   </Text>
                   {"  →  "}
-                  <Text style={{ color: "#F0F0FF", fontWeight: "700" }}>
+                  <Text style={{ color: t.text.primary, fontWeight: "700" }}>
                     {fmtTime(endHour, endMinute)}
                   </Text>
                 </Text>
                 {days.length > 0 ? (
-                  <Text style={m.summaryDays}>
+                  <Text style={[m.summaryDays, { color: t.text.muted }]}>
                     {[...days]
                       .sort()
                       .map((d) => DAYS_FULL[d])
                       .join("  ·  ")}
                   </Text>
                 ) : (
-                  <Text style={[m.summaryDays, { color: "#D04070" }]}>
+                  <Text style={[m.summaryDays, { color: t.blocked.accent }]}>
                     ⚠ Aucun jour sélectionné
                   </Text>
                 )}
@@ -598,7 +672,15 @@ export default function ScheduleModal({
 
             {/* ── Save */}
             <TouchableOpacity
-              style={[m.saveBtn, days.length === 0 && m.saveBtnOff]}
+              style={[
+                m.saveBtn,
+                { backgroundColor: Colors.purple[400] },
+                days.length === 0 && {
+                  backgroundColor: Colors.purple[400] + "20",
+                  shadowOpacity: 0,
+                  elevation: 0,
+                },
+              ]}
               onPress={handleSave}
               disabled={days.length === 0}
               activeOpacity={0.85}
@@ -618,76 +700,42 @@ export default function ScheduleModal({
   );
 }
 
-// ─── Styles : DrumRoller ──────────────────────────────────────────────────────
+// ─── Styles statiques (valeurs fixes, couleurs injectées inline) ──────────────
 const dr = StyleSheet.create({
   col: { alignItems: "center", gap: 8 },
-  colLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#2E2E4A",
-    letterSpacing: 2.5,
-  },
+  colLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 2.5 },
   wrap: {
     width: 100,
     height: DRUM_H,
     overflow: "hidden",
     position: "relative",
+    borderRadius: 14,
   },
   selector: {
     position: "absolute",
-    top: ITEM_H * 2, // center item (index 2 of 5)
+    top: ITEM_H * 2,
     left: 4,
     right: 4,
     height: ITEM_H,
     borderRadius: 14,
     borderWidth: 1.5,
-    zIndex: 1, // behind scroll content
+    zIndex: 1,
   },
-  scroll: {
-    flex: 1,
-    zIndex: 2, // above selector
-  },
-  scrollContent: {
-    paddingTop: ITEM_H * 2, // padding so first item can center
-    paddingBottom: ITEM_H * 2,
-  },
-  item: {
-    height: ITEM_H,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  itemText: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#1E1E30",
-    letterSpacing: -0.5,
-  },
-  itemNear: {
-    fontSize: 24,
-    fontWeight: "600",
-    color: "#3A3A58",
-  },
-  itemFar: {
-    fontSize: 20,
-    fontWeight: "400",
-    color: "#1C1C2C",
-  },
-  itemSelected: {
-    fontSize: 36,
-    fontWeight: "800",
-    letterSpacing: -1,
-  },
-  // Fades — AFTER ScrollView in JSX so they overlay it visually
+  scroll: { flex: 1, zIndex: 2 },
+  scrollContent: { paddingTop: ITEM_H * 2, paddingBottom: ITEM_H * 2 },
+  item: { height: ITEM_H, justifyContent: "center", alignItems: "center" },
+  itemText: { fontSize: 28, fontWeight: "700", letterSpacing: -0.5 },
+  itemNear: { fontSize: 24, fontWeight: "600" },
+  itemFar: { fontSize: 20, fontWeight: "400" },
+  itemSelected: { fontSize: 36, fontWeight: "800", letterSpacing: -1 },
   fadeTop: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     height: ITEM_H * 2,
-    backgroundColor: "#0B0B14",
-    opacity: 0.72,
+    opacity: 0.85,
     zIndex: 3,
-    pointerEvents: "none" as any,
   },
   fadeBottom: {
     position: "absolute",
@@ -695,14 +743,11 @@ const dr = StyleSheet.create({
     left: 0,
     right: 0,
     height: ITEM_H * 2,
-    backgroundColor: "#0B0B14",
-    opacity: 0.72,
+    opacity: 0.85,
     zIndex: 3,
-    pointerEvents: "none" as any,
   },
 });
 
-// ─── Styles : TimeSelector ────────────────────────────────────────────────────
 const ts = StyleSheet.create({
   container: {
     flexDirection: "row",
@@ -710,20 +755,10 @@ const ts = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 12,
   },
-  separator: {
-    width: 32,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  colon: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#3A3A58",
-    letterSpacing: -1,
-  },
+  separator: { width: 32, alignItems: "center", marginTop: 20 },
+  colon: { fontSize: 32, fontWeight: "800", letterSpacing: -1 },
 });
 
-// ─── Styles : ScheduleModal ───────────────────────────────────────────────────
 const m = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -731,20 +766,17 @@ const m = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: "#0B0B14",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: "#18182A",
     maxHeight: "95%",
   },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#28283C",
     alignSelf: "center",
     marginTop: 12,
     marginBottom: 18,
@@ -755,40 +787,24 @@ const m = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 20,
   },
-  title: {
-    fontSize: 21,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -0.5,
-  },
-  titleSub: {
-    fontSize: 12,
-    color: "#32324E",
-    marginTop: 2,
-    fontWeight: "500",
-  },
+  title: { fontSize: 21, fontWeight: "800", letterSpacing: -0.5 },
+  titleSub: { fontSize: 12, marginTop: 2, fontWeight: "500" },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: "#18182A",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#1E1E2E",
   },
-  closeBtnText: { fontSize: 11, color: "#4A4A6A", fontWeight: "700" },
-
+  closeBtnText: { fontSize: 11, fontWeight: "700" },
   sectionLabel: {
     fontSize: 9,
     fontWeight: "800",
-    color: "#28284A",
     letterSpacing: 2.5,
     marginBottom: 10,
     marginTop: 6,
   },
-
-  // Action
   actionRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
   actionBtn: {
     flex: 1,
@@ -798,14 +814,10 @@ const m = StyleSheet.create({
     gap: 8,
     borderRadius: 14,
     paddingVertical: 15,
-    backgroundColor: "#12121E",
     borderWidth: 1,
-    borderColor: "#1E1E2E",
   },
   actionDot: { width: 8, height: 8, borderRadius: 4 },
-  actionBtnText: { fontSize: 13, fontWeight: "700", color: "#32325A" },
-
-  // Days
+  actionBtnText: { fontSize: 13, fontWeight: "700" },
   presetsRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
   preset: {
     flex: 1,
@@ -813,13 +825,8 @@ const m = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#1E1E2E",
-    backgroundColor: "#12121E",
   },
-  presetActive: { backgroundColor: "#7B6EF618", borderColor: "#7B6EF650" },
-  presetText: { fontSize: 11, color: "#32325A", fontWeight: "700" },
-  presetTextActive: { color: "#7B6EF6" },
-
+  presetText: { fontSize: 11, fontWeight: "700" },
   daysRow: { flexDirection: "row", gap: 5, marginBottom: 22 },
   dayBtn: {
     flex: 1,
@@ -827,24 +834,11 @@ const m = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#1E1E2E",
-    backgroundColor: "#12121E",
     gap: 3,
   },
-  dayBtnShort: { fontSize: 13, fontWeight: "800", color: "#28284A" },
-  dayBtnFull: {
-    fontSize: 7,
-    fontWeight: "600",
-    color: "#28284A",
-    letterSpacing: 0.3,
-  },
-
-  // Time tabs
-  timeTabs: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 14,
-  },
+  dayBtnShort: { fontSize: 13, fontWeight: "800" },
+  dayBtnFull: { fontSize: 7, fontWeight: "600", letterSpacing: 0.3 },
+  timeTabs: { flexDirection: "row", gap: 10, marginBottom: 14 },
   timeTab: {
     flex: 1,
     borderRadius: 16,
@@ -852,62 +846,36 @@ const m = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: "center",
     borderWidth: 1.5,
-    borderColor: "#1C1C2C",
-    backgroundColor: "#12121E",
     gap: 4,
   },
-  timeTabLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#28284A",
-    letterSpacing: 2,
-  },
+  timeTabLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 2 },
   timeTabValue: {
     fontSize: 26,
     fontWeight: "800",
-    color: "#D0D0E8",
     fontFamily: "monospace",
     letterSpacing: -1.5,
   },
-  timeTabDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#7B6EF6",
-    marginTop: 2,
-  },
-
-  // Drum container
+  timeTabDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2 },
   drumContainer: {
-    backgroundColor: "#0E0E1A",
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "#18182A",
     paddingVertical: 10,
     paddingHorizontal: 16,
     marginBottom: 22,
     overflow: "hidden",
   },
-
-  // Label input
   input: {
-    backgroundColor: "#12121E",
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: "#F0F0FF",
     fontSize: 14,
     borderWidth: 1,
-    borderColor: "#1E1E2E",
     marginBottom: 18,
   },
-
-  // Summary
   summary: {
     flexDirection: "row",
     alignItems: "stretch",
     gap: 14,
-    backgroundColor: "#12121E",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
@@ -915,29 +883,20 @@ const m = StyleSheet.create({
     overflow: "hidden",
   },
   summaryBar: { width: 3, borderRadius: 2 },
-  summaryText: { fontSize: 13, color: "#50507A", lineHeight: 21 },
-  summaryDays: {
-    fontSize: 11,
-    color: "#32324E",
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-
-  // Save button
+  summaryText: { fontSize: 13, lineHeight: 21 },
+  summaryDays: { fontSize: 11, fontWeight: "600", letterSpacing: 0.2 },
   saveBtn: {
-    backgroundColor: "#7B6EF6",
     borderRadius: 16,
     paddingVertical: 17,
     alignItems: "center",
-    shadowColor: "#7B6EF6",
+    shadowColor: Colors.purple[400],
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
   },
-  saveBtnOff: { backgroundColor: "#7B6EF620", shadowOpacity: 0, elevation: 0 },
   saveBtnText: {
-    color: "#F0F0FF",
+    color: Colors.gray[0],
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0.3,
