@@ -9,6 +9,7 @@ import AppListService from "@/services/app-list.service";
 import ProfileService from "@/services/profile.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
+import { Colors, Semantic, useTheme } from "@/theme";
 import { InstalledApp, Profile, ProfileSchedule } from "@/types";
 import { router, useLocalSearchParams } from "expo-router";
 import React, {
@@ -34,17 +35,20 @@ import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const DAYS_SHORT = ["D", "L", "M", "M", "J", "V", "S"];
-const PROFILE_COLORS = ["#3DDB8A", "#7B6EF6", "#4D9FFF", "#FFB84D", "#F06292"];
-
+const PROFILE_COLORS = [
+  Colors.green[400],
+  Colors.purple[400],
+  Colors.blue[400],
+  Colors.amber[400],
+  "#F06292",
+];
 const fmtTime = (h: number, m: number) =>
   `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-
 const getProfileColor = (id: string) =>
   PROFILE_COLORS[
     parseInt(id.replace(/\D/g, "").slice(-1) || "0", 10) % PROFILE_COLORS.length
   ];
 
-// ─── Pulse dot ────────────────────────────────────────────────────────────────
 function PulseDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0.7)).current;
@@ -107,7 +111,6 @@ function PulseDot({ color }: { color: string }) {
   );
 }
 
-// ─── Schedule Row ─────────────────────────────────────────────────────────────
 const ScheduleRow = React.memo(function ScheduleRow({
   schedule,
   onToggle,
@@ -119,6 +122,7 @@ const ScheduleRow = React.memo(function ScheduleRow({
   onDelete: () => void;
   onEdit: () => void;
 }) {
+  const { t } = useTheme();
   const isNow = (() => {
     const now = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
@@ -131,22 +135,37 @@ const ScheduleRow = React.memo(function ScheduleRow({
     );
   })();
   const isActivate = schedule.action === "activate";
-  const accent = isActivate ? "#2DB870" : "#C04060";
-  const accentBg = isActivate ? "#081410" : "#140810";
-  const accentBorder = isActivate ? "#0E3020" : "#3A1020";
-
+  const accent = isActivate ? t.allowed.accent : t.blocked.accent;
+  const accentBg = isActivate ? t.allowed.bg : t.blocked.bg;
+  const accentBorder = isActivate ? t.allowed.border : t.blocked.border;
   return (
-    <View style={[sr.container, !schedule.isActive && sr.containerInactive]}>
+    <View
+      style={[
+        sr.container,
+        { backgroundColor: t.bg.card, borderColor: t.border.light },
+        !schedule.isActive && { opacity: 0.4 },
+      ]}
+    >
       <View style={[sr.accentBar, { backgroundColor: accent }]} />
       <View style={sr.left}>
         <View style={sr.topRow}>
-          <Text style={sr.label} numberOfLines={1}>
+          <Text style={[sr.label, { color: t.text.primary }]} numberOfLines={1}>
             {schedule.label || "Sans nom"}
           </Text>
           {isNow && schedule.isActive && (
-            <View style={sr.nowBadge}>
-              <PulseDot color="#2DB870" />
-              <Text style={sr.nowBadgeText}>EN COURS</Text>
+            <View
+              style={[
+                sr.nowBadge,
+                {
+                  backgroundColor: t.allowed.bg,
+                  borderColor: t.allowed.border,
+                },
+              ]}
+            >
+              <PulseDot color={t.allowed.accent} />
+              <Text style={[sr.nowBadgeText, { color: t.allowed.text }]}>
+                EN COURS
+              </Text>
             </View>
           )}
           <View
@@ -160,21 +179,32 @@ const ScheduleRow = React.memo(function ScheduleRow({
             </Text>
           </View>
         </View>
-        <Text style={sr.time}>
+        <Text style={[sr.time, { color: t.text.primary }]}>
           {fmtTime(schedule.startHour, schedule.startMinute)}
-          <Text style={sr.timeArrow}> → </Text>
+          <Text style={[sr.timeArrow, { color: t.border.normal }]}> → </Text>
           {fmtTime(schedule.endHour, schedule.endMinute)}
         </Text>
         <View style={sr.daysRow}>
           {DAYS_SHORT.map((d, i) => (
             <View
               key={i}
-              style={[sr.day, schedule.days.includes(i) && sr.dayActive]}
+              style={[
+                sr.day,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+                schedule.days.includes(i) && {
+                  backgroundColor: t.bg.accent,
+                  borderColor: t.border.focus,
+                },
+              ]}
             >
               <Text
                 style={[
                   sr.dayText,
-                  schedule.days.includes(i) && sr.dayTextActive,
+                  {
+                    color: schedule.days.includes(i)
+                      ? t.text.link
+                      : t.text.muted,
+                  },
                 ]}
               >
                 {d}
@@ -185,37 +215,58 @@ const ScheduleRow = React.memo(function ScheduleRow({
       </View>
       <View style={sr.right}>
         <TouchableOpacity
-          style={sr.editBtn}
+          style={[
+            sr.editBtn,
+            { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+          ]}
           onPress={onEdit}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
-          <Text style={sr.editBtnText}>✎</Text>
+          <Text style={[sr.editBtnText, { color: t.text.secondary }]}>✎</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={onToggle}>
           <View
-            style={[sr.toggle, schedule.isActive ? sr.toggleOn : sr.toggleOff]}
+            style={[
+              sr.toggle,
+              schedule.isActive
+                ? {
+                    backgroundColor: t.allowed.bg,
+                    borderColor: t.allowed.border,
+                  }
+                : {
+                    backgroundColor: t.bg.cardAlt,
+                    borderColor: t.border.light,
+                  },
+            ]}
           >
             <View
               style={[
                 sr.toggleThumb,
-                schedule.isActive ? sr.thumbOn : sr.thumbOff,
+                schedule.isActive
+                  ? { backgroundColor: t.allowed.accent, alignSelf: "flex-end" }
+                  : {
+                      backgroundColor: t.border.normal,
+                      alignSelf: "flex-start",
+                    },
               ]}
             />
           </View>
         </TouchableOpacity>
         <TouchableOpacity
-          style={sr.deleteBtn}
+          style={[
+            sr.deleteBtn,
+            { backgroundColor: t.danger.bg, borderColor: t.danger.border },
+          ]}
           onPress={onDelete}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
-          <Text style={sr.deleteBtnText}>⌫</Text>
+          <Text style={[sr.deleteBtnText, { color: t.danger.accent }]}>⌫</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 });
 
-// ─── App Row ──────────────────────────────────────────────────────────────────
 const AppRow = React.memo(function AppRow({
   app,
   isBlocked,
@@ -227,13 +278,23 @@ const AppRow = React.memo(function AppRow({
   isSystem: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useTheme();
   return (
     <TouchableOpacity
-      style={[ar.container, isBlocked && ar.containerBlocked]}
+      style={[
+        ar.container,
+        { backgroundColor: t.bg.card, borderColor: t.border.light },
+        isBlocked && {
+          backgroundColor: t.blocked.bg,
+          borderColor: t.blocked.border,
+        },
+      ]}
       onPress={onToggle}
       activeOpacity={0.75}
     >
-      {isBlocked && <View style={ar.accentBar} />}
+      {isBlocked && (
+        <View style={[ar.accentBar, { backgroundColor: t.blocked.accent }]} />
+      )}
       <View style={ar.iconWrap}>
         {app.icon ? (
           <Image
@@ -241,38 +302,68 @@ const AppRow = React.memo(function AppRow({
             style={ar.icon}
           />
         ) : (
-          <View style={[ar.iconPlaceholder, isSystem && ar.iconSystem]}>
-            <Text style={ar.iconLetter}>
+          <View
+            style={[
+              ar.iconPlaceholder,
+              { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              isSystem && { borderColor: t.border.strong },
+            ]}
+          >
+            <Text style={[ar.iconLetter, { color: t.text.muted }]}>
               {(app.appName ?? "?").charAt(0).toUpperCase()}
             </Text>
           </View>
         )}
         {isBlocked && (
-          <View style={ar.blockedDot}>
+          <View
+            style={[
+              ar.blockedDot,
+              { backgroundColor: t.blocked.accent, borderColor: t.bg.page },
+            ]}
+          >
             <Text style={ar.blockedDotText}>✕</Text>
           </View>
         )}
         {isSystem && !isBlocked && (
-          <View style={ar.systemDot}>
-            <Text style={ar.systemDotText}>◈</Text>
+          <View
+            style={[
+              ar.systemDot,
+              { backgroundColor: t.bg.cardAlt, borderColor: t.border.strong },
+            ]}
+          >
+            <Text style={[ar.systemDotText, { color: t.text.muted }]}>◈</Text>
           </View>
         )}
       </View>
       <View style={ar.info}>
-        <Text style={[ar.name, isBlocked && ar.nameBlocked]} numberOfLines={1}>
+        <Text
+          style={[
+            ar.name,
+            { color: isBlocked ? t.text.muted : t.text.primary },
+            isBlocked && ar.nameBlocked,
+          ]}
+          numberOfLines={1}
+        >
           {app.appName}
         </Text>
-        <Text style={ar.pkg} numberOfLines={1}>
+        <Text style={[ar.pkg, { color: t.border.strong }]} numberOfLines={1}>
           {app.packageName}
         </Text>
       </View>
       <View
-        style={[ar.toggle, isBlocked ? ar.toggleBlocked : ar.toggleAllowed]}
+        style={[
+          ar.toggle,
+          isBlocked
+            ? { backgroundColor: t.blocked.bg, borderColor: t.blocked.border }
+            : { backgroundColor: t.allowed.bg, borderColor: t.allowed.border },
+        ]}
       >
         <View
           style={[
             ar.toggleThumb,
-            isBlocked ? ar.thumbBlocked : ar.thumbAllowed,
+            isBlocked
+              ? { backgroundColor: t.blocked.accent, alignSelf: "flex-start" }
+              : { backgroundColor: t.allowed.accent, alignSelf: "flex-end" },
           ]}
         />
       </View>
@@ -280,11 +371,10 @@ const AppRow = React.memo(function AppRow({
   );
 });
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProfileDetailScreen() {
   const insets = useSafeAreaInsets();
+  const { t } = useTheme();
   const { profileId } = useLocalSearchParams<{ profileId: string }>();
-
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isActiveProfile, setIsActiveProfile] = useState(false);
   const [apps, setApps] = useState<InstalledApp[]>([]);
@@ -303,7 +393,6 @@ export default function ProfileDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const { isPremium, refresh: refreshPremium } = usePremium();
-
   const loadingSystemRef = useRef(false);
   const editingIdRef = useRef<string | null>(null);
   const tabAnim = useRef(new Animated.Value(0)).current;
@@ -317,7 +406,6 @@ export default function ProfileDetailScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
-
   useEffect(() => {
     if (
       (filters.scope === "system" || filters.scope === "all") &&
@@ -467,41 +555,34 @@ export default function ProfileDetailScreen() {
         setPaywallVisible(true);
         return;
       }
-      let updatedSchedules: ProfileSchedule[];
-      if (editingId) {
-        updatedSchedules = profile.schedules.map((s) =>
-          s.id === editingId ? { ...data, id: s.id } : s,
-        );
-      } else {
-        updatedSchedules = [
-          ...profile.schedules,
-          { ...data, id: `sched_${Date.now()}` },
-        ];
-      }
+      const updatedSchedules = editingId
+        ? profile.schedules.map((s) =>
+            s.id === editingId ? { ...data, id: s.id } : s,
+          )
+        : [...profile.schedules, { ...data, id: `sched_${Date.now()}` }];
       await saveProfileAndSync({ ...profile, schedules: updatedSchedules });
     },
     [profile, saveProfileAndSync, isPremium],
   );
 
   const toggleSchedule = useCallback(
-    async (scheduleId: string) => {
+    async (id: string) => {
       if (!profile) return;
       await saveProfileAndSync({
         ...profile,
         schedules: profile.schedules.map((s) =>
-          s.id === scheduleId ? { ...s, isActive: !s.isActive } : s,
+          s.id === id ? { ...s, isActive: !s.isActive } : s,
         ),
       });
     },
     [profile, saveProfileAndSync],
   );
-
   const deleteSchedule = useCallback(
-    async (scheduleId: string) => {
+    async (id: string) => {
       if (!profile) return;
       await saveProfileAndSync({
         ...profile,
-        schedules: profile.schedules.filter((s) => s.id !== scheduleId),
+        schedules: profile.schedules.filter((s) => s.id !== id),
       });
     },
     [profile, saveProfileAndSync],
@@ -545,21 +626,36 @@ export default function ProfileDetailScreen() {
 
   const schedules = profile?.schedules ?? [];
   const hasSchedules = schedules.length > 0;
-  const color = profile ? getProfileColor(profile.id) : "#7B6EF6";
+  const color = profile ? getProfileColor(profile.id) : Colors.purple[400];
   const scheduleLimitReached =
     !isPremium && schedules.length >= FREE_LIMITS.MAX_SCHEDULES;
-
   const tabIndicatorLeft = tabAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ["0%", "50%"],
   });
 
   return (
-    <View style={[detail.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#07070F" />
+    <View
+      style={[
+        detail.container,
+        { backgroundColor: t.bg.page, paddingTop: insets.top },
+      ]}
+    >
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={Semantic.bg.header}
+      />
 
-      {/* ── Header ── */}
-      <Animated.View style={[detail.header, { opacity: fadeAnim }]}>
+      <Animated.View
+        style={[
+          detail.header,
+          {
+            backgroundColor: Semantic.bg.header,
+            borderBottomColor: "rgba(255,255,255,.1)",
+            opacity: fadeAnim,
+          },
+        ]}
+      >
         <TouchableOpacity
           onPress={() => router.back()}
           style={detail.backBtn}
@@ -567,7 +663,6 @@ export default function ProfileDetailScreen() {
         >
           <Text style={detail.backText}>← Retour</Text>
         </TouchableOpacity>
-
         <View style={detail.headerMain}>
           <View
             style={[
@@ -584,28 +679,68 @@ export default function ProfileDetailScreen() {
               {profile?.name ?? "…"}
             </Text>
             <View style={detail.metaRow}>
-              <Text style={detail.profileMeta}>
+              <Text style={[detail.profileMeta, { color: Colors.blue[200] }]}>
                 {blockedPackages.size} bloquée(s)
               </Text>
               {isActiveProfile && (
-                <View style={detail.activePill}>
-                  <PulseDot color="#2DB870" />
-                  <Text style={detail.activeText}>ACTIF</Text>
+                <View
+                  style={[
+                    detail.activePill,
+                    {
+                      backgroundColor: "rgba(45,184,112,.15)",
+                      borderColor: "rgba(45,184,112,.35)",
+                    },
+                  ]}
+                >
+                  <PulseDot color={Colors.green[400]} />
+                  <Text
+                    style={[detail.activeText, { color: Colors.green[400] }]}
+                  >
+                    ACTIF
+                  </Text>
                 </View>
               )}
               {isActiveProfile && !hasSchedules && (
-                <View style={detail.immediatePill}>
-                  <Text style={detail.immediateText}>blocage immédiat</Text>
+                <View
+                  style={[
+                    detail.immediatePill,
+                    {
+                      backgroundColor: "rgba(123,110,246,.15)",
+                      borderColor: "rgba(123,110,246,.35)",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      detail.immediateText,
+                      { color: Colors.purple[400] },
+                    ]}
+                  >
+                    blocage immédiat
+                  </Text>
                 </View>
               )}
             </View>
           </View>
         </View>
-
-        {/* Tab Bar */}
-        <View style={detail.tabBar}>
+        <View
+          style={[
+            detail.tabBar,
+            {
+              backgroundColor: "rgba(255,255,255,.1)",
+              borderColor: "rgba(255,255,255,.15)",
+            },
+          ]}
+        >
           <Animated.View
-            style={[detail.tabIndicator, { left: tabIndicatorLeft }]}
+            style={[
+              detail.tabIndicator,
+              {
+                left: tabIndicatorLeft,
+                backgroundColor: "rgba(255,255,255,.2)",
+                borderColor: "rgba(255,255,255,.3)",
+              },
+            ]}
           />
           <TouchableOpacity
             style={detail.tab}
@@ -614,7 +749,12 @@ export default function ProfileDetailScreen() {
             <Text
               style={[
                 detail.tabText,
-                activeTab === "apps" && detail.tabTextActive,
+                {
+                  color:
+                    activeTab === "apps"
+                      ? Colors.gray[0]
+                      : "rgba(255,255,255,.5)",
+                },
               ]}
             >
               ◎ Apps ({blockedPackages.size}/{filteredApps.length})
@@ -627,7 +767,12 @@ export default function ProfileDetailScreen() {
             <Text
               style={[
                 detail.tabText,
-                activeTab === "schedules" && detail.tabTextActive,
+                {
+                  color:
+                    activeTab === "schedules"
+                      ? Colors.gray[0]
+                      : "rgba(255,255,255,.5)",
+                },
               ]}
             >
               ◷ Plages ({schedules.length})
@@ -636,7 +781,7 @@ export default function ProfileDetailScreen() {
         </View>
       </Animated.View>
 
-      {/* ── Apps tab ── */}
+      {/* Apps tab */}
       {activeTab === "apps" && (
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
           <View style={detail.searchBar}>
@@ -651,21 +796,37 @@ export default function ProfileDetailScreen() {
           </View>
           <View style={detail.bulkRow}>
             <TouchableOpacity
-              style={[detail.bulkBtn, detail.bulkBtnBlock]}
+              style={[
+                detail.bulkBtn,
+                {
+                  backgroundColor: t.blocked.bg,
+                  borderColor: t.blocked.border,
+                },
+              ]}
               onPress={blockAll}
             >
-              <Text style={detail.bulkBtnBlockText}>◉ Tout bloquer</Text>
+              <Text style={[detail.bulkBtnText, { color: t.blocked.text }]}>
+                ◉ Tout bloquer
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[detail.bulkBtn, detail.bulkBtnAllow]}
+              style={[
+                detail.bulkBtn,
+                {
+                  backgroundColor: t.allowed.bg,
+                  borderColor: t.allowed.border,
+                },
+              ]}
               onPress={allowAll}
             >
-              <Text style={detail.bulkBtnAllowText}>◎ Tout autoriser</Text>
+              <Text style={[detail.bulkBtnText, { color: t.allowed.text }]}>
+                ◎ Tout autoriser
+              </Text>
             </TouchableOpacity>
           </View>
           {loading ? (
             <View style={detail.center}>
-              <Text style={{ color: "#3A3A58" }}>Chargement…</Text>
+              <Text style={{ color: t.text.muted }}>Chargement…</Text>
             </View>
           ) : (
             <FlatList
@@ -682,17 +843,32 @@ export default function ProfileDetailScreen() {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={handleRefresh}
-                  tintColor="#7B6EF6"
-                  colors={["#7B6EF6"]}
+                  tintColor={t.refreshTint}
+                  colors={[t.refreshTint]}
+                  progressBackgroundColor={t.bg.card}
                 />
               }
               ListEmptyComponent={
                 <View style={detail.center}>
-                  <View style={detail.emptyIconWrap}>
-                    <Text style={detail.emptyIcon}>◈</Text>
+                  <View
+                    style={[
+                      detail.emptyIconWrap,
+                      {
+                        backgroundColor: t.bg.accent,
+                        borderColor: t.border.strong,
+                      },
+                    ]}
+                  >
+                    <Text style={[detail.emptyIcon, { color: t.text.link }]}>
+                      ◈
+                    </Text>
                   </View>
-                  <Text style={detail.emptyTitle}>Aucune application</Text>
-                  <Text style={detail.emptySubtitle}>
+                  <Text
+                    style={[detail.emptyTitle, { color: t.text.secondary }]}
+                  >
+                    Aucune application
+                  </Text>
+                  <Text style={[detail.emptySubtitle, { color: t.text.muted }]}>
                     Modifiez votre recherche ou vos filtres
                   </Text>
                 </View>
@@ -702,7 +878,7 @@ export default function ProfileDetailScreen() {
         </Animated.View>
       )}
 
-      {/* ── Schedules tab ── */}
+      {/* Schedules tab */}
       {activeTab === "schedules" && (
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
           <ScrollView
@@ -715,78 +891,143 @@ export default function ProfileDetailScreen() {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={handleRefresh}
-                tintColor="#7B6EF6"
-                colors={["#7B6EF6"]}
+                tintColor={t.refreshTint}
+                colors={[t.refreshTint]}
+                progressBackgroundColor={t.bg.card}
               />
             }
           >
             {!hasSchedules ? (
-              <View style={detail.noScheduleBanner}>
-                <View style={detail.noScheduleIconWrap}>
-                  <Text style={detail.noScheduleIcon}>⚡</Text>
+              <View
+                style={[
+                  detail.noScheduleBanner,
+                  {
+                    backgroundColor: t.allowed.bg,
+                    borderColor: t.allowed.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    detail.noScheduleIconWrap,
+                    {
+                      backgroundColor: t.allowed.bg,
+                      borderColor: t.allowed.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[detail.noScheduleIcon, { color: t.allowed.accent }]}
+                  >
+                    ⚡
+                  </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={detail.noScheduleTitle}>Blocage immédiat</Text>
-                  <Text style={detail.noScheduleText}>
+                  <Text
+                    style={[detail.noScheduleTitle, { color: t.allowed.text }]}
+                  >
+                    Blocage immédiat
+                  </Text>
+                  <Text
+                    style={[detail.noScheduleText, { color: t.allowed.accent }]}
+                  >
                     Aucune planification — dès activation, les{" "}
                     {blockedPackages.size} app(s) sont bloquées instantanément.
                   </Text>
                 </View>
               </View>
             ) : (
-              <View style={detail.infoBanner}>
-                <Text style={detail.infoIcon}>◈</Text>
-                <Text style={detail.infoText}>
+              <View
+                style={[
+                  detail.infoBanner,
+                  {
+                    backgroundColor: t.bg.accent,
+                    borderColor: t.border.strong,
+                  },
+                ]}
+              >
+                <Text style={[detail.infoIcon, { color: t.text.link }]}>◈</Text>
+                <Text style={[detail.infoText, { color: t.text.secondary }]}>
                   Les plages contrôlent l'activation automatique du profil.
                 </Text>
               </View>
             )}
-
-            {/* Limite gratuite */}
             {scheduleLimitReached && (
               <TouchableOpacity
-                style={detail.limitBanner}
+                style={[
+                  detail.limitBanner,
+                  {
+                    backgroundColor: t.warning.bg,
+                    borderColor: t.warning.border,
+                  },
+                ]}
                 onPress={() => setPaywallVisible(true)}
                 activeOpacity={0.85}
               >
-                <View style={detail.limitIconWrap}>
-                  <Text style={detail.limitIcon}>◈</Text>
+                <View
+                  style={[
+                    detail.limitIconWrap,
+                    {
+                      backgroundColor: t.warning.bg,
+                      borderColor: t.warning.border,
+                    },
+                  ]}
+                >
+                  <Text style={[detail.limitIcon, { color: t.warning.accent }]}>
+                    ◈
+                  </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={detail.limitTitle}>
+                  <Text style={[detail.limitTitle, { color: t.warning.text }]}>
                     Limite atteinte — {schedules.length}/
                     {FREE_LIMITS.MAX_SCHEDULES} plage
                   </Text>
-                  <Text style={detail.limitSub}>
+                  <Text style={[detail.limitSub, { color: t.warning.accent }]}>
                     Passez à Premium pour des planifications illimitées
                   </Text>
                 </View>
-                <View style={detail.limitCta}>
-                  <Text style={detail.limitCtaText}>⚡ Pro</Text>
+                <View
+                  style={[
+                    detail.limitCta,
+                    {
+                      backgroundColor: t.bg.accent,
+                      borderColor: t.border.strong,
+                    },
+                  ]}
+                >
+                  <Text style={[detail.limitCtaText, { color: t.text.link }]}>
+                    ⚡ Pro
+                  </Text>
                 </View>
               </TouchableOpacity>
             )}
-
-            {schedules.map((s) => (
+            {schedules.map((sc) => (
               <ScheduleRow
-                key={s.id}
-                schedule={s}
-                onToggle={() => toggleSchedule(s.id)}
-                onDelete={() => deleteSchedule(s.id)}
+                key={sc.id}
+                schedule={sc}
+                onToggle={() => toggleSchedule(sc.id)}
+                onDelete={() => deleteSchedule(sc.id)}
                 onEdit={() => {
-                  editingIdRef.current = s.id;
-                  setEditingSchedule(s);
+                  editingIdRef.current = sc.id;
+                  setEditingSchedule(sc);
                   setScheduleModalVisible(true);
                 }}
               />
             ))}
           </ScrollView>
-
           <TouchableOpacity
             style={[
               detail.addSchedFab,
-              { bottom: insets.bottom + 24 },
-              scheduleLimitReached && detail.addSchedFabLocked,
+              {
+                bottom: insets.bottom + 24,
+                backgroundColor: scheduleLimitReached
+                  ? t.focus.bg
+                  : Colors.blue[600],
+              },
+              scheduleLimitReached && {
+                borderWidth: 1,
+                borderColor: t.focus.border,
+              },
             ]}
             onPress={() => {
               if (scheduleLimitReached) {
@@ -799,7 +1040,12 @@ export default function ProfileDetailScreen() {
             }}
             activeOpacity={0.85}
           >
-            <Text style={detail.addSchedFabText}>
+            <Text
+              style={[
+                detail.addSchedFabText,
+                scheduleLimitReached && { color: t.focus.text },
+              ]}
+            >
               {scheduleLimitReached
                 ? "🔒 Débloquer avec Premium"
                 : "+ Ajouter une plage"}
@@ -817,8 +1063,6 @@ export default function ProfileDetailScreen() {
         onSave={(data, editingId) => handleScheduleSave(data, editingId)}
         editingSchedule={editingSchedule}
       />
-
-      {/* ── PaywallModal ── */}
       <PaywallModal
         visible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
@@ -832,19 +1076,16 @@ export default function ProfileDetailScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const detail = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#07070F" },
+  container: { flex: 1 },
   header: {
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 0,
     borderBottomWidth: 1,
-    borderBottomColor: "#111120",
-    backgroundColor: "#07070F",
   },
   backBtn: { marginBottom: 14 },
-  backText: { color: "#7B6EF6", fontSize: 14, fontWeight: "600" },
+  backText: { color: Colors.gray[0], fontSize: 14, fontWeight: "600" },
   headerMain: {
     flexDirection: "row",
     alignItems: "center",
@@ -863,7 +1104,7 @@ const detail = StyleSheet.create({
   profileName: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#EDEDFF",
+    color: Colors.gray[0],
     letterSpacing: -0.5,
   },
   metaRow: {
@@ -873,58 +1114,42 @@ const detail = StyleSheet.create({
     marginTop: 4,
     flexWrap: "wrap",
   },
-  profileMeta: { fontSize: 11, color: "#2E2E48" },
+  profileMeta: { fontSize: 11 },
   activePill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    backgroundColor: "#081410",
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: "#0E3020",
   },
-  activeText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#2DB870",
-    letterSpacing: 1,
-  },
+  activeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1 },
   immediatePill: {
-    backgroundColor: "#16103A",
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: "#3A3480",
   },
-  immediateText: { fontSize: 9, color: "#7B6EF6", fontWeight: "700" },
-
+  immediateText: { fontSize: 9, fontWeight: "700" },
   tabBar: {
     flexDirection: "row",
     position: "relative",
     height: 44,
-    backgroundColor: "#0C0C16",
     borderRadius: 14,
     overflow: "hidden",
     marginBottom: 0,
     borderWidth: 1,
-    borderColor: "#141428",
   },
   tabIndicator: {
     position: "absolute",
     width: "50%",
     height: "100%",
-    backgroundColor: "#16103A",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#3A3480",
   },
   tab: { flex: 1, justifyContent: "center", alignItems: "center" },
-  tabText: { fontSize: 12, fontWeight: "600", color: "#2A2A48" },
-  tabTextActive: { color: "#9B8FFF" },
-
+  tabText: { fontSize: 12, fontWeight: "600" },
   searchBar: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 4 },
   bulkRow: {
     flexDirection: "row",
@@ -940,10 +1165,7 @@ const detail = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
   },
-  bulkBtnBlock: { backgroundColor: "#140810", borderColor: "#3A1020" },
-  bulkBtnAllow: { backgroundColor: "#081410", borderColor: "#0E3020" },
-  bulkBtnBlockText: { fontSize: 12, color: "#C04060", fontWeight: "700" },
-  bulkBtnAllowText: { fontSize: 12, color: "#2DB870", fontWeight: "700" },
+  bulkBtnText: { fontSize: 12, fontWeight: "700" },
   center: {
     flex: 1,
     justifyContent: "center",
@@ -954,77 +1176,52 @@ const detail = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 18,
-    backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#3A3480",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 14,
   },
-  emptyIcon: { fontSize: 26, color: "#4A3A9A" },
-  emptyTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#C0C0D8",
-    marginBottom: 6,
-  },
-  emptySubtitle: { fontSize: 12, color: "#2A2A48" },
-
+  emptyIcon: { fontSize: 26 },
+  emptyTitle: { fontSize: 14, fontWeight: "700", marginBottom: 6 },
+  emptySubtitle: { fontSize: 12 },
   schedulesList: { paddingHorizontal: 18, paddingTop: 16 },
-
   noScheduleBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 14,
-    backgroundColor: "#081410",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#0E3020",
     marginBottom: 20,
   },
   noScheduleIconWrap: {
     width: 36,
     height: 36,
     borderRadius: 11,
-    backgroundColor: "#0A2018",
     borderWidth: 1,
-    borderColor: "#1A5034",
     justifyContent: "center",
     alignItems: "center",
   },
-  noScheduleIcon: { fontSize: 16, color: "#2DB870" },
-  noScheduleTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#2DB870",
-    marginBottom: 4,
-  },
-  noScheduleText: { fontSize: 12, color: "#2A6A44", lineHeight: 18 },
-
+  noScheduleIcon: { fontSize: 16 },
+  noScheduleTitle: { fontSize: 13, fontWeight: "800", marginBottom: 4 },
+  noScheduleText: { fontSize: 12, lineHeight: 18 },
   infoBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "#16103A",
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#3A3480",
     marginBottom: 16,
   },
-  infoIcon: { fontSize: 14, color: "#7B6EF6" },
-  infoText: { flex: 1, fontSize: 12, color: "#5A5080", lineHeight: 19 },
-
-  // Limite banner
+  infoIcon: { fontSize: 14 },
+  infoText: { flex: 1, fontSize: 12, lineHeight: 19 },
   limitBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#100C04",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#3A2800",
     padding: 14,
     marginBottom: 16,
   },
@@ -1032,68 +1229,48 @@ const detail = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: "#1E1400",
     borderWidth: 1,
-    borderColor: "#4A3400",
     justifyContent: "center",
     alignItems: "center",
   },
-  limitIcon: { fontSize: 15, color: "#C07010" },
-  limitTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#C07010",
-    marginBottom: 2,
-  },
-  limitSub: { fontSize: 11, color: "#6A4A10" },
+  limitIcon: { fontSize: 15 },
+  limitTitle: { fontSize: 12, fontWeight: "800", marginBottom: 2 },
+  limitSub: { fontSize: 11 },
   limitCta: {
-    backgroundColor: "#7B6EF625",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: "#7B6EF640",
   },
-  limitCtaText: { fontSize: 11, fontWeight: "800", color: "#9B8FFF" },
-
+  limitCtaText: { fontSize: 11, fontWeight: "800" },
   addSchedFab: {
     position: "absolute",
     left: 18,
     right: 18,
-    backgroundColor: "#7B6EF6",
     borderRadius: 18,
     paddingVertical: 16,
     alignItems: "center",
     elevation: 8,
   },
-  addSchedFabLocked: {
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#3A3480",
-  },
   addSchedFabText: {
-    color: "#F0F0FF",
+    color: Colors.gray[0],
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0.2,
   },
 });
-
 const sr = StyleSheet.create({
   container: {
-    backgroundColor: "#0C0C16",
     borderRadius: 16,
     padding: 16,
     paddingLeft: 20,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: "#141428",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     overflow: "hidden",
   },
-  containerInactive: { opacity: 0.4 },
   accentBar: {
     position: "absolute",
     left: 0,
@@ -1110,24 +1287,17 @@ const sr = StyleSheet.create({
     gap: 6,
     marginBottom: 6,
   },
-  label: { fontSize: 13, fontWeight: "700", color: "#D8D8F0" },
+  label: { fontSize: 13, fontWeight: "700" },
   nowBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    backgroundColor: "#081410",
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: "#0E3020",
   },
-  nowBadgeText: {
-    fontSize: 8,
-    fontWeight: "800",
-    color: "#2DB870",
-    letterSpacing: 1,
-  },
+  nowBadgeText: { fontSize: 8, fontWeight: "800", letterSpacing: 1 },
   actionBadge: {
     borderRadius: 6,
     paddingHorizontal: 6,
@@ -1138,11 +1308,10 @@ const sr = StyleSheet.create({
   time: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#D8D8F0",
     fontFamily: "monospace",
     marginBottom: 8,
   },
-  timeArrow: { fontSize: 16, color: "#2A2A48", fontWeight: "400" },
+  timeArrow: { fontSize: 16, fontWeight: "400" },
   daysRow: { flexDirection: "row", gap: 4 },
   day: {
     width: 22,
@@ -1150,25 +1319,19 @@ const sr = StyleSheet.create({
     borderRadius: 6,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#14141E",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
   },
-  dayActive: { backgroundColor: "#16103A", borderColor: "#3A3480" },
-  dayText: { fontSize: 9, fontWeight: "700", color: "#2A2A48" },
-  dayTextActive: { color: "#9B8FFF" },
+  dayText: { fontSize: 9, fontWeight: "700" },
   right: { alignItems: "center", gap: 10 },
   editBtn: {
     width: 30,
     height: 30,
     borderRadius: 9,
-    backgroundColor: "#14141E",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
-  editBtnText: { fontSize: 13, color: "#5A5A80" },
+  editBtnText: { fontSize: 13 },
   toggle: {
     width: 38,
     height: 22,
@@ -1177,37 +1340,27 @@ const sr = StyleSheet.create({
     padding: 2,
     borderWidth: 1,
   },
-  toggleOn: { backgroundColor: "#081410", borderColor: "#0E3020" },
-  toggleOff: { backgroundColor: "#0E0E18", borderColor: "#141428" },
   toggleThumb: { width: 16, height: 16, borderRadius: 8 },
-  thumbOn: { backgroundColor: "#2DB870", alignSelf: "flex-end" },
-  thumbOff: { backgroundColor: "#2A2A3A", alignSelf: "flex-start" },
   deleteBtn: {
     width: 30,
     height: 30,
     borderRadius: 9,
-    backgroundColor: "#140810",
     borderWidth: 1,
-    borderColor: "#2A1018",
     justifyContent: "center",
     alignItems: "center",
   },
-  deleteBtnText: { fontSize: 13, color: "#C04060" },
+  deleteBtnText: { fontSize: 13 },
 });
-
 const ar = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#0C0C16",
     borderRadius: 14,
     padding: 12,
     marginBottom: 7,
     borderWidth: 1,
-    borderColor: "#141428",
     overflow: "hidden",
   },
-  containerBlocked: { backgroundColor: "#100810", borderColor: "#2A1020" },
   accentBar: {
     position: "absolute",
     left: 0,
@@ -1215,7 +1368,6 @@ const ar = StyleSheet.create({
     bottom: 10,
     width: 3,
     borderRadius: 2,
-    backgroundColor: "#C04060",
   },
   iconWrap: { position: "relative", marginRight: 12 },
   icon: { width: 44, height: 44, borderRadius: 12 },
@@ -1223,14 +1375,11 @@ const ar = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#141420",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#1E1E30",
   },
-  iconSystem: { backgroundColor: "#0E0E20" },
-  iconLetter: { fontSize: 18, fontWeight: "800", color: "#3A3A7A" },
+  iconLetter: { fontSize: 18, fontWeight: "800" },
   blockedDot: {
     position: "absolute",
     bottom: -2,
@@ -1238,13 +1387,11 @@ const ar = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#C04060",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "#07070F",
   },
-  blockedDotText: { fontSize: 7, color: "#FFF", fontWeight: "800" },
+  blockedDotText: { fontSize: 7, color: Colors.gray[0], fontWeight: "800" },
   systemDot: {
     position: "absolute",
     bottom: -2,
@@ -1252,17 +1399,15 @@ const ar = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#0E0E20",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#2A2450",
   },
-  systemDotText: { fontSize: 8, color: "#5A5090" },
+  systemDotText: { fontSize: 8 },
   info: { flex: 1, marginRight: 12 },
-  name: { fontSize: 13, fontWeight: "600", color: "#D8D8F0", marginBottom: 3 },
-  nameBlocked: { color: "#5A3A5A", textDecorationLine: "line-through" },
-  pkg: { fontSize: 10, color: "#1E1E38", fontFamily: "monospace" },
+  name: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
+  nameBlocked: { textDecorationLine: "line-through" },
+  pkg: { fontSize: 10, fontFamily: "monospace" },
   toggle: {
     width: 42,
     height: 24,
@@ -1271,9 +1416,5 @@ const ar = StyleSheet.create({
     padding: 2,
     borderWidth: 1,
   },
-  toggleAllowed: { backgroundColor: "#081410", borderColor: "#0E3020" },
-  toggleBlocked: { backgroundColor: "#140810", borderColor: "#3A1020" },
   toggleThumb: { width: 18, height: 18, borderRadius: 9 },
-  thumbAllowed: { backgroundColor: "#2DB870", alignSelf: "flex-end" },
-  thumbBlocked: { backgroundColor: "#C04060", alignSelf: "flex-start" },
 });

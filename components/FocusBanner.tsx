@@ -1,4 +1,5 @@
 import FocusService, { FocusStatus } from "@/services/focus.service";
+import { Colors, useTheme } from "@/theme";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -13,11 +14,10 @@ interface Props {
   status: FocusStatus;
   onStopped: () => void;
 }
-
 const HOLD_MS = 5000;
 
-// ─── Animated PulseDot ────────────────────────────────────────────────────────
 function PulseDot() {
+  const { t } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.loop(
@@ -40,14 +40,21 @@ function PulseDot() {
   return (
     <View style={fb.dotWrap}>
       <Animated.View
-        style={[fb.dotGlow, { transform: [{ scale: scaleAnim }] }]}
+        style={[
+          fb.dotGlow,
+          {
+            backgroundColor: t.allowed.accent + "40",
+            transform: [{ scale: scaleAnim }],
+          },
+        ]}
       />
-      <View style={fb.dot} />
+      <View style={[fb.dot, { backgroundColor: t.allowed.accent }]} />
     </View>
   );
 }
 
 export default function FocusBanner({ status, onStopped }: Props) {
+  const { t } = useTheme();
   const [remaining, setRemaining] = useState(status.remainingMs);
   const [holding, setHolding] = useState(false);
   const holdAnim = useRef(new Animated.Value(0)).current;
@@ -55,7 +62,6 @@ export default function FocusBanner({ status, onStopped }: Props) {
   const slideAnim = useRef(new Animated.Value(-60)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Entrée animée
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -72,7 +78,6 @@ export default function FocusBanner({ status, onStopped }: Props) {
     ]).start();
   }, []);
 
-  // Compte à rebours
   useEffect(() => {
     setRemaining(status.remainingMs);
     const interval = setInterval(() => {
@@ -116,7 +121,6 @@ export default function FocusBanner({ status, onStopped }: Props) {
     inputRange: [0, 1],
     outputRange: ["0%", "100%"],
   });
-
   const totalMs = status.durationMinutes * 60000;
   const elapsed = totalMs - remaining;
   const pct =
@@ -127,57 +131,91 @@ export default function FocusBanner({ status, onStopped }: Props) {
     <Animated.View
       style={[
         fb.banner,
-        { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+        {
+          backgroundColor: t.focus.bg,
+          borderColor: t.focus.border,
+          opacity: fadeAnim,
+          transform: [{ translateY: slideAnim }],
+        },
       ]}
     >
-      {/* Session progress bar */}
-      <View style={fb.sessionTrack}>
-        <Animated.View style={[fb.sessionFill, { width: `${pct}%` }]} />
+      <View style={[fb.sessionTrack, { backgroundColor: t.border.light }]}>
+        <Animated.View
+          style={[
+            fb.sessionFill,
+            { width: `${pct}%`, backgroundColor: t.focus.accent },
+          ]}
+        />
       </View>
-
       <View style={fb.content}>
-        {/* Left — profile info */}
         <View style={fb.left}>
           <View style={fb.liveRow}>
             <PulseDot />
-            <Text style={fb.liveLabel}>FOCUS ACTIF</Text>
+            <Text style={[fb.liveLabel, { color: t.allowed.text }]}>
+              FOCUS ACTIF
+            </Text>
           </View>
-          <Text style={fb.profileName} numberOfLines={1}>
+          <Text
+            style={[fb.profileName, { color: t.text.primary }]}
+            numberOfLines={1}
+          >
             {status.profileName}
           </Text>
-          <Text style={fb.subInfo}>
+          <Text style={[fb.subInfo, { color: t.text.secondary }]}>
             {status.packages.length} app{status.packages.length > 1 ? "s" : ""}{" "}
             bloquée{status.packages.length > 1 ? "s" : ""}
           </Text>
         </View>
-
-        {/* Center — timer */}
         <View style={fb.center}>
-          <Text style={fb.timer}>{timeStr}</Text>
-          <Text style={fb.timerLabel}>restant</Text>
+          <Text style={[fb.timer, { color: t.text.primary }]}>{timeStr}</Text>
+          <Text style={[fb.timerLabel, { color: t.focus.accent }]}>
+            restant
+          </Text>
           <View style={fb.pctRow}>
-            <View style={fb.pctTrack}>
-              <View style={[fb.pctFill, { width: `${pct}%` }]} />
+            <View style={[fb.pctTrack, { backgroundColor: t.border.light }]}>
+              <View
+                style={[
+                  fb.pctFill,
+                  { width: `${pct}%`, backgroundColor: t.focus.accent },
+                ]}
+              />
             </View>
-            <Text style={fb.pctText}>{pct}%</Text>
+            <Text style={[fb.pctText, { color: t.text.muted }]}>{pct}%</Text>
           </View>
         </View>
-
-        {/* Right — stop button */}
         <View style={fb.right}>
           <TouchableOpacity
-            style={[fb.stopBtn, holding && fb.stopBtnHolding]}
+            style={[
+              fb.stopBtn,
+              {
+                backgroundColor: t.danger.bg,
+                borderColor: holding ? t.danger.accent : t.danger.border,
+              },
+            ]}
             onPressIn={startHold}
             onPressOut={cancelHold}
             activeOpacity={1}
           >
-            <Animated.View style={[fb.holdFill, { width: progressWidth }]} />
-            <Text style={fb.stopIcon}>◼</Text>
-            <Text style={[fb.stopLabel, holding && fb.stopLabelHolding]}>
+            <Animated.View
+              style={[
+                fb.holdFill,
+                {
+                  width: progressWidth,
+                  backgroundColor: t.danger.accent + "30",
+                },
+              ]}
+            />
+            <Text style={[fb.stopIcon, { color: t.danger.accent }]}>◼</Text>
+            <Text
+              style={[
+                fb.stopLabel,
+                { color: holding ? t.danger.text : t.text.muted },
+              ]}
+            >
               {holding ? "..." : "Stop"}
             </Text>
           </TouchableOpacity>
-          <Text style={fb.holdHint}>
+          <Text style={[fb.holdHint, { color: t.text.muted }]}>
             {holding ? "Maintenir 5s" : "Maintenir\npour stop"}
           </Text>
         </View>
@@ -186,24 +224,21 @@ export default function FocusBanner({ status, onStopped }: Props) {
   );
 }
 
-const ACCENT = "#7B6EF6";
-const GREEN = "#3DDB8A";
-const RED = "#D04070";
-
 const fb = StyleSheet.create({
   banner: {
-    backgroundColor: "#16103A",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#4A3F8A",
     overflow: "hidden",
     marginBottom: 14,
+    shadowColor: Colors.purple[400],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  sessionTrack: { height: 2, backgroundColor: "#1C1C2C" },
-  sessionFill: { height: 2, backgroundColor: ACCENT, borderRadius: 2 },
+  sessionTrack: { height: 3 },
+  sessionFill: { height: 3, borderRadius: 2 },
   content: { flexDirection: "row", alignItems: "center", padding: 14, gap: 10 },
-
-  // Left
   left: { flex: 1, minWidth: 0 },
   liveRow: {
     flexDirection: "row",
@@ -217,95 +252,49 @@ const fb = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: GREEN,
-    position: "absolute",
-  },
-  dotGlow: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: GREEN + "40",
-    position: "absolute",
-  },
-  liveLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: GREEN,
-    letterSpacing: 1.5,
-  },
+  dot: { width: 6, height: 6, borderRadius: 3, position: "absolute" },
+  dotGlow: { width: 10, height: 10, borderRadius: 5, position: "absolute" },
+  liveLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
   profileName: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#E8E8F8",
     marginBottom: 2,
     letterSpacing: -0.3,
   },
-  subInfo: { fontSize: 10, color: "#5A5480" },
-
-  // Center
+  subInfo: { fontSize: 10 },
   center: { alignItems: "center", paddingHorizontal: 4 },
   timer: {
     fontSize: 26,
     fontWeight: "800",
-    color: "#F0F0FF",
     letterSpacing: -1.5,
     fontVariant: ["tabular-nums"],
   },
   timerLabel: {
     fontSize: 8,
-    color: "#4A3F8A",
     fontWeight: "600",
     letterSpacing: 1,
     marginTop: 1,
     marginBottom: 6,
   },
   pctRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  pctTrack: {
-    width: 52,
-    height: 3,
-    backgroundColor: "#1C1C2C",
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  pctFill: { height: 3, backgroundColor: ACCENT, borderRadius: 2 },
-  pctText: { fontSize: 9, color: "#5A5480", fontWeight: "600" },
-
-  // Right
+  pctTrack: { width: 52, height: 3, borderRadius: 2, overflow: "hidden" },
+  pctFill: { height: 3, borderRadius: 2 },
+  pctText: { fontSize: 9, fontWeight: "600" },
   right: { alignItems: "center", gap: 5 },
   stopBtn: {
     width: 54,
     height: 54,
     borderRadius: 14,
-    backgroundColor: "#14080A",
     borderWidth: 1,
-    borderColor: "#2A1520",
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
   },
-  stopBtnHolding: { borderColor: RED },
-  holdFill: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: RED + "30",
-  },
-  stopIcon: { fontSize: 16, color: RED, marginBottom: 2 },
-  stopLabel: {
-    fontSize: 8,
-    color: "#5A3040",
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  stopLabelHolding: { color: RED },
+  holdFill: { position: "absolute", left: 0, top: 0, bottom: 0 },
+  stopIcon: { fontSize: 16, marginBottom: 2 },
+  stopLabel: { fontSize: 8, fontWeight: "700", letterSpacing: 0.5 },
   holdHint: {
     fontSize: 8,
-    color: "#3A3060",
     fontWeight: "600",
     textAlign: "center",
     lineHeight: 12,

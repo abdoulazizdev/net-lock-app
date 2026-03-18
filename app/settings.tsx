@@ -1,8 +1,11 @@
+import PaywallModal from "@/components/PaywallModal";
+import ThemeToggle from "@/components/ThemeToggle";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { usePremium } from "@/hooks/usePremium";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
+import { Colors, Semantic, useTheme } from "@/theme";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -31,6 +34,7 @@ function Toggle({
   onToggle: () => void;
   disabled?: boolean;
 }) {
+  const { t } = useTheme();
   const pos = useRef(new Animated.Value(value ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(pos, {
@@ -42,16 +46,16 @@ function Toggle({
   }, [value]);
   const bg = pos.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#14141E", "#16103A"],
+    outputRange: [t.bg.cardSunken, t.bg.accent],
   });
   const border = pos.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#1C1C2C", "#4A3F8A"],
+    outputRange: [t.border.normal, t.border.focus],
   });
   const thumbX = pos.interpolate({ inputRange: [0, 1], outputRange: [2, 20] });
   const thumbBg = pos.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#2A2A3A", "#7B6EF6"],
+    outputRange: [t.border.normal, Colors.blue[500]],
   });
   return (
     <TouchableOpacity
@@ -94,6 +98,7 @@ function SettingRow({
   disabled?: boolean;
   accent?: string;
 }) {
+  const { t } = useTheme();
   return (
     <TouchableOpacity
       style={[s.row, disabled && { opacity: 0.4 }]}
@@ -104,39 +109,63 @@ function SettingRow({
       <View
         style={[
           s.rowIcon,
-          danger && s.rowIconDanger,
+          { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+          danger && {
+            backgroundColor: t.danger.bg,
+            borderColor: t.danger.border,
+          },
           accent
-            ? { backgroundColor: accent + "18", borderColor: accent + "40" }
+            ? { backgroundColor: accent + "15", borderColor: accent + "35" }
             : {},
         ]}
       >
         <Text
           style={[
             s.rowIconText,
-            accent ? { color: accent } : danger ? { color: "#D04070" } : {},
+            { color: t.text.muted },
+            accent ? { color: accent } : {},
+            danger ? { color: t.danger.accent } : {},
           ]}
         >
           {icon}
         </Text>
       </View>
       <View style={s.rowContent}>
-        <Text style={[s.rowTitle, danger && s.rowTitleDanger]}>{title}</Text>
-        {subtitle && <Text style={s.rowSubtitle}>{subtitle}</Text>}
+        <Text
+          style={[
+            s.rowTitle,
+            { color: danger ? t.danger.text : t.text.primary },
+          ]}
+        >
+          {title}
+        </Text>
+        {subtitle && (
+          <Text style={[s.rowSubtitle, { color: t.text.muted }]}>
+            {subtitle}
+          </Text>
+        )}
       </View>
       {right && <View>{right}</View>}
       {onPress && !right && !disabled && (
-        <Text style={[s.rowChevron, danger && s.rowChevronDanger]}>›</Text>
+        <Text
+          style={[
+            s.rowChevron,
+            { color: danger ? t.danger.border : t.border.normal },
+          ]}
+        >
+          ›
+        </Text>
       )}
     </TouchableOpacity>
   );
 }
-
 function SectionLabel({ label }: { label: string }) {
-  return <Text style={s.sectionLabel}>{label}</Text>;
+  const { t } = useTheme();
+  return <Text style={[s.sectionLabel, { color: t.text.muted }]}>{label}</Text>;
 }
-
 function Divider() {
-  return <View style={s.sep} />;
+  const { t } = useTheme();
+  return <View style={[s.sep, { backgroundColor: t.border.light }]} />;
 }
 
 // ─── PinPad ───────────────────────────────────────────────────────────────────
@@ -161,18 +190,32 @@ function PinPad({
   onToggleShow: () => void;
   shakeAnim: Animated.Value;
 }) {
+  const { t } = useTheme();
   return (
     <>
       <Animated.View
         style={[pp.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
       >
         {showPin ? (
-          <Text style={pp.pinText}>{pin || "·  ·  ·  ·"}</Text>
+          <Text style={[pp.pinText, { color: Colors.blue[600] }]}>
+            {pin || "·  ·  ·  ·"}
+          </Text>
         ) : (
           [0, 1, 2, 3, 4, 5].map((i) => (
             <View
               key={i}
-              style={[pp.dot, i < pin.length ? pp.dotFilled : pp.dotEmpty]}
+              style={[
+                pp.dot,
+                i < pin.length
+                  ? [pp.dotFilled, { backgroundColor: Colors.blue[500] }]
+                  : [
+                      pp.dotEmpty,
+                      {
+                        backgroundColor: t.bg.cardAlt,
+                        borderColor: t.border.normal,
+                      },
+                    ],
+              ]}
             />
           ))
         )}
@@ -182,7 +225,7 @@ function PinPad({
         onPress={onToggleShow}
         activeOpacity={0.7}
       >
-        <Text style={pp.eyeText}>
+        <Text style={[pp.eyeText, { color: t.text.muted }]}>
           {showPin ? "◈  Masquer" : "◎  Voir le code"}
         </Text>
       </TouchableOpacity>
@@ -204,8 +247,10 @@ function PinPad({
             onPress={() => onDigit(d)}
             activeOpacity={0.5}
           >
-            <Text style={pp.btnText}>{d}</Text>
-            {sub ? <Text style={pp.btnSub}>{sub}</Text> : null}
+            <Text style={[pp.btnText, { color: t.text.primary }]}>{d}</Text>
+            {sub ? (
+              <Text style={[pp.btnSub, { color: t.text.muted }]}>{sub}</Text>
+            ) : null}
           </TouchableOpacity>
         ))}
         <View style={pp.btn} />
@@ -214,14 +259,21 @@ function PinPad({
           onPress={() => onDigit("0")}
           activeOpacity={0.5}
         >
-          <Text style={pp.btnText}>0</Text>
+          <Text style={[pp.btnText, { color: t.text.primary }]}>0</Text>
         </TouchableOpacity>
         <TouchableOpacity style={pp.btn} onPress={onDelete} activeOpacity={0.5}>
-          <Text style={pp.deleteText}>⌫</Text>
+          <Text style={[pp.deleteText, { color: t.text.secondary }]}>⌫</Text>
         </TouchableOpacity>
       </View>
       <TouchableOpacity
-        style={[pp.submitBtn, submitDisabled && pp.submitBtnOff]}
+        style={[
+          pp.submitBtn,
+          {
+            backgroundColor: submitDisabled
+              ? Colors.blue[200]
+              : Colors.blue[600],
+          },
+        ]}
         onPress={onSubmit}
         disabled={submitDisabled}
         activeOpacity={0.85}
@@ -232,65 +284,15 @@ function PinPad({
   );
 }
 
-const pp = StyleSheet.create({
-  dotsRow: {
-    flexDirection: "row",
-    gap: 14,
-    marginBottom: 10,
-    minHeight: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dot: { width: 14, height: 14, borderRadius: 7 },
-  dotEmpty: {
-    backgroundColor: "#14141E",
-    borderWidth: 1,
-    borderColor: "#2A2A42",
-  },
-  dotFilled: { backgroundColor: "#7B6EF6" },
-  pinText: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#7B6EF6",
-    letterSpacing: 8,
-  },
-  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 24 },
-  eyeText: { fontSize: 12, color: "#3A3A58", fontWeight: "600" },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    width: 280,
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  btn: {
-    width: 88,
-    height: 72,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 16,
-    margin: 3,
-  },
-  btnText: { fontSize: 26, fontWeight: "600", color: "#E8E8F8" },
-  btnSub: {
-    fontSize: 8,
-    color: "#3A3A58",
-    fontWeight: "700",
-    letterSpacing: 1.5,
-  },
-  deleteText: { fontSize: 22, color: "#3A3A58" },
-  submitBtn: {
-    width: 280,
-    backgroundColor: "#7B6EF6",
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-  },
-  submitBtnOff: { backgroundColor: "#7B6EF620" },
-  submitText: { color: "#F0F0FF", fontSize: 16, fontWeight: "800" },
-});
+function shake(anim: Animated.Value) {
+  Animated.sequence([
+    Animated.timing(anim, { toValue: 8, duration: 60, useNativeDriver: true }),
+    Animated.timing(anim, { toValue: -8, duration: 60, useNativeDriver: true }),
+    Animated.timing(anim, { toValue: 4, duration: 60, useNativeDriver: true }),
+    Animated.timing(anim, { toValue: 0, duration: 60, useNativeDriver: true }),
+  ]).start();
+}
 
-// ─── ConfirmPinModal ──────────────────────────────────────────────────────────
 function ConfirmPinModal({
   visible,
   onClose,
@@ -304,33 +306,11 @@ function ConfirmPinModal({
   title: string;
   subtitle: string;
 }) {
+  const { t } = useTheme();
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
   const shakeAnim = useRef(new Animated.Value(0)).current;
-  const shake = () =>
-    Animated.sequence([
-      Animated.timing(shakeAnim, {
-        toValue: 8,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: -8,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: 4,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: 0,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-    ]).start();
   const handleClose = () => {
     setPin("");
     setShowPin(false);
@@ -338,7 +318,7 @@ function ConfirmPinModal({
   };
   const handleConfirm = async () => {
     if (pin.length < 4) {
-      shake();
+      shake(shakeAnim);
       return;
     }
     setLoading(true);
@@ -349,7 +329,7 @@ function ConfirmPinModal({
       setShowPin(false);
       onConfirmed();
     } else {
-      shake();
+      shake(shakeAnim);
       setPin("");
       Alert.alert("PIN incorrect", "Veuillez réessayer");
     }
@@ -361,18 +341,33 @@ function ConfirmPinModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <View style={cpm.overlay}>
+      <View style={[cpm.overlay, { backgroundColor: t.bg.page }]}>
         <View style={cpm.container}>
-          <View style={cpm.iconWrap}>
-            <Text style={cpm.iconText}>◈</Text>
+          <View
+            style={[
+              cpm.iconWrap,
+              { backgroundColor: t.bg.accent, borderColor: t.border.strong },
+            ]}
+          >
+            <Text style={[cpm.iconText, { color: t.text.link }]}>◈</Text>
           </View>
           <View style={cpm.header}>
-            <Text style={cpm.title}>{title}</Text>
-            <TouchableOpacity onPress={handleClose} style={cpm.closeIcon}>
-              <Text style={cpm.closeIconText}>✕</Text>
+            <Text style={[cpm.title, { color: t.text.primary }]}>{title}</Text>
+            <TouchableOpacity
+              onPress={handleClose}
+              style={[
+                cpm.closeIcon,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <Text style={[cpm.closeIconText, { color: t.text.muted }]}>
+                ✕
+              </Text>
             </TouchableOpacity>
           </View>
-          <Text style={cpm.subtitle}>{subtitle}</Text>
+          <Text style={[cpm.subtitle, { color: t.text.secondary }]}>
+            {subtitle}
+          </Text>
           <PinPad
             pin={pin}
             onDigit={(d) => {
@@ -391,55 +386,7 @@ function ConfirmPinModal({
     </Modal>
   );
 }
-const cpm = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "#07070F", justifyContent: "center" },
-  container: { alignItems: "center", paddingHorizontal: 32 },
-  iconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  iconText: { fontSize: 28, color: "#7B6EF6" },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -0.5,
-  },
-  closeIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "#14141E",
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeIconText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
-  subtitle: {
-    fontSize: 13,
-    color: "#3A3A58",
-    marginBottom: 28,
-    textAlign: "center",
-    lineHeight: 20,
-  },
-});
 
-// ─── PinChangeModal ───────────────────────────────────────────────────────────
 function PinChangeModal({
   visible,
   onClose,
@@ -449,6 +396,7 @@ function PinChangeModal({
   onClose: () => void;
   isCreating?: boolean;
 }) {
+  const { t } = useTheme();
   const initialStep = isCreating ? "new" : "current";
   const [step, setStep] = useState<"current" | "new" | "confirm">(initialStep);
   const [currentPin, setCurrentPin] = useState("");
@@ -465,29 +413,6 @@ function PinChangeModal({
       setShowPin(false);
     }
   }, [visible]);
-  const shake = () =>
-    Animated.sequence([
-      Animated.timing(shakeAnim, {
-        toValue: 8,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: -8,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: 4,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: 0,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-    ]).start();
   const activePin =
     step === "current" ? currentPin : step === "new" ? newPin : confirmPin;
   const setActivePin = (v: string) => {
@@ -498,12 +423,12 @@ function PinChangeModal({
   const handleNext = async () => {
     if (step === "current") {
       if (currentPin.length < 4) {
-        shake();
+        shake(shakeAnim);
         return;
       }
       const valid = await StorageService.verifyPin(currentPin);
       if (!valid) {
-        shake();
+        shake(shakeAnim);
         setCurrentPin("");
         Alert.alert("PIN incorrect", "Veuillez réessayer");
         return;
@@ -512,14 +437,14 @@ function PinChangeModal({
       setStep("new");
     } else if (step === "new") {
       if (newPin.length < 4) {
-        shake();
+        shake(shakeAnim);
         return;
       }
       setShowPin(false);
       setStep("confirm");
     } else {
       if (newPin !== confirmPin) {
-        shake();
+        shake(shakeAnim);
         setConfirmPin("");
         Alert.alert("Erreur", "Les PINs ne correspondent pas");
         return;
@@ -551,17 +476,32 @@ function PinChangeModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={pcm.overlay}>
+      <View style={[pcm.overlay, { backgroundColor: t.bg.page }]}>
         <View style={pcm.container}>
-          <View style={pcm.iconWrap}>
-            <Text style={pcm.iconText}>
+          <View
+            style={[
+              pcm.iconWrap,
+              { backgroundColor: t.bg.accent, borderColor: t.border.strong },
+            ]}
+          >
+            <Text style={[pcm.iconText, { color: t.text.link }]}>
               {step === "confirm" ? "◉" : step === "new" ? "◈" : "◎"}
             </Text>
           </View>
           <View style={pcm.header}>
-            <Text style={pcm.title}>{titles[step]}</Text>
-            <TouchableOpacity onPress={onClose} style={pcm.closeIcon}>
-              <Text style={pcm.closeIconText}>✕</Text>
+            <Text style={[pcm.title, { color: t.text.primary }]}>
+              {titles[step]}
+            </Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={[
+                pcm.closeIcon,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <Text style={[pcm.closeIconText, { color: t.text.muted }]}>
+                ✕
+              </Text>
             </TouchableOpacity>
           </View>
           <View style={pcm.steps}>
@@ -571,15 +511,17 @@ function PinChangeModal({
                 style={[
                   pcm.step,
                   i < stepIndex
-                    ? pcm.stepDone
+                    ? { backgroundColor: Colors.green[400] }
                     : i === stepIndex
-                      ? pcm.stepActive
-                      : pcm.stepInactive,
+                      ? { backgroundColor: Colors.blue[500] }
+                      : { backgroundColor: t.border.light },
                 ]}
               />
             ))}
           </View>
-          <Text style={pcm.subtitle}>{subtitles[step]}</Text>
+          <Text style={[pcm.subtitle, { color: t.text.secondary }]}>
+            {subtitles[step]}
+          </Text>
           <PinPad
             pin={activePin}
             onDigit={(d) => {
@@ -604,60 +546,7 @@ function PinChangeModal({
     </Modal>
   );
 }
-const pcm = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "#07070F", justifyContent: "center" },
-  container: { alignItems: "center", paddingHorizontal: 32 },
-  iconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  iconText: { fontSize: 28, color: "#7B6EF6" },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -0.5,
-  },
-  closeIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "#14141E",
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeIconText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
-  steps: { flexDirection: "row", gap: 6, width: "100%", marginBottom: 16 },
-  step: { flex: 1, height: 3, borderRadius: 2 },
-  stepActive: { backgroundColor: "#7B6EF6" },
-  stepDone: { backgroundColor: "#3DDB8A" },
-  stepInactive: { backgroundColor: "#1C1C2C" },
-  subtitle: {
-    fontSize: 13,
-    color: "#3A3A58",
-    marginBottom: 24,
-    textAlign: "center",
-    lineHeight: 20,
-  },
-});
 
-// ─── ImportModal ──────────────────────────────────────────────────────────────
 function ImportModal({
   visible,
   onClose,
@@ -667,6 +556,7 @@ function ImportModal({
   onClose: () => void;
   onImported: () => void;
 }) {
+  const { t } = useTheme();
   const [jsonText, setJsonText] = useState("");
   const [loading, setLoading] = useState(false);
   const handleImport = async () => {
@@ -694,20 +584,44 @@ function ImportModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={imm.overlay}>
-        <View style={imm.container}>
-          <View style={imm.handle} />
+      <View style={[imm.overlay, { backgroundColor: "rgba(0,0,0,.3)" }]}>
+        <View
+          style={[
+            imm.container,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <View style={[imm.handle, { backgroundColor: t.border.normal }]} />
           <View style={imm.header}>
-            <Text style={imm.title}>Importer des données</Text>
-            <TouchableOpacity onPress={onClose} style={imm.closeIcon}>
-              <Text style={imm.closeIconText}>✕</Text>
+            <Text style={[imm.title, { color: t.text.primary }]}>
+              Importer des données
+            </Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={[
+                imm.closeIcon,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <Text style={[imm.closeIconText, { color: t.text.muted }]}>
+                ✕
+              </Text>
             </TouchableOpacity>
           </View>
-          <Text style={imm.label}>COLLER LE JSON EXPORTÉ</Text>
+          <Text style={[imm.label, { color: t.text.muted }]}>
+            COLLER LE JSON EXPORTÉ
+          </Text>
           <TextInput
-            style={imm.input}
+            style={[
+              imm.input,
+              {
+                backgroundColor: t.bg.cardAlt,
+                color: t.text.primary,
+                borderColor: t.border.light,
+              },
+            ]}
             placeholder='{"rules": [...], "profiles": [...], ...}'
-            placeholderTextColor="#2A2A42"
+            placeholderTextColor={t.text.muted}
             value={jsonText}
             onChangeText={setJsonText}
             multiline
@@ -715,14 +629,27 @@ function ImportModal({
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <View style={imm.warnRow}>
-            <Text style={imm.warnIcon}>⚠</Text>
-            <Text style={imm.warning}>
+          <View
+            style={[
+              imm.warnRow,
+              { backgroundColor: t.warning.bg, borderColor: t.warning.border },
+            ]}
+          >
+            <Text style={[imm.warnIcon, { color: t.warning.accent }]}>⚠</Text>
+            <Text style={[imm.warning, { color: t.warning.text }]}>
               L'import remplacera les données existantes. Action irréversible.
             </Text>
           </View>
           <TouchableOpacity
-            style={[imm.btn, (!jsonText.trim() || loading) && imm.btnOff]}
+            style={[
+              imm.btn,
+              {
+                backgroundColor:
+                  !jsonText.trim() || loading
+                    ? Colors.blue[200]
+                    : Colors.blue[600],
+              },
+            ]}
             onPress={handleImport}
             disabled={!jsonText.trim() || loading}
             activeOpacity={0.85}
@@ -732,119 +659,26 @@ function ImportModal({
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={imm.cancelBtn}
+            style={[
+              imm.cancelBtn,
+              { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+            ]}
             onPress={onClose}
             activeOpacity={0.8}
           >
-            <Text style={imm.cancelText}>Annuler</Text>
+            <Text style={[imm.cancelText, { color: t.text.secondary }]}>
+              Annuler
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
     </Modal>
   );
 }
-const imm = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "#000000AA",
-    justifyContent: "flex-end",
-  },
-  container: {
-    backgroundColor: "#0C0C16",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: "#1C1C2C",
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#2A2A3C",
-    alignSelf: "center",
-    marginBottom: 20,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -0.5,
-  },
-  closeIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    backgroundColor: "#14141E",
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-  label: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#2E2E48",
-    letterSpacing: 2,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: "#0E0E18",
-    borderRadius: 14,
-    padding: 14,
-    color: "#F0F0FF",
-    fontSize: 12,
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-    height: 140,
-    textAlignVertical: "top",
-    fontFamily: "monospace",
-    marginBottom: 14,
-  },
-  warnRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#140810",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#3A1020",
-    marginBottom: 20,
-  },
-  warnIcon: { fontSize: 13, color: "#D04070", marginTop: 1 },
-  warning: { flex: 1, fontSize: 12, color: "#8A3050", lineHeight: 18 },
-  btn: {
-    backgroundColor: "#7B6EF6",
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  btnOff: { backgroundColor: "#7B6EF620" },
-  btnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
-  cancelBtn: {
-    backgroundColor: "#0E0E18",
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1C1C2C",
-  },
-  cancelText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
-});
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const { t } = useTheme();
   const appInfo = useAppInfo();
   const { isPremium, refresh: refreshPremium } = usePremium();
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -1058,10 +892,11 @@ export default function SettingsScreen() {
   const anyLockEnabled = pinEnabled || bioEnabled;
 
   return (
-    <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#07070F" />
-
-      {/* ── Header ── */}
+    <View style={[s.container, { backgroundColor: t.bg.page }]}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={Semantic.bg.header}
+      />
       <View style={[s.header, { paddingTop: insets.top + 14 }]}>
         <View style={s.headerLeft}>
           <View style={s.headerIconWrap}>
@@ -1087,25 +922,34 @@ export default function SettingsScreen() {
           { paddingBottom: insets.bottom + 40 },
         ]}
       >
-        {/* ── VPN Banner ── */}
+        {/* VPN Banner */}
         <TouchableOpacity
-          style={[s.vpnBanner, vpnOn ? s.vpnBannerOn : s.vpnBannerOff]}
+          style={[
+            s.vpnBanner,
+            {
+              backgroundColor: vpnOn ? t.vpnOn.bg : t.vpnOff.bg,
+              borderColor: vpnOn ? t.vpnOn.border : t.vpnOff.border,
+            },
+          ]}
           onPress={toggleVpn}
           activeOpacity={0.8}
         >
           <View
             style={[
               s.vpnAccent,
-              { backgroundColor: vpnOn ? "#3DDB8A" : "#D04070" },
+              { backgroundColor: vpnOn ? t.vpnOn.dot : t.vpnOff.dot },
             ]}
           />
           <View style={{ flex: 1, paddingLeft: 10 }}>
             <Text
-              style={[s.vpnTitle, { color: vpnOn ? "#3DDB8A" : "#D04070" }]}
+              style={[
+                s.vpnTitle,
+                { color: vpnOn ? t.vpnOn.text : t.vpnOff.text },
+              ]}
             >
               {vpnOn ? "◉ VPN Actif" : "◎ VPN Inactif"}
             </Text>
-            <Text style={s.vpnSub}>
+            <Text style={[s.vpnSub, { color: t.text.muted }]}>
               {vpnStatus.isNative
                 ? "Mode natif (VPNService)"
                 : "Mode simulation"}
@@ -1115,19 +959,22 @@ export default function SettingsScreen() {
           <View
             style={[
               s.vpnTogglePill,
-              vpnOn ? s.vpnTogglePillOn : s.vpnTogglePillOff,
+              {
+                backgroundColor: vpnOn ? t.vpnOn.bg : t.vpnOff.bg,
+                borderColor: vpnOn ? t.vpnOn.dot : t.vpnOff.border,
+              },
             ]}
           >
             <View
               style={[
                 s.vpnDot,
-                { backgroundColor: vpnOn ? "#3DDB8A" : "#D04070" },
+                { backgroundColor: vpnOn ? t.vpnOn.dot : t.vpnOff.dot },
               ]}
             />
             <Text
               style={[
                 s.vpnToggleText,
-                { color: vpnOn ? "#3DDB8A" : "#D04070" },
+                { color: vpnOn ? t.vpnOn.text : t.vpnOff.text },
               ]}
             >
               {vpnOn ? "ON" : "OFF"}
@@ -1135,19 +982,25 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* ── Stats ── */}
+        {/* Stats */}
         <View style={s.statsRow}>
           {[
-            { num: stats.rules, label: "Règles", color: "#9B8FFF" },
-            { num: stats.profiles, label: "Profils", color: "#9B8FFF" },
+            { num: stats.rules, label: "Règles", color: t.text.link },
+            { num: stats.profiles, label: "Profils", color: t.text.link },
             {
               num: null,
               label: "VPN",
-              color: vpnOn ? "#3DDB8A" : "#D04070",
+              color: vpnOn ? t.vpnOn.dot : t.vpnOff.dot,
               dot: vpnOn,
             },
           ].map((item, i) => (
-            <View key={i} style={s.statCard}>
+            <View
+              key={i}
+              style={[
+                s.statCard,
+                { backgroundColor: t.bg.card, borderColor: t.border.light },
+              ]}
+            >
               {item.dot !== undefined ? (
                 <View style={[s.statDot, { backgroundColor: item.color }]} />
               ) : (
@@ -1155,41 +1008,74 @@ export default function SettingsScreen() {
                   {item.num}
                 </Text>
               )}
-              <Text style={s.statLabel}>{item.label}</Text>
+              <Text style={[s.statLabel, { color: t.text.muted }]}>
+                {item.label}
+              </Text>
             </View>
           ))}
         </View>
 
-        {/* ── SÉCURITÉ ── */}
-        <SectionLabel label="SÉCURITÉ" />
+        {/* Thème */}
+        <SectionLabel label="APPARENCE" />
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <View style={{ padding: 16 }}>
+            <Text
+              style={[s.rowTitle, { color: t.text.primary, marginBottom: 4 }]}
+            >
+              Thème
+            </Text>
+            <Text
+              style={[s.rowSubtitle, { color: t.text.muted, marginBottom: 12 }]}
+            >
+              Automatique selon l'heure (7h–20h = Jour)
+            </Text>
+            <ThemeToggle />
+          </View>
+        </View>
 
-        {/* Statut global du verrou */}
+        <SectionLabel label="SÉCURITÉ" />
         <View
           style={[
             s.lockStatusBanner,
-            anyLockEnabled ? s.lockStatusOn : s.lockStatusOff,
+            {
+              backgroundColor: anyLockEnabled ? t.allowed.bg : t.danger.bg,
+              borderColor: anyLockEnabled ? t.allowed.border : t.danger.border,
+            },
           ]}
         >
           <View
             style={[
               s.lockIconWrap,
-              anyLockEnabled ? s.lockIconWrapOn : s.lockIconWrapOff,
+              {
+                backgroundColor: anyLockEnabled ? t.allowed.bg : t.danger.bg,
+                borderWidth: 1,
+                borderColor: anyLockEnabled
+                  ? t.allowed.accent
+                  : t.danger.accent,
+              },
             ]}
           >
-            <Text style={s.lockIcon}>{anyLockEnabled ? "◈" : "◎"}</Text>
+            <Text style={[s.lockIcon, { color: t.text.muted }]}>
+              {anyLockEnabled ? "◈" : "◎"}
+            </Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text
               style={[
                 s.lockStatusTitle,
-                { color: anyLockEnabled ? "#3DDB8A" : "#C04060" },
+                { color: anyLockEnabled ? t.allowed.text : t.danger.text },
               ]}
             >
               {anyLockEnabled
                 ? "Application verrouillée"
                 : "Application non protégée"}
             </Text>
-            <Text style={s.lockStatusSub}>
+            <Text style={[s.lockStatusSub, { color: t.text.muted }]}>
               {anyLockEnabled
                 ? [pinEnabled && "PIN applicatif", bioEnabled && bioType]
                     .filter(Boolean)
@@ -1199,9 +1085,15 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Méthode 1 — PIN */}
-        <Text style={s.methodLabel}>MÉTHODE 1 — PIN APPLICATIF</Text>
-        <View style={s.card}>
+        <Text style={[s.methodLabel, { color: t.text.muted }]}>
+          MÉTHODE 1 — PIN APPLICATIF
+        </Text>
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
           <SettingRow
             icon="◈"
             title="Code PIN de l'application"
@@ -1211,7 +1103,7 @@ export default function SettingsScreen() {
                 : "Créer un code propre à l'application"
             }
             right={<Toggle value={pinEnabled} onToggle={handlePinToggle} />}
-            accent="#7B6EF6"
+            accent={Colors.blue[600]}
           />
           {pinEnabled && (
             <>
@@ -1224,21 +1116,25 @@ export default function SettingsScreen() {
                   setPinModalCreating(false);
                   setPinModalVisible(true);
                 }}
-                accent="#7B6EF6"
+                accent={Colors.blue[600]}
               />
             </>
           )}
         </View>
-        <Text style={s.methodNote}>
+        <Text style={[s.methodNote, { color: t.text.muted }]}>
           ✦ Indépendant du téléphone — utile si quelqu'un d'autre a accès à
           votre écran déverrouillé
         </Text>
 
-        {/* Méthode 2 — Bio */}
-        <Text style={[s.methodLabel, { marginTop: 18 }]}>
+        <Text style={[s.methodLabel, { color: t.text.muted, marginTop: 18 }]}>
           MÉTHODE 2 — {bioType.toUpperCase()}
         </Text>
-        <View style={s.card}>
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
           <SettingRow
             icon="◎"
             title={`${bioType} / PIN du téléphone`}
@@ -1257,29 +1153,43 @@ export default function SettingsScreen() {
               />
             }
             disabled={!bioAvailable}
-            accent="#3DDB8A"
+            accent={Colors.green[500]}
           />
         </View>
-        <Text style={s.methodNote}>
+        <Text style={[s.methodNote, { color: t.text.muted }]}>
           ✦ Délègue au système Android — empreinte, face ou PIN téléphone comme
           fallback
         </Text>
 
         {pinEnabled && bioEnabled && (
-          <View style={s.combinedBanner}>
-            <View style={s.combinedIconWrap}>
-              <Text style={s.combinedIcon}>⚡</Text>
+          <View
+            style={[
+              s.combinedBanner,
+              { backgroundColor: t.bg.accent, borderColor: t.border.strong },
+            ]}
+          >
+            <View
+              style={[
+                s.combinedIconWrap,
+                { backgroundColor: t.bg.card, borderColor: t.border.strong },
+              ]}
+            >
+              <Text style={[s.combinedIcon, { color: t.text.link }]}>⚡</Text>
             </View>
-            <Text style={s.combinedText}>
+            <Text style={[s.combinedText, { color: t.text.secondary }]}>
               Les deux méthodes sont actives. Biométrie proposée en premier, PIN
               en secours.
             </Text>
           </View>
         )}
 
-        {/* ── DONNÉES ── */}
         <SectionLabel label="DONNÉES" />
-        <View style={s.card}>
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
           <SettingRow
             icon="↑"
             title="Exporter les règles"
@@ -1295,7 +1205,7 @@ export default function SettingsScreen() {
               }
               setExportVisible(true);
             }}
-            accent="#9B8FFF"
+            accent={Colors.purple[500]}
           />
           <Divider />
           <SettingRow
@@ -1313,7 +1223,7 @@ export default function SettingsScreen() {
               }
               setImportModalVisible(true);
             }}
-            accent="#9B8FFF"
+            accent={Colors.purple[500]}
           />
           <Divider />
           <SettingRow
@@ -1325,15 +1235,19 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* ── À PROPOS ── */}
         <SectionLabel label="À PROPOS" />
-        <View style={s.card}>
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
           <SettingRow
             icon="◉"
             title="À propos de NetOff"
             subtitle={appInfo.loading ? "…" : `Version ${appInfo.fullVersion}`}
             onPress={() => router.push("/screens/about")}
-            accent="#7B6EF6"
+            accent={Colors.blue[600]}
           />
           <Divider />
           <SettingRow
@@ -1341,12 +1255,12 @@ export default function SettingsScreen() {
             title="Nous contacter"
             subtitle="Signaler un bug ou envoyer une suggestion"
             onPress={() => router.push("/screens/contact")}
-            accent="#3DDB8A"
+            accent={Colors.green[500]}
           />
         </View>
       </Animated.ScrollView>
 
-      {/* ── Export Modal ── */}
+      {/* Export Modal */}
       <Modal
         visible={exportVisible}
         transparent
@@ -1363,24 +1277,39 @@ export default function SettingsScreen() {
             style={[
               em.sheet,
               {
+                backgroundColor: t.bg.card,
+                borderColor: t.border.light,
                 transform: [{ translateY: modalSlide }],
                 paddingBottom: insets.bottom + 20,
               },
             ]}
           >
-            <View style={em.handle} />
+            <View style={[em.handle, { backgroundColor: t.border.normal }]} />
             <View style={em.header}>
-              <Text style={em.title}>Exporter les données</Text>
-              <TouchableOpacity onPress={closeExportModal} style={em.closeIcon}>
-                <Text style={em.closeIconText}>✕</Text>
+              <Text style={[em.title, { color: t.text.primary }]}>
+                Exporter les données
+              </Text>
+              <TouchableOpacity
+                onPress={closeExportModal}
+                style={[
+                  em.closeIcon,
+                  {
+                    backgroundColor: t.bg.cardAlt,
+                    borderColor: t.border.light,
+                  },
+                ]}
+              >
+                <Text style={[em.closeIconText, { color: t.text.muted }]}>
+                  ✕
+                </Text>
               </TouchableOpacity>
             </View>
-            <Text style={em.body}>
+            <Text style={[em.body, { color: t.text.secondary }]}>
               Les règles, profils et statistiques seront exportés au format
               JSON.
             </Text>
             <TouchableOpacity
-              style={em.exportBtn}
+              style={[em.exportBtn, { backgroundColor: Colors.blue[600] }]}
               onPress={handleExport}
               activeOpacity={0.85}
             >
@@ -1388,17 +1317,22 @@ export default function SettingsScreen() {
               <Text style={em.exportBtnText}>Exporter et partager</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={em.cancelBtn}
+              style={[
+                em.cancelBtn,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
               onPress={closeExportModal}
               activeOpacity={0.8}
             >
-              <Text style={em.cancelBtnText}>Annuler</Text>
+              <Text style={[em.cancelBtnText, { color: t.text.secondary }]}>
+                Annuler
+              </Text>
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
       </Modal>
 
-      {/* ── Confirm Clear ── */}
+      {/* Confirm Clear */}
       <Modal
         visible={confirmClearVisible}
         transparent
@@ -1406,16 +1340,28 @@ export default function SettingsScreen() {
         onRequestClose={() => setConfirmClearVisible(false)}
       >
         <View style={ccm.overlay}>
-          <View style={ccm.container}>
-            <View style={ccm.iconWrap}>
-              <Text style={ccm.iconText}>⚠</Text>
+          <View
+            style={[
+              ccm.container,
+              { backgroundColor: t.bg.card, borderColor: t.danger.border },
+            ]}
+          >
+            <View
+              style={[
+                ccm.iconWrap,
+                { backgroundColor: t.danger.bg, borderColor: t.danger.border },
+              ]}
+            >
+              <Text style={[ccm.iconText, { color: t.danger.accent }]}>⚠</Text>
             </View>
-            <Text style={ccm.title}>Effacer toutes les données ?</Text>
-            <Text style={ccm.body}>
+            <Text style={[ccm.title, { color: t.text.primary }]}>
+              Effacer toutes les données ?
+            </Text>
+            <Text style={[ccm.body, { color: t.text.secondary }]}>
               Règles, profils et statistiques seront définitivement supprimés.
             </Text>
             <TouchableOpacity
-              style={ccm.dangerBtn}
+              style={[ccm.dangerBtn, { backgroundColor: t.danger.accent }]}
               onPress={() => {
                 setConfirmClearVisible(false);
                 clearAllData();
@@ -1425,10 +1371,15 @@ export default function SettingsScreen() {
               <Text style={ccm.dangerBtnText}>Oui, tout effacer</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={ccm.cancelBtn}
+              style={[
+                ccm.cancelBtn,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
               onPress={() => setConfirmClearVisible(false)}
             >
-              <Text style={ccm.cancelBtnText}>Annuler</Text>
+              <Text style={[ccm.cancelBtnText, { color: t.text.secondary }]}>
+                Annuler
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1451,75 +1402,80 @@ export default function SettingsScreen() {
         title="Désactiver le PIN applicatif"
         subtitle="Entrez votre PIN pour confirmer la désactivation"
       />
+      <PaywallModal
+        visible={paywallVisible}
+        reason={paywallReason}
+        onClose={() => setPaywallVisible(false)}
+        onUpgraded={() => {
+          refreshPremium();
+          setPaywallVisible(false);
+        }}
+      />
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#07070F" },
-
-  // Header
+  container: { flex: 1 },
   header: {
     paddingHorizontal: 22,
     paddingBottom: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: "#111120",
+    backgroundColor: Semantic.bg.header,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#07070F",
+    shadowColor: Colors.blue[800],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
   headerIconWrap: {
     width: 46,
     height: 46,
     borderRadius: 15,
-    backgroundColor: "#16103A",
+    backgroundColor: "rgba(255,255,255,.15)",
     borderWidth: 1,
-    borderColor: "#3A3480",
+    borderColor: "rgba(255,255,255,.25)",
     justifyContent: "center",
     alignItems: "center",
   },
-  headerIconText: { fontSize: 20, color: "#7B6EF6" },
+  headerIconText: { fontSize: 20, color: Colors.gray[0] },
   headerTitle: {
     fontSize: 26,
     fontWeight: "800",
-    color: "#EDEDFF",
+    color: Colors.gray[0],
     letterSpacing: -1,
   },
   headerSubtitle: {
     fontSize: 11,
-    color: "#2A2A48",
+    color: Colors.blue[200],
     marginTop: 2,
     fontWeight: "500",
   },
   proBadge: {
-    backgroundColor: "#16103A",
+    backgroundColor: Colors.purple[50],
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: "#4A3F8A",
+    borderColor: Colors.purple[100],
   },
   proBadgeText: {
     fontSize: 9,
     fontWeight: "800",
-    color: "#9B8FFF",
+    color: Colors.purple[600],
     letterSpacing: 1.5,
   },
-
   scroll: { paddingHorizontal: 20, paddingTop: 20 },
   sectionLabel: {
     fontSize: 9,
     fontWeight: "700",
-    color: "#2A2A48",
     letterSpacing: 2.5,
     marginBottom: 10,
     marginTop: 8,
   },
-
-  // VPN Banner
   vpnBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1528,9 +1484,8 @@ const s = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
     marginBottom: 18,
+    elevation: 2,
   },
-  vpnBannerOn: { backgroundColor: "#080E0A", borderColor: "#112018" },
-  vpnBannerOff: { backgroundColor: "#0E0808", borderColor: "#200E10" },
   vpnAccent: {
     position: "absolute",
     left: 0,
@@ -1545,7 +1500,7 @@ const s = StyleSheet.create({
     letterSpacing: -0.3,
     marginBottom: 3,
   },
-  vpnSub: { fontSize: 11, color: "#2E2E48", fontWeight: "500" },
+  vpnSub: { fontSize: 11, fontWeight: "500" },
   vpnTogglePill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1555,33 +1510,21 @@ const s = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
   },
-  vpnTogglePillOn: { backgroundColor: "#0A1C14", borderColor: "#1A5034" },
-  vpnTogglePillOff: { backgroundColor: "#1A0A0C", borderColor: "#3A1018" },
   vpnDot: { width: 6, height: 6, borderRadius: 3 },
   vpnToggleText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
-
-  // Stats
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 24 },
   statCard: {
     flex: 1,
-    backgroundColor: "#0C0C16",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#141428",
     padding: 16,
     alignItems: "center",
     gap: 6,
+    elevation: 1,
   },
   statNum: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   statDot: { width: 12, height: 12, borderRadius: 6 },
-  statLabel: {
-    fontSize: 9,
-    color: "#2A2A48",
-    fontWeight: "700",
-    letterSpacing: 1.5,
-  },
-
-  // Lock status
+  statLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1.5 },
   lockStatusBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1591,8 +1534,6 @@ const s = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 18,
   },
-  lockStatusOn: { backgroundColor: "#080E0A", borderColor: "#112018" },
-  lockStatusOff: { backgroundColor: "#0E080A", borderColor: "#281018" },
   lockIconWrap: {
     width: 40,
     height: 40,
@@ -1600,102 +1541,69 @@ const s = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  lockIconWrapOn: {
-    backgroundColor: "#0A2018",
-    borderWidth: 1,
-    borderColor: "#1A5034",
-  },
-  lockIconWrapOff: {
-    backgroundColor: "#200A10",
-    borderWidth: 1,
-    borderColor: "#401020",
-  },
-  lockIcon: { fontSize: 18, color: "#5A5A80" },
+  lockIcon: { fontSize: 18 },
   lockStatusTitle: { fontSize: 13, fontWeight: "800", marginBottom: 3 },
-  lockStatusSub: { fontSize: 11, color: "#3A3A58" },
-
-  // Method labels & notes
+  lockStatusSub: { fontSize: 11 },
   methodLabel: {
     fontSize: 9,
     fontWeight: "700",
-    color: "#2A2A48",
     letterSpacing: 2,
     marginBottom: 8,
   },
   methodNote: {
     fontSize: 11,
-    color: "#1E1E30",
     lineHeight: 17,
     paddingHorizontal: 4,
     paddingVertical: 8,
     marginBottom: 4,
   },
-
-  // Combined banner
   combinedBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#16103A",
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#3A3480",
     marginTop: 12,
   },
   combinedIconWrap: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: "#0E0A22",
     borderWidth: 1,
-    borderColor: "#4A3F8A",
     justifyContent: "center",
     alignItems: "center",
   },
-  combinedIcon: { fontSize: 14, color: "#7B6EF6" },
-  combinedText: { flex: 1, fontSize: 12, color: "#5A5080", lineHeight: 18 },
-
-  // Card
+  combinedIcon: { fontSize: 14 },
+  combinedText: { flex: 1, fontSize: 12, lineHeight: 18 },
   card: {
-    backgroundColor: "#0C0C16",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#141428",
     marginBottom: 8,
     overflow: "hidden",
+    elevation: 1,
   },
-  sep: { height: 1, backgroundColor: "#111120", marginLeft: 60 },
-
-  // Row
+  sep: { height: 1, marginLeft: 60 },
   row: { flexDirection: "row", alignItems: "center", padding: 16 },
   rowIcon: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: "#14141E",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 14,
   },
-  rowIconDanger: { backgroundColor: "#120608", borderColor: "#2A0E14" },
-  rowIconText: { fontSize: 15, color: "#5A5A80" },
+  rowIconText: { fontSize: 15 },
   rowContent: { flex: 1 },
   rowTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#D8D8F0",
     marginBottom: 2,
     letterSpacing: -0.1,
   },
-  rowTitleDanger: { color: "#C04060" },
-  rowSubtitle: { fontSize: 11, color: "#2E2E48" },
-  rowChevron: { color: "#1E1E30", fontSize: 22, fontWeight: "300" },
-  rowChevronDanger: { color: "#3A1020" },
-
-  // Toggle
+  rowSubtitle: { fontSize: 11 },
+  rowChevron: { fontSize: 22, fontWeight: "300" },
   toggle: {
     width: 44,
     height: 24,
@@ -1705,27 +1613,209 @@ const s = StyleSheet.create({
   },
   toggleThumb: { width: 18, height: 18, borderRadius: 9, position: "absolute" },
 });
-
-const em = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "#00000088",
-    justifyContent: "flex-end",
+const pp = StyleSheet.create({
+  dotsRow: {
+    flexDirection: "row",
+    gap: 14,
+    marginBottom: 10,
+    minHeight: 24,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sheet: {
-    backgroundColor: "#0C0C16",
+  dot: { width: 14, height: 14, borderRadius: 7 },
+  dotEmpty: {},
+  dotFilled: {},
+  pinText: { fontSize: 28, fontWeight: "800", letterSpacing: 8 },
+  eyeBtn: { paddingVertical: 8, paddingHorizontal: 16, marginBottom: 24 },
+  eyeText: { fontSize: 12, fontWeight: "600" },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    width: 280,
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  btn: {
+    width: 88,
+    height: 72,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
+    margin: 3,
+  },
+  btnText: { fontSize: 26, fontWeight: "600" },
+  btnSub: { fontSize: 8, fontWeight: "700", letterSpacing: 1.5 },
+  deleteText: { fontSize: 22 },
+  submitBtn: {
+    width: 280,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
+  },
+  submitText: { color: Colors.gray[0], fontSize: 16, fontWeight: "800" },
+});
+const cpm = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "center" },
+  container: { alignItems: "center", paddingHorizontal: 32 },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  iconText: { fontSize: 28 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 12,
+  },
+  title: { fontSize: 20, fontWeight: "800", letterSpacing: -0.5 },
+  closeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeIconText: { fontSize: 12, fontWeight: "700" },
+  subtitle: {
+    fontSize: 13,
+    marginBottom: 28,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+});
+const pcm = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "center" },
+  container: { alignItems: "center", paddingHorizontal: 32 },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  iconText: { fontSize: 28 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 16,
+  },
+  title: { fontSize: 20, fontWeight: "800", letterSpacing: -0.5 },
+  closeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeIconText: { fontSize: 12, fontWeight: "700" },
+  steps: { flexDirection: "row", gap: 6, width: "100%", marginBottom: 16 },
+  step: { flex: 1, height: 3, borderRadius: 2 },
+  subtitle: {
+    fontSize: 13,
+    marginBottom: 24,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+});
+const imm = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  container: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingHorizontal: 24,
+    padding: 24,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: "#1C1C2C",
   },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#2A2A3C",
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  title: { fontSize: 19, fontWeight: "800", letterSpacing: -0.5 },
+  closeIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeIconText: { fontSize: 11, fontWeight: "700" },
+  label: { fontSize: 10, fontWeight: "700", letterSpacing: 2, marginBottom: 8 },
+  input: {
+    borderRadius: 14,
+    padding: 14,
+    fontSize: 12,
+    borderWidth: 1,
+    height: 140,
+    textAlignVertical: "top",
+    fontFamily: "monospace",
+    marginBottom: 14,
+  },
+  warnRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  warnIcon: { fontSize: 13, marginTop: 1 },
+  warning: { flex: 1, fontSize: 12, lineHeight: 18 },
+  btn: {
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  btnText: { color: Colors.gray[0], fontSize: 15, fontWeight: "800" },
+  cancelBtn: {
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  cancelText: { fontSize: 14, fontWeight: "600" },
+});
+const em = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,.3)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
     alignSelf: "center",
     marginTop: 12,
     marginBottom: 20,
@@ -1736,106 +1826,81 @@ const em = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  title: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -0.5,
-  },
+  title: { fontSize: 19, fontWeight: "800", letterSpacing: -0.5 },
   closeIcon: {
     width: 28,
     height: 28,
     borderRadius: 9,
-    backgroundColor: "#14141E",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
-  closeIconText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-  body: { fontSize: 13, color: "#3A3A58", lineHeight: 21, marginBottom: 22 },
+  closeIconText: { fontSize: 11, fontWeight: "700" },
+  body: { fontSize: 13, lineHeight: 21, marginBottom: 22 },
   exportBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#7B6EF6",
     borderRadius: 14,
     paddingVertical: 15,
     marginBottom: 10,
   },
-  exportBtnIcon: { fontSize: 16, color: "#F0F0FF", fontWeight: "700" },
-  exportBtnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
+  exportBtnIcon: { fontSize: 16, color: Colors.gray[0], fontWeight: "700" },
+  exportBtnText: { color: Colors.gray[0], fontSize: 15, fontWeight: "800" },
   cancelBtn: {
-    backgroundColor: "#0E0E18",
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
   },
-  cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
+  cancelBtnText: { fontSize: 14, fontWeight: "600" },
 });
-
 const ccm = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "#000000BB",
+    backgroundColor: "rgba(0,0,0,.4)",
     justifyContent: "center",
     paddingHorizontal: 28,
   },
   container: {
-    backgroundColor: "#0C0C16",
     borderRadius: 24,
     padding: 28,
     borderWidth: 1,
-    borderColor: "#2A0E14",
     alignItems: "center",
   },
   iconWrap: {
     width: 56,
     height: 56,
     borderRadius: 18,
-    backgroundColor: "#180810",
     borderWidth: 1,
-    borderColor: "#3A1020",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
   },
-  iconText: { fontSize: 24, color: "#C04060" },
+  iconText: { fontSize: 24 },
   title: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#F0F0FF",
     marginBottom: 10,
     textAlign: "center",
     letterSpacing: -0.4,
   },
-  body: {
-    fontSize: 13,
-    color: "#3A3A58",
-    lineHeight: 20,
-    textAlign: "center",
-    marginBottom: 24,
-  },
+  body: { fontSize: 13, lineHeight: 20, textAlign: "center", marginBottom: 24 },
   dangerBtn: {
     width: "100%",
-    backgroundColor: "#C04060",
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
     marginBottom: 10,
   },
-  dangerBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
+  dangerBtnText: { color: Colors.gray[0], fontSize: 15, fontWeight: "800" },
   cancelBtn: {
     width: "100%",
-    backgroundColor: "#0E0E18",
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#141428",
   },
-  cancelBtnText: { color: "#3A3A58", fontSize: 14, fontWeight: "600" },
+  cancelBtnText: { fontSize: 14, fontWeight: "600" },
 });

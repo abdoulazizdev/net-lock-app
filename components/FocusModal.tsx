@@ -4,6 +4,7 @@ import FocusService from "@/services/focus.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
+import { Colors, useTheme } from "@/theme";
 import { Profile } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import React, { useEffect, useRef, useState } from "react";
@@ -32,7 +33,6 @@ interface Props {
   onStarted: () => void;
 }
 
-// ─── Picker Android dans un modal dédié ──────────────────────────────────────
 function AndroidTimePicker({
   visible,
   value,
@@ -44,14 +44,12 @@ function AndroidTimePicker({
   onConfirm: (d: Date) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTheme();
   const [draft, setDraft] = useState(value);
-
   useEffect(() => {
     if (visible) setDraft(value);
   }, [visible]);
-
   if (!visible) return null;
-
   return (
     <Modal
       transparent
@@ -60,30 +58,40 @@ function AndroidTimePicker({
       onRequestClose={onCancel}
     >
       <View style={atp.overlay}>
-        <View style={atp.sheet}>
-          <Text style={atp.title}>Durée personnalisée</Text>
+        <View
+          style={[
+            atp.sheet,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <Text style={[atp.title, { color: t.text.primary }]}>
+            Durée personnalisée
+          </Text>
           <DateTimePicker
             value={draft}
             mode="time"
             is24Hour
             display="spinner"
-            onChange={(_, date) => {
-              if (date) setDraft(date);
+            onChange={(_, d) => {
+              if (d) setDraft(d);
             }}
             style={atp.picker}
-            textColor="#F0F0FF"
-            themeVariant="dark"
           />
           <View style={atp.row}>
             <TouchableOpacity
-              style={atp.cancelBtn}
+              style={[
+                atp.cancelBtn,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
               onPress={onCancel}
               activeOpacity={0.8}
             >
-              <Text style={atp.cancelText}>Annuler</Text>
+              <Text style={[atp.cancelText, { color: t.text.secondary }]}>
+                Annuler
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={atp.confirmBtn}
+              style={[atp.confirmBtn, { backgroundColor: Colors.blue[600] }]}
               onPress={() => onConfirm(draft)}
               activeOpacity={0.8}
             >
@@ -99,7 +107,7 @@ function AndroidTimePicker({
 export default function FocusModal({ visible, onClose, onStarted }: Props) {
   const insets = useSafeAreaInsets();
   const { isPremium } = usePremium();
-
+  const { t } = useTheme();
   const [selectedDuration, setSelectedDuration] = useState<number | "custom">(
     25,
   );
@@ -114,7 +122,6 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
   const [stepMsg, setStepMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [paywallVisible, setPaywallVisible] = useState(false);
-
   const slideAnim = useRef(new Animated.Value(400)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
 
@@ -161,13 +168,11 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
     setProfiles(p);
     setVpnWasActive(isVpn);
   };
-
   const getDurationMinutes = (): number => {
     if (selectedDuration === "custom")
       return customTime.getHours() * 60 + customTime.getMinutes();
     return selectedDuration as number;
   };
-
   const formatDuration = (min: number): string => {
     if (min <= 0) return "—";
     if (min < 60) return `${min} min`;
@@ -239,62 +244,99 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
             activeOpacity={1}
             onPress={loading ? undefined : onClose}
           />
-
           <Animated.View
             style={[
               fm.sheet,
               {
+                backgroundColor: t.bg.card,
+                borderColor: t.border.light,
                 transform: [{ translateY: slideAnim }],
                 paddingBottom: insets.bottom + 24,
               },
             ]}
           >
-            {/* Handle */}
-            <View style={fm.handle} />
-
+            <View style={[fm.handle, { backgroundColor: t.border.normal }]} />
             {/* Header */}
             <View style={fm.header}>
               <View style={fm.headerLeft}>
-                <View style={fm.headerIconWrap}>
+                <View
+                  style={[
+                    fm.headerIconWrap,
+                    { backgroundColor: Colors.blue[600] },
+                  ]}
+                >
                   <Text style={fm.headerIcon}>◎</Text>
                 </View>
                 <View>
-                  <Text style={fm.title}>Mode Focus</Text>
-                  <Text style={fm.subtitle}>Session verrouillée</Text>
+                  <Text style={[fm.title, { color: t.text.primary }]}>
+                    Mode Focus
+                  </Text>
+                  <Text style={[fm.subtitle, { color: t.text.secondary }]}>
+                    Session verrouillée
+                  </Text>
                 </View>
               </View>
               {!loading && (
-                <TouchableOpacity onPress={onClose} style={fm.closeBtn}>
-                  <Text style={fm.closeBtnText}>✕</Text>
+                <TouchableOpacity
+                  onPress={onClose}
+                  style={[
+                    fm.closeBtn,
+                    {
+                      backgroundColor: t.bg.cardAlt,
+                      borderColor: t.border.light,
+                    },
+                  ]}
+                >
+                  <Text style={[fm.closeBtnText, { color: t.text.muted }]}>
+                    ✕
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
-
             <ScrollView
               showsVerticalScrollIndicator={false}
               scrollEnabled={!loading}
               keyboardShouldPersistTaps="handled"
             >
-              {/* Bannière VPN inactif */}
+              {/* VPN banner */}
               {!vpnWasActive && step === "idle" && (
-                <View style={fm.vpnBanner}>
+                <View
+                  style={[
+                    fm.vpnBanner,
+                    {
+                      backgroundColor: t.warning.bg,
+                      borderColor: t.warning.border,
+                    },
+                  ]}
+                >
                   <Text style={fm.vpnBannerIcon}>⚡</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={fm.vpnBannerTitle}>
+                    <Text
+                      style={[fm.vpnBannerTitle, { color: t.warning.text }]}
+                    >
                       VPN inactif — démarrage auto
                     </Text>
-                    <Text style={fm.vpnBannerText}>
+                    <Text
+                      style={[fm.vpnBannerText, { color: t.warning.accent }]}
+                    >
                       Le VPN sera activé automatiquement.
                     </Text>
                   </View>
                 </View>
               )}
-
-              {/* Chargement */}
+              {/* Loading */}
               {loading && (
                 <View style={fm.loadingBox}>
-                  <View style={fm.loadingIconWrap}>
-                    <Text style={fm.loadingIcon}>
+                  <View
+                    style={[
+                      fm.loadingIconWrap,
+                      {
+                        backgroundColor: t.bg.accent,
+                        borderColor: t.border.strong,
+                      },
+                    ]}
+                  >
+                    <Text style={[fm.loadingIcon, { color: t.text.link }]}>
                       {step === "starting_vpn"
                         ? "◈"
                         : step === "starting_focus"
@@ -302,7 +344,7 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                           : "◷"}
                     </Text>
                   </View>
-                  <Text style={fm.loadingText}>
+                  <Text style={[fm.loadingText, { color: t.text.primary }]}>
                     {stepMsg || "Vérification…"}
                   </Text>
                   <View style={fm.loadingSteps}>
@@ -321,55 +363,89 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                           done: false,
                         },
                       ] as const
-                    ).map((s) => (
-                      <View key={s.key} style={fm.loadingStep}>
+                    ).map((sv) => (
+                      <View key={sv.key} style={fm.loadingStep}>
                         <View
                           style={[
                             fm.loadingDotWrap,
-                            s.done && fm.loadingDotWrapDone,
-                            s.active && fm.loadingDotWrapActive,
+                            {
+                              backgroundColor: sv.done
+                                ? t.allowed.bg
+                                : sv.active
+                                  ? t.bg.accent
+                                  : t.bg.cardAlt,
+                              borderColor: sv.done
+                                ? t.allowed.border
+                                : sv.active
+                                  ? t.border.focus
+                                  : t.border.light,
+                            },
                           ]}
                         >
                           <Text
                             style={[
                               fm.loadingDot,
-                              s.done && fm.loadingDotDone,
-                              s.active && fm.loadingDotActive,
+                              {
+                                color: sv.done
+                                  ? t.allowed.text
+                                  : sv.active
+                                    ? t.text.link
+                                    : t.text.muted,
+                              },
                             ]}
                           >
-                            {s.done ? "✓" : s.active ? "▶" : "○"}
+                            {sv.done ? "✓" : sv.active ? "▶" : "○"}
                           </Text>
                         </View>
                         <Text
                           style={[
                             fm.loadingStepTxt,
-                            s.done && fm.loadingStepTxtDone,
-                            s.active && fm.loadingStepTxtActive,
+                            {
+                              color: sv.done
+                                ? t.allowed.text
+                                : sv.active
+                                  ? t.text.link
+                                  : t.text.secondary,
+                            },
+                            (sv.done || sv.active) && { fontWeight: "600" },
                           ]}
                         >
-                          {s.label}
+                          {sv.label}
                         </Text>
                       </View>
                     ))}
                   </View>
                 </View>
               )}
-
-              {/* Erreur */}
+              {/* Error */}
               {step === "error" && (
-                <View style={fm.errorBox}>
-                  <Text style={fm.errorIcon}>⚠</Text>
+                <View
+                  style={[
+                    fm.errorBox,
+                    {
+                      backgroundColor: t.danger.bg,
+                      borderColor: t.danger.border,
+                    },
+                  ]}
+                >
+                  <Text style={[fm.errorIcon, { color: t.danger.accent }]}>
+                    ⚠
+                  </Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={fm.errorTitle}>Échec du démarrage</Text>
-                    <Text style={fm.errorText}>{errorMsg}</Text>
+                    <Text style={[fm.errorTitle, { color: t.danger.text }]}>
+                      Échec du démarrage
+                    </Text>
+                    <Text style={[fm.errorText, { color: t.danger.accent }]}>
+                      {errorMsg}
+                    </Text>
                   </View>
                 </View>
               )}
-
               {!loading && (
                 <>
-                  {/* ── Durée ── */}
-                  <Text style={fm.sectionLabel}>DURÉE</Text>
+                  <Text style={[fm.sectionLabel, { color: t.text.muted }]}>
+                    DURÉE
+                  </Text>
                   <View style={fm.presetsGrid}>
                     {allPresets.map((p) => {
                       const locked = isPresetLocked(p.value);
@@ -379,8 +455,15 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                           key={p.value}
                           style={[
                             fm.presetCard,
-                            selected && fm.presetCardSel,
-                            locked && fm.presetCardLocked,
+                            {
+                              backgroundColor: t.bg.cardAlt,
+                              borderColor: t.border.light,
+                            },
+                            selected && {
+                              backgroundColor: t.bg.accent,
+                              borderColor: t.border.focus,
+                            },
+                            locked && { opacity: 0.5 },
                           ]}
                           onPress={() => {
                             if (locked) {
@@ -393,16 +476,36 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                           activeOpacity={0.75}
                         >
                           {locked && (
-                            <View style={fm.lockBadge}>
-                              <Text style={fm.lockBadgeText}>PRO</Text>
+                            <View
+                              style={[
+                                fm.lockBadge,
+                                {
+                                  backgroundColor: Colors.purple[50],
+                                  borderColor: Colors.purple[100],
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  fm.lockBadgeText,
+                                  { color: Colors.purple[600] },
+                                ]}
+                              >
+                                PRO
+                              </Text>
                             </View>
                           )}
                           <Text style={fm.presetIcon}>{p.icon}</Text>
                           <Text
                             style={[
                               fm.presetLabel,
-                              selected && fm.presetLabelSel,
-                              locked && fm.presetLabelLocked,
+                              {
+                                color: selected
+                                  ? t.text.link
+                                  : locked
+                                    ? t.border.normal
+                                    : t.text.secondary,
+                              },
                             ]}
                           >
                             {p.label}
@@ -410,7 +513,7 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                           <Text
                             style={[
                               fm.presetDesc,
-                              selected && fm.presetDescSel,
+                              { color: selected ? t.text.link : t.text.muted },
                             ]}
                           >
                             {locked ? "Premium" : p.desc}
@@ -418,14 +521,19 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                         </TouchableOpacity>
                       );
                     })}
-
-                    {/* Custom — premium only */}
                     <TouchableOpacity
                       style={[
                         fm.presetCard,
                         fm.presetCustom,
-                        selectedDuration === "custom" && fm.presetCardSel,
-                        !isPremium && fm.presetCardLocked,
+                        {
+                          backgroundColor: t.bg.cardAlt,
+                          borderColor: t.border.light,
+                        },
+                        selectedDuration === "custom" && {
+                          backgroundColor: t.bg.accent,
+                          borderColor: t.border.focus,
+                        },
+                        !isPremium && { opacity: 0.5 },
                       ]}
                       onPress={() => {
                         if (!isPremium) {
@@ -438,16 +546,37 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                       activeOpacity={0.75}
                     >
                       {!isPremium && (
-                        <View style={fm.lockBadge}>
-                          <Text style={fm.lockBadgeText}>PRO</Text>
+                        <View
+                          style={[
+                            fm.lockBadge,
+                            {
+                              backgroundColor: Colors.purple[50],
+                              borderColor: Colors.purple[100],
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              fm.lockBadgeText,
+                              { color: Colors.purple[600] },
+                            ]}
+                          >
+                            PRO
+                          </Text>
                         </View>
                       )}
                       <Text style={fm.presetIcon}>⏱</Text>
                       <Text
                         style={[
                           fm.presetLabel,
-                          selectedDuration === "custom" && fm.presetLabelSel,
-                          !isPremium && fm.presetLabelLocked,
+                          {
+                            color:
+                              selectedDuration === "custom"
+                                ? t.text.link
+                                : !isPremium
+                                  ? t.border.normal
+                                  : t.text.secondary,
+                          },
                         ]}
                       >
                         {selectedDuration === "custom"
@@ -457,7 +586,12 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                       <Text
                         style={[
                           fm.presetDesc,
-                          selectedDuration === "custom" && fm.presetDescSel,
+                          {
+                            color:
+                              selectedDuration === "custom"
+                                ? t.text.link
+                                : t.text.muted,
+                          },
                         ]}
                       >
                         {isPremium ? "Libre" : "Premium"}
@@ -465,142 +599,221 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                     </TouchableOpacity>
                   </View>
 
-                  {/* ── Time picker iOS inline ── */}
                   {selectedDuration === "custom" &&
                     isPremium &&
                     Platform.OS === "ios" && (
-                      <View style={fm.pickerWrap}>
-                        <Text style={fm.pickerLabel}>DURÉE PERSONNALISÉE</Text>
+                      <View
+                        style={[
+                          fm.pickerWrap,
+                          {
+                            backgroundColor: t.bg.cardAlt,
+                            borderColor: t.border.light,
+                          },
+                        ]}
+                      >
+                        <Text style={[fm.pickerLabel, { color: t.text.muted }]}>
+                          DURÉE PERSONNALISÉE
+                        </Text>
                         <DateTimePicker
                           value={customTime}
                           mode="time"
                           is24Hour
                           display="spinner"
-                          onChange={(_, date) => {
-                            if (date) setCustomTime(date);
+                          onChange={(_, d) => {
+                            if (d) setCustomTime(d);
                           }}
                           style={fm.picker}
-                          textColor="#F0F0FF"
-                          themeVariant="dark"
                         />
-                        <View style={fm.pickerSummary}>
-                          <Text style={fm.pickerSummaryText}>
+                        <View
+                          style={[
+                            fm.pickerSummary,
+                            {
+                              backgroundColor: t.bg.accent,
+                              borderColor: t.border.strong,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              fm.pickerSummaryText,
+                              { color: t.text.link },
+                            ]}
+                          >
                             {formatDuration(durationMin)} de focus
                           </Text>
                         </View>
                       </View>
                     )}
-
-                  {/* ── Time picker Android — bouton qui ouvre le modal ── */}
                   {selectedDuration === "custom" &&
                     isPremium &&
                     Platform.OS === "android" && (
                       <TouchableOpacity
-                        style={fm.androidPickerBtn}
+                        style={[
+                          fm.androidPickerBtn,
+                          {
+                            backgroundColor: t.bg.cardAlt,
+                            borderColor: t.border.strong,
+                          },
+                        ]}
                         onPress={() => setShowTimePicker(true)}
                         activeOpacity={0.8}
                       >
-                        <Text style={fm.androidPickerIcon}>⏱</Text>
+                        <Text
+                          style={[fm.androidPickerIcon, { color: t.text.link }]}
+                        >
+                          ⏱
+                        </Text>
                         <View style={{ flex: 1 }}>
-                          <Text style={fm.androidPickerLabel}>
+                          <Text
+                            style={[
+                              fm.androidPickerLabel,
+                              { color: t.text.secondary },
+                            ]}
+                          >
                             Durée personnalisée
                           </Text>
-                          <Text style={fm.androidPickerValue}>
+                          <Text
+                            style={[
+                              fm.androidPickerValue,
+                              { color: t.text.primary },
+                            ]}
+                          >
                             {formatDuration(durationMin)}
                           </Text>
                         </View>
-                        <Text style={fm.androidPickerArrow}>›</Text>
+                        <Text
+                          style={[
+                            fm.androidPickerArrow,
+                            { color: t.text.muted },
+                          ]}
+                        >
+                          ›
+                        </Text>
                       </TouchableOpacity>
                     )}
 
-                  {/* ── Profil ── */}
-                  <Text style={[fm.sectionLabel, { marginTop: 24 }]}>
+                  <Text
+                    style={[
+                      fm.sectionLabel,
+                      { color: t.text.muted, marginTop: 24 },
+                    ]}
+                  >
                     APPS À BLOQUER
                   </Text>
-                  <TouchableOpacity
+                  {[
+                    {
+                      id: null,
+                      name: "Règles globales",
+                      desc: "Toutes les apps actuellement bloquées",
+                      icon: "⚙",
+                    },
+                    ...profiles.map((p) => ({
+                      id: p.id,
+                      name: p.name,
+                      desc: `${p.rules.filter((r) => r.isBlocked).length} apps bloquées`,
+                      icon: "◉",
+                    })),
+                  ].map((item) => {
+                    const sel = selectedProfileId === item.id;
+                    return (
+                      <TouchableOpacity
+                        key={String(item.id)}
+                        style={[
+                          fm.profileOption,
+                          {
+                            backgroundColor: t.bg.cardAlt,
+                            borderColor: t.border.light,
+                          },
+                          sel && {
+                            backgroundColor: t.allowed.bg,
+                            borderColor: t.allowed.border,
+                          },
+                        ]}
+                        onPress={() => setSelectedProfileId(item.id)}
+                        activeOpacity={0.75}
+                      >
+                        <View
+                          style={[
+                            fm.profileIconWrap,
+                            {
+                              backgroundColor: t.bg.card,
+                              borderColor: t.border.light,
+                            },
+                            sel && {
+                              backgroundColor: t.allowed.bg,
+                              borderColor: t.allowed.border,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[fm.profileIcon, { color: t.text.muted }]}
+                          >
+                            {item.icon}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              fm.profileName,
+                              {
+                                color: sel ? t.text.primary : t.text.secondary,
+                              },
+                            ]}
+                          >
+                            {item.name}
+                          </Text>
+                          <Text
+                            style={[fm.profileDesc, { color: t.text.muted }]}
+                          >
+                            {item.desc}
+                          </Text>
+                        </View>
+                        {sel && (
+                          <View
+                            style={[
+                              fm.checkWrap,
+                              {
+                                backgroundColor: t.allowed.bg,
+                                borderColor: t.allowed.border,
+                              },
+                            ]}
+                          >
+                            <Text style={[fm.check, { color: t.allowed.text }]}>
+                              ✓
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  <View
                     style={[
-                      fm.profileOption,
-                      selectedProfileId === null && fm.profileOptionSel,
+                      fm.warnBox,
+                      {
+                        backgroundColor: t.focus.bg,
+                        borderColor: t.focus.border,
+                      },
                     ]}
-                    onPress={() => setSelectedProfileId(null)}
-                    activeOpacity={0.75}
                   >
                     <View
                       style={[
-                        fm.profileIconWrap,
-                        selectedProfileId === null && fm.profileIconWrapSel,
+                        fm.warnIconWrap,
+                        {
+                          backgroundColor: t.bg.accent,
+                          borderColor: t.border.strong,
+                        },
                       ]}
                     >
-                      <Text style={fm.profileIcon}>⚙</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[
-                          fm.profileName,
-                          selectedProfileId === null && fm.profileNameSel,
-                        ]}
-                      >
-                        Règles globales
-                      </Text>
-                      <Text style={fm.profileDesc}>
-                        Toutes les apps actuellement bloquées
+                      <Text style={[fm.warnIcon, { color: t.text.link }]}>
+                        ◈
                       </Text>
                     </View>
-                    {selectedProfileId === null && (
-                      <View style={fm.checkWrap}>
-                        <Text style={fm.check}>✓</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-
-                  {profiles.map((p) => (
-                    <TouchableOpacity
-                      key={p.id}
-                      style={[
-                        fm.profileOption,
-                        selectedProfileId === p.id && fm.profileOptionSel,
-                      ]}
-                      onPress={() => setSelectedProfileId(p.id)}
-                      activeOpacity={0.75}
-                    >
-                      <View
-                        style={[
-                          fm.profileIconWrap,
-                          selectedProfileId === p.id && fm.profileIconWrapSel,
-                        ]}
-                      >
-                        <Text style={fm.profileIcon}>◉</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={[
-                            fm.profileName,
-                            selectedProfileId === p.id && fm.profileNameSel,
-                          ]}
-                        >
-                          {p.name}
-                        </Text>
-                        <Text style={fm.profileDesc}>
-                          {p.rules.filter((r) => r.isBlocked).length} apps
-                          bloquées
-                        </Text>
-                      </View>
-                      {selectedProfileId === p.id && (
-                        <View style={fm.checkWrap}>
-                          <Text style={fm.check}>✓</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  ))}
-
-                  {/* Avertissement */}
-                  <View style={fm.warnBox}>
-                    <View style={fm.warnIconWrap}>
-                      <Text style={fm.warnIcon}>◈</Text>
-                    </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={fm.warnTitle}>Session verrouillée</Text>
-                      <Text style={fm.warnText}>
+                      <Text style={[fm.warnTitle, { color: t.focus.text }]}>
+                        Session verrouillée
+                      </Text>
+                      <Text style={[fm.warnText, { color: t.focus.accent }]}>
                         Le VPN ne peut pas être désactivé pendant la session.
                         Maintenez Stop 5s pour annuler.
                       </Text>
@@ -609,11 +822,15 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
                 </>
               )}
             </ScrollView>
-
-            {/* Bouton start */}
             {!loading && (
               <TouchableOpacity
-                style={[fm.startBtn, durationMin < 1 && fm.startBtnOff]}
+                style={[
+                  fm.startBtn,
+                  {
+                    backgroundColor:
+                      durationMin < 1 ? Colors.blue[200] : Colors.blue[600],
+                  },
+                ]}
                 onPress={handleStart}
                 disabled={durationMin < 1}
                 activeOpacity={0.85}
@@ -629,8 +846,6 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
           </Animated.View>
         </Animated.View>
       </Modal>
-
-      {/* ── Modal picker Android ── */}
       <AndroidTimePicker
         visible={showTimePicker && Platform.OS === "android"}
         value={customTime}
@@ -640,7 +855,6 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
         }}
         onCancel={() => setShowTimePicker(false)}
       />
-
       <PaywallModal
         visible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
@@ -651,86 +865,67 @@ export default function FocusModal({ visible, onClose, onStarted }: Props) {
   );
 }
 
-// ─── Styles AndroidTimePicker ─────────────────────────────────────────────────
 const atp = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "#000000CC",
+    backgroundColor: "rgba(0,0,0,.4)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
   },
   sheet: {
     width: "100%",
-    backgroundColor: "#0E0E18",
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#2A2A3C",
     padding: 24,
     alignItems: "center",
   },
   title: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#F0F0FF",
     marginBottom: 16,
     letterSpacing: -0.3,
   },
   picker: { width: "100%", height: 160 },
-  row: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 20,
-    width: "100%",
-  },
+  row: { flexDirection: "row", gap: 12, marginTop: 20, width: "100%" },
   cancelBtn: {
     flex: 1,
-    backgroundColor: "#14141E",
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#2A2A3C",
   },
-  cancelText: { fontSize: 14, fontWeight: "700", color: "#5A5A80" },
+  cancelText: { fontSize: 14, fontWeight: "700" },
   confirmBtn: {
     flex: 1,
-    backgroundColor: "#7B6EF6",
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
   },
-  confirmText: { fontSize: 14, fontWeight: "800", color: "#F0F0FF" },
+  confirmText: { fontSize: 14, fontWeight: "800", color: Colors.gray[0] },
 });
-
-// ─── Styles FocusModal ────────────────────────────────────────────────────────
 const fm = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "#000000AA",
+    backgroundColor: "rgba(0,0,0,.3)",
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: "#0A0A12",
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 22,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: "#1C1C2C",
     maxHeight: "92%",
   },
   handle: {
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#2A2A3C",
     alignSelf: "center",
     marginTop: 14,
     marginBottom: 20,
   },
-
-  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -742,127 +937,75 @@ const fm = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 15,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
     justifyContent: "center",
     alignItems: "center",
   },
-  headerIcon: { fontSize: 20, color: "#7B6EF6" },
-  title: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#F0F0FF",
-    letterSpacing: -0.5,
-  },
-  subtitle: { fontSize: 11, color: "#3A3A58", marginTop: 2, fontWeight: "500" },
+  headerIcon: { fontSize: 20, color: Colors.gray[0] },
+  title: { fontSize: 20, fontWeight: "800", letterSpacing: -0.5 },
+  subtitle: { fontSize: 11, marginTop: 2, fontWeight: "500" },
   closeBtn: {
     width: 30,
     height: 30,
     borderRadius: 10,
-    backgroundColor: "#14141E",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
-  closeBtnText: { fontSize: 12, color: "#5A5A80", fontWeight: "700" },
-
+  closeBtnText: { fontSize: 12, fontWeight: "700" },
   sectionLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#2E2E48",
     letterSpacing: 2,
     marginBottom: 12,
   },
-
-  // Bannière VPN
   vpnBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    backgroundColor: "#120E04",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#3A2A0A",
     padding: 14,
     marginBottom: 22,
   },
   vpnBannerIcon: { fontSize: 15, marginTop: 1 },
-  vpnBannerTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#D4901A",
-    marginBottom: 3,
-  },
-  vpnBannerText: { fontSize: 11, color: "#6A4A10", lineHeight: 17 },
-
-  // Loading
+  vpnBannerTitle: { fontSize: 12, fontWeight: "800", marginBottom: 3 },
+  vpnBannerText: { fontSize: 11, lineHeight: 17 },
   loadingBox: { alignItems: "center", paddingVertical: 36 },
   loadingIconWrap: {
     width: 72,
     height: 72,
     borderRadius: 24,
-    backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#4A3F8A",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
   },
-  loadingIcon: { fontSize: 30, color: "#7B6EF6" },
-  loadingText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#E8E8F8",
-    marginBottom: 24,
-  },
+  loadingIcon: { fontSize: 30 },
+  loadingText: { fontSize: 15, fontWeight: "700", marginBottom: 24 },
   loadingSteps: { gap: 12, alignItems: "flex-start" },
   loadingStep: { flexDirection: "row", alignItems: "center", gap: 12 },
   loadingDotWrap: {
     width: 26,
     height: 26,
     borderRadius: 8,
-    backgroundColor: "#14141E",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingDotWrapDone: { backgroundColor: "#0D2218", borderColor: "#3DDB8A40" },
-  loadingDotWrapActive: {
-    backgroundColor: "#16103A",
-    borderColor: "#7B6EF640",
-  },
-  loadingDot: { fontSize: 11, color: "#2E2E48", fontWeight: "700" },
-  loadingDotDone: { color: "#3DDB8A" },
-  loadingDotActive: { color: "#7B6EF6" },
-  loadingStepTxt: { fontSize: 13, color: "#3A3A58", fontWeight: "500" },
-  loadingStepTxtDone: { color: "#3DDB8A", fontWeight: "600" },
-  loadingStepTxtActive: { color: "#9B8FFF", fontWeight: "600" },
-
-  // Erreur
+  loadingDot: { fontSize: 11, fontWeight: "700" },
+  loadingStepTxt: { fontSize: 13, fontWeight: "500" },
   errorBox: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    backgroundColor: "#120608",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#4A1020",
     padding: 14,
     marginBottom: 20,
   },
-  errorIcon: { fontSize: 16, color: "#D04070", marginTop: 1 },
-  errorTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#D04070",
-    marginBottom: 4,
-  },
-  errorText: { fontSize: 12, color: "#8A3050", lineHeight: 18 },
-
-  // Presets
+  errorIcon: { fontSize: 16, marginTop: 1 },
+  errorTitle: { fontSize: 13, fontWeight: "800", marginBottom: 4 },
+  errorText: { fontSize: 12, lineHeight: 18 },
   presetsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -871,165 +1014,96 @@ const fm = StyleSheet.create({
   },
   presetCard: {
     width: "30%",
-    backgroundColor: "#0E0E18",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     padding: 14,
     alignItems: "center",
     position: "relative",
   },
-  presetCardSel: { backgroundColor: "#16103A", borderColor: "#7B6EF6" },
-  presetCardLocked: {
-    backgroundColor: "#0A0A0E",
-    borderColor: "#161618",
-    opacity: 0.55,
-  },
-  presetCustom: { borderStyle: "dashed", borderColor: "#2A2A3C" },
+  presetCustom: { borderStyle: "dashed" },
   lockBadge: {
     position: "absolute",
     top: 6,
     right: 6,
-    backgroundColor: "#7B6EF625",
     borderRadius: 5,
     paddingHorizontal: 5,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: "#7B6EF640",
   },
-  lockBadgeText: {
-    fontSize: 7,
-    fontWeight: "800",
-    color: "#7B6EF6",
-    letterSpacing: 0.5,
-  },
+  lockBadgeText: { fontSize: 7, fontWeight: "800", letterSpacing: 0.5 },
   presetIcon: { fontSize: 22, marginBottom: 6 },
-  presetLabel: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#4A4A68",
-    marginBottom: 3,
-  },
-  presetLabelSel: { color: "#9B8FFF" },
-  presetLabelLocked: { color: "#1E1E28" },
-  presetDesc: {
-    fontSize: 9,
-    color: "#2A2A40",
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
-  presetDescSel: { color: "#5A4E9A" },
-
-  // Picker iOS
+  presetLabel: { fontSize: 13, fontWeight: "800", marginBottom: 3 },
+  presetDesc: { fontSize: 9, fontWeight: "600", letterSpacing: 0.5 },
   pickerWrap: {
-    backgroundColor: "#0A0A14",
     borderRadius: 18,
     padding: 18,
     marginVertical: 14,
     borderWidth: 1,
-    borderColor: "#2A2450",
     alignItems: "center",
   },
   pickerLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#2E2E48",
     letterSpacing: 2,
     marginBottom: 10,
   },
   picker: { width: "100%", height: 150 },
   pickerSummary: {
     marginTop: 12,
-    backgroundColor: "#16103A",
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 24,
     borderWidth: 1,
-    borderColor: "#4A3F8A",
   },
-  pickerSummaryText: { fontSize: 16, fontWeight: "800", color: "#9B8FFF" },
-
-  // Picker Android bouton
+  pickerSummaryText: { fontSize: 16, fontWeight: "800" },
   androidPickerBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    backgroundColor: "#0E0E18",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#2A2450",
     padding: 16,
     marginVertical: 12,
   },
-  androidPickerIcon: { fontSize: 20, color: "#7B6EF6" },
-  androidPickerLabel: {
-    fontSize: 11,
-    color: "#5A5A80",
-    fontWeight: "600",
-    marginBottom: 3,
-  },
-  androidPickerValue: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#9B8FFF",
-    letterSpacing: -0.5,
-  },
-  androidPickerArrow: { fontSize: 22, color: "#3A3A58" },
-
-  // Profils
+  androidPickerIcon: { fontSize: 20 },
+  androidPickerLabel: { fontSize: 11, fontWeight: "600", marginBottom: 3 },
+  androidPickerValue: { fontSize: 18, fontWeight: "800", letterSpacing: -0.5 },
+  androidPickerArrow: { fontSize: 22 },
   profileOption: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#0E0E18",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     padding: 14,
     marginBottom: 8,
   },
-  profileOptionSel: { backgroundColor: "#0D1520", borderColor: "#3DDB8A40" },
   profileIconWrap: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: "#14141E",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
   },
-  profileIconWrapSel: { backgroundColor: "#0D2218", borderColor: "#3DDB8A40" },
-  profileIcon: { fontSize: 16, color: "#5A5A80" },
-  profileName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#5A5A80",
-    marginBottom: 2,
-  },
-  profileNameSel: { color: "#E8E8F8" },
-  profileDesc: { fontSize: 11, color: "#2E2E48" },
+  profileIcon: { fontSize: 16 },
+  profileName: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  profileDesc: { fontSize: 11 },
   checkWrap: {
     width: 26,
     height: 26,
     borderRadius: 8,
-    backgroundColor: "#0D2218",
     borderWidth: 1,
-    borderColor: "#3DDB8A40",
     justifyContent: "center",
     alignItems: "center",
   },
-  check: { fontSize: 13, color: "#3DDB8A", fontWeight: "800" },
-
-  // Warn
+  check: { fontSize: 13, fontWeight: "800" },
   warnBox: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    backgroundColor: "#0C0A16",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#3A2A5A",
     padding: 14,
     marginTop: 8,
     marginBottom: 22,
@@ -1038,37 +1112,26 @@ const fm = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: "#16103A",
     borderWidth: 1,
-    borderColor: "#4A3F8A",
     justifyContent: "center",
     alignItems: "center",
     flexShrink: 0,
   },
-  warnIcon: { fontSize: 15, color: "#7B6EF6" },
-  warnTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#9B6EF6",
-    marginBottom: 4,
-  },
-  warnText: { fontSize: 12, color: "#5A3A78", lineHeight: 18 },
-
-  // Start button
+  warnIcon: { fontSize: 15 },
+  warnTitle: { fontSize: 13, fontWeight: "800", marginBottom: 4 },
+  warnText: { fontSize: 12, lineHeight: 18 },
   startBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    backgroundColor: "#7B6EF6",
     borderRadius: 18,
     paddingVertical: 17,
     marginTop: 8,
   },
-  startBtnOff: { backgroundColor: "#7B6EF625" },
-  startBtnIcon: { fontSize: 16, color: "#F0F0FF" },
+  startBtnIcon: { fontSize: 16, color: Colors.gray[0] },
   startBtnText: {
-    color: "#F0F0FF",
+    color: Colors.gray[0],
     fontSize: 16,
     fontWeight: "800",
     letterSpacing: -0.3,

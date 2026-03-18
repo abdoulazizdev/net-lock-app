@@ -1,21 +1,22 @@
 import SubscriptionService, {
-    FREE_LIMITS,
+  FREE_LIMITS,
 } from "@/services/subscription.service";
+import { Colors, useTheme } from "@/theme";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Easing,
-    Keyboard,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  Keyboard,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -89,7 +90,6 @@ const REASON_MESSAGES: Record<
     sub: "Débloquez toutes les fonctionnalités de NetOff.",
   },
 };
-
 const FEATURES = [
   { icon: "◈", label: "Apps bloquées", free: "3 apps", premium: "Illimité" },
   { icon: "◉", label: "Profils", free: "1 profil", premium: "Illimité" },
@@ -110,7 +110,6 @@ const FEATURES = [
   { icon: "◈", label: "PIN & Biométrie", free: "—", premium: "✓" },
   { icon: "◎", label: "VPN persistant", free: "✓", premium: "✓" },
 ];
-
 const PLANS = [
   {
     id: "monthly",
@@ -138,9 +137,6 @@ const PLANS = [
   },
 ];
 
-// ─── Onglet code promo — composant isolé avec son propre listener clavier ─────
-// Stratégie : on écoute la hauteur du clavier et on translate le contenu vers
-// le haut d'autant, ce qui garantit que le champ reste visible quoi qu'il arrive.
 function CodeTab({
   promoCode,
   setPromoCode,
@@ -152,17 +148,15 @@ function CodeTab({
   codeLoading: boolean;
   onSubmit: () => void;
 }) {
+  const { t } = useTheme();
   const shiftAnim = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     const showEvt =
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvt =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const dur = Platform.OS === "ios" ? 260 : 160;
-
     const s1 = Keyboard.addListener(showEvt, (e) => {
-      // On remonte le contenu de la hauteur du clavier moins un peu de marge
       Animated.timing(shiftAnim, {
         toValue: -(e.endCoordinates.height - 20),
         duration: dur,
@@ -183,24 +177,32 @@ function CodeTab({
       s2.remove();
     };
   }, []);
-
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <Animated.View
         style={[ct.wrap, { transform: [{ translateY: shiftAnim }] }]}
       >
-        <View style={ct.iconWrap}>
+        <View style={[ct.iconWrap, { backgroundColor: Colors.blue[600] }]}>
           <Text style={ct.icon}>◈</Text>
         </View>
-        <Text style={ct.title}>Entrez votre code</Text>
-        <Text style={ct.sub}>
+        <Text style={[ct.title, { color: t.text.primary }]}>
+          Entrez votre code
+        </Text>
+        <Text style={[ct.sub, { color: t.text.secondary }]}>
           Si vous avez reçu un code d'activation, saisissez-le ci-dessous pour
           activer Premium gratuitement.
         </Text>
         <TextInput
-          style={ct.input}
+          style={[
+            ct.input,
+            {
+              backgroundColor: t.bg.cardAlt,
+              color: t.text.primary,
+              borderColor: t.border.normal,
+            },
+          ]}
           placeholder="Ex: NETOFF-PRO-2025"
-          placeholderTextColor="#2A2A42"
+          placeholderTextColor={t.text.muted}
           value={promoCode}
           onChangeText={setPromoCode}
           autoCapitalize="characters"
@@ -209,13 +211,21 @@ function CodeTab({
           onSubmitEditing={onSubmit}
         />
         <TouchableOpacity
-          style={[ct.btn, (!promoCode.trim() || codeLoading) && ct.btnOff]}
+          style={[
+            ct.btn,
+            {
+              backgroundColor:
+                !promoCode.trim() || codeLoading
+                  ? Colors.blue[200]
+                  : Colors.blue[600],
+            },
+          ]}
           onPress={onSubmit}
           disabled={!promoCode.trim() || codeLoading}
           activeOpacity={0.85}
         >
           {codeLoading ? (
-            <ActivityIndicator color="#F0F0FF" size="small" />
+            <ActivityIndicator color={Colors.gray[0]} size="small" />
           ) : (
             <Text style={ct.btnText}>Activer le code</Text>
           )}
@@ -225,7 +235,6 @@ function CodeTab({
   );
 }
 
-// ─── Composant principal ──────────────────────────────────────────────────────
 export default function PaywallModal({
   visible,
   onClose,
@@ -233,6 +242,7 @@ export default function PaywallModal({
   reason = "general",
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t, isDark } = useTheme();
   const [selectedPlan, setSelectedPlan] = useState("yearly");
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -240,7 +250,6 @@ export default function PaywallModal({
   const [activeTab, setActiveTab] = useState<"plans" | "code">("plans");
   const [promoCode, setPromoCode] = useState("");
   const [codeLoading, setCodeLoading] = useState(false);
-
   const slideAnim = useRef(new Animated.Value(600)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const msg = REASON_MESSAGES[reason] ?? REASON_MESSAGES.general;
@@ -284,14 +293,11 @@ export default function PaywallModal({
   const loadRCPackages = async () => {
     if (!Purchases) return;
     try {
-      const offerings = await Purchases.getOfferings();
-      if (offerings.current?.availablePackages)
-        setRcPackages(offerings.current.availablePackages);
+      const o = await Purchases.getOfferings();
+      if (o.current?.availablePackages)
+        setRcPackages(o.current.availablePackages);
     } catch (e) {
-      console.warn(
-        "[PaywallModal] Impossible de charger les offres RevenueCat:",
-        e,
-      );
+      console.warn("[PaywallModal] RevenueCat:", e);
     }
   };
 
@@ -318,12 +324,7 @@ export default function PaywallModal({
           );
           onUpgraded();
           onClose();
-        } else {
-          Alert.alert(
-            "Erreur",
-            "L'achat n'a pas pu être vérifié. Contactez le support.",
-          );
-        }
+        } else Alert.alert("Erreur", "L'achat n'a pas pu être vérifié.");
       } else {
         await SubscriptionService.activate();
         onUpgraded();
@@ -359,18 +360,16 @@ export default function PaywallModal({
             "✓ Achat restauré",
             "Votre abonnement Premium a été restauré.",
           );
-        } else {
+        } else
           Alert.alert(
             "Aucun achat trouvé",
             "Aucun achat Premium associé à votre compte.",
           );
-        }
-      } else {
+      } else
         Alert.alert(
           "Info",
           "La restauration n'est pas disponible en mode simulation.",
         );
-      }
     } catch (e: any) {
       Alert.alert(
         "Erreur",
@@ -390,16 +389,12 @@ export default function PaywallModal({
       if (result.success) {
         onUpgraded();
         onClose();
-        Alert.alert(
-          "⚡ Premium activé !",
-          "Votre code a été validé. Profitez de toutes les fonctionnalités !",
-        );
-      } else {
+        Alert.alert("⚡ Premium activé !", "Votre code a été validé !");
+      } else
         Alert.alert(
           "Code invalide",
           result.error ?? "Ce code n'est pas valide.",
         );
-      }
     } finally {
       setCodeLoading(false);
     }
@@ -421,66 +416,66 @@ export default function PaywallModal({
             onClose();
           }}
         />
-
         <Animated.View
           style={[
             pw.sheet,
             {
+              backgroundColor: t.bg.card,
+              borderColor: t.border.light,
               transform: [{ translateY: slideAnim }],
               paddingBottom: insets.bottom + 16,
             },
           ]}
         >
-          {/* Handle + fermer */}
+          {/* Handle */}
           <View style={pw.handleRow}>
-            <View style={pw.handle} />
+            <View style={[pw.handle, { backgroundColor: t.border.normal }]} />
             <TouchableOpacity
               onPress={() => {
                 Keyboard.dismiss();
                 onClose();
               }}
-              style={pw.closeBtn}
+              style={[
+                pw.closeBtn,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
             >
-              <Text style={pw.closeBtnText}>✕</Text>
+              <Text style={[pw.closeBtnText, { color: t.text.muted }]}>✕</Text>
             </TouchableOpacity>
           </View>
 
           {/* Tabs */}
-          <View style={pw.tabs}>
-            <TouchableOpacity
-              style={[pw.tabBtn, activeTab === "plans" && pw.tabBtnActive]}
-              onPress={() => {
-                Keyboard.dismiss();
-                setActiveTab("plans");
-              }}
-              activeOpacity={0.8}
-            >
-              <Text
+          <View
+            style={[
+              pw.tabs,
+              { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+            ]}
+          >
+            {(["plans", "code"] as const).map((tab) => (
+              <TouchableOpacity
+                key={tab}
                 style={[
-                  pw.tabBtnText,
-                  activeTab === "plans" && pw.tabBtnTextActive,
+                  pw.tabBtn,
+                  activeTab === tab && { backgroundColor: t.bg.accent },
                 ]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setActiveTab(tab);
+                }}
+                activeOpacity={0.8}
               >
-                Abonnement
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[pw.tabBtn, activeTab === "code" && pw.tabBtnActive]}
-              onPress={() => setActiveTab("code")}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  pw.tabBtnText,
-                  activeTab === "code" && pw.tabBtnTextActive,
-                ]}
-              >
-                Code promo
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    pw.tabBtnText,
+                    { color: activeTab === tab ? t.text.link : t.text.muted },
+                  ]}
+                >
+                  {tab === "plans" ? "Abonnement" : "Code promo"}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          {/* ── Onglet plans ── */}
           {activeTab === "plans" && (
             <>
               <ScrollView
@@ -489,56 +484,144 @@ export default function PaywallModal({
               >
                 {/* Hero */}
                 <View style={pw.hero}>
-                  <View style={pw.heroIconWrap}>
+                  <View
+                    style={[
+                      pw.heroIconWrap,
+                      { backgroundColor: Colors.blue[600] },
+                    ]}
+                  >
                     <Text style={pw.heroIcon}>{msg.icon}</Text>
                   </View>
-                  <View style={pw.premiumBadge}>
-                    <Text style={pw.premiumBadgeText}>◎ NETOFF PREMIUM</Text>
+                  <View
+                    style={[
+                      pw.premiumBadge,
+                      {
+                        backgroundColor: Colors.purple[50],
+                        borderColor: Colors.purple[100],
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        pw.premiumBadgeText,
+                        { color: Colors.purple[600] },
+                      ]}
+                    >
+                      ◎ NETOFF PREMIUM
+                    </Text>
                   </View>
-                  <Text style={pw.heroTitle}>{msg.title}</Text>
-                  <Text style={pw.heroSub}>{msg.sub}</Text>
+                  <Text style={[pw.heroTitle, { color: t.text.primary }]}>
+                    {msg.title}
+                  </Text>
+                  <Text style={[pw.heroSub, { color: t.text.secondary }]}>
+                    {msg.sub}
+                  </Text>
                 </View>
 
-                {/* Tableau */}
-                <View style={pw.tableWrap}>
-                  <View style={pw.tableHeader}>
-                    <Text style={pw.tableHeaderCell}>FONCTIONNALITÉ</Text>
-                    <Text style={[pw.tableHeaderCell, pw.tableHeaderFree]}>
+                {/* Table */}
+                <View
+                  style={[
+                    pw.tableWrap,
+                    {
+                      backgroundColor: t.bg.cardAlt,
+                      borderColor: t.border.light,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      pw.tableHeader,
+                      { backgroundColor: t.bg.cardSunken },
+                    ]}
+                  >
+                    <Text style={[pw.tableHeaderCell, { color: t.text.muted }]}>
+                      FONCTIONNALITÉ
+                    </Text>
+                    <Text
+                      style={[
+                        pw.tableHeaderCell,
+                        pw.tableHeaderFree,
+                        { color: t.text.muted },
+                      ]}
+                    >
                       GRATUIT
                     </Text>
-                    <Text style={[pw.tableHeaderCell, pw.tableHeaderPremium]}>
+                    <Text
+                      style={[
+                        pw.tableHeaderCell,
+                        pw.tableHeaderPremium,
+                        { color: Colors.blue[600] },
+                      ]}
+                    >
                       PREMIUM
                     </Text>
                   </View>
                   {FEATURES.map((f, i) => (
                     <View
                       key={f.label}
-                      style={[pw.tableRow, i % 2 === 0 && pw.tableRowAlt]}
+                      style={[
+                        pw.tableRow,
+                        i % 2 === 0 && { backgroundColor: t.bg.card },
+                      ]}
                     >
                       <View style={pw.tableFeature}>
-                        <Text style={pw.tableFeatureIcon}>{f.icon}</Text>
-                        <Text style={pw.tableFeatureLabel}>{f.label}</Text>
+                        <Text
+                          style={[pw.tableFeatureIcon, { color: t.text.muted }]}
+                        >
+                          {f.icon}
+                        </Text>
+                        <Text
+                          style={[
+                            pw.tableFeatureLabel,
+                            { color: t.text.secondary },
+                          ]}
+                        >
+                          {f.label}
+                        </Text>
                       </View>
-                      <Text style={pw.tableFreeVal}>{f.free}</Text>
-                      <Text style={pw.tablePremiumVal}>{f.premium}</Text>
+                      <Text style={[pw.tableFreeVal, { color: t.text.muted }]}>
+                        {f.free}
+                      </Text>
+                      <Text
+                        style={[
+                          pw.tablePremiumVal,
+                          { color: Colors.blue[600] },
+                        ]}
+                      >
+                        {f.premium}
+                      </Text>
                     </View>
                   ))}
                 </View>
 
                 {/* Plans */}
-                <Text style={pw.plansTitle}>CHOISIR UN PLAN</Text>
+                <Text style={[pw.plansTitle, { color: t.text.muted }]}>
+                  CHOISIR UN PLAN
+                </Text>
                 {PLANS.map((plan) => (
                   <TouchableOpacity
                     key={plan.id}
                     style={[
                       pw.planCard,
-                      selectedPlan === plan.id && pw.planCardSelected,
+                      {
+                        backgroundColor: t.bg.cardAlt,
+                        borderColor: t.border.light,
+                      },
+                      selectedPlan === plan.id && {
+                        backgroundColor: t.bg.accent,
+                        borderColor: Colors.blue[500],
+                      },
                     ]}
                     onPress={() => setSelectedPlan(plan.id)}
                     activeOpacity={0.8}
                   >
                     {plan.badge && (
-                      <View style={pw.planBadge}>
+                      <View
+                        style={[
+                          pw.planBadge,
+                          { backgroundColor: Colors.blue[600] },
+                        ]}
+                      >
                         <Text style={pw.planBadgeText}>{plan.badge}</Text>
                       </View>
                     )}
@@ -546,7 +629,12 @@ export default function PaywallModal({
                       <View
                         style={[
                           pw.planRadio,
-                          selectedPlan === plan.id && pw.planRadioSelected,
+                          {
+                            borderColor:
+                              selectedPlan === plan.id
+                                ? Colors.blue[500]
+                                : t.border.normal,
+                          },
                         ]}
                       >
                         {selectedPlan === plan.id && (
@@ -556,7 +644,12 @@ export default function PaywallModal({
                       <Text
                         style={[
                           pw.planLabel,
-                          selectedPlan === plan.id && pw.planLabelSelected,
+                          {
+                            color:
+                              selectedPlan === plan.id
+                                ? t.text.primary
+                                : t.text.secondary,
+                          },
                         ]}
                       >
                         {plan.label}
@@ -566,17 +659,23 @@ export default function PaywallModal({
                       <Text
                         style={[
                           pw.planPrice,
-                          selectedPlan === plan.id && pw.planPriceSelected,
+                          {
+                            color:
+                              selectedPlan === plan.id
+                                ? Colors.blue[600]
+                                : t.text.secondary,
+                          },
                         ]}
                       >
                         {plan.price}
                       </Text>
-                      <Text style={pw.planPeriod}>{plan.period}</Text>
+                      <Text style={[pw.planPeriod, { color: t.text.muted }]}>
+                        {plan.period}
+                      </Text>
                     </View>
                   </TouchableOpacity>
                 ))}
-
-                <Text style={pw.legalText}>
+                <Text style={[pw.legalText, { color: t.text.muted }]}>
                   Paiement sécurisé via Google Play.
                   {Platform.OS === "ios" ? " App Store." : ""} Annulable à tout
                   moment.
@@ -584,13 +683,20 @@ export default function PaywallModal({
               </ScrollView>
 
               <TouchableOpacity
-                style={[pw.ctaBtn, loading && pw.ctaBtnLoading]}
+                style={[
+                  pw.ctaBtn,
+                  {
+                    backgroundColor: loading
+                      ? Colors.blue[200]
+                      : Colors.blue[600],
+                  },
+                ]}
                 onPress={handleUpgrade}
                 disabled={loading}
                 activeOpacity={0.9}
               >
                 {loading ? (
-                  <ActivityIndicator color="#F0F0FF" />
+                  <ActivityIndicator color={Colors.gray[0]} />
                 ) : (
                   <Text style={pw.ctaBtnText}>Passer à Premium ◎</Text>
                 )}
@@ -602,17 +708,15 @@ export default function PaywallModal({
                 activeOpacity={0.7}
               >
                 {restoring ? (
-                  <ActivityIndicator color="#3A3A58" size="small" />
+                  <ActivityIndicator color={t.text.muted} size="small" />
                 ) : (
-                  <Text style={pw.restoreBtnText}>
+                  <Text style={[pw.restoreBtnText, { color: t.text.muted }]}>
                     Restaurer un achat · Continuer gratuitement
                   </Text>
                 )}
               </TouchableOpacity>
             </>
           )}
-
-          {/* ── Onglet code promo ── */}
           {activeTab === "code" && (
             <CodeTab
               promoCode={promoCode}
@@ -627,7 +731,6 @@ export default function PaywallModal({
   );
 }
 
-// ─── Styles CodeTab ───────────────────────────────────────────────────────────
 const ct = StyleSheet.create({
   wrap: {
     alignItems: "center",
@@ -639,69 +742,50 @@ const ct = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 20,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
   },
-  icon: { fontSize: 28, color: "#7B6EF6" },
+  icon: { fontSize: 28, color: Colors.gray[0] },
   title: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#F0F0FF",
     marginBottom: 8,
     letterSpacing: -0.5,
   },
-  sub: {
-    fontSize: 13,
-    color: "#3A3A58",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 24,
-  },
+  sub: { fontSize: 13, textAlign: "center", lineHeight: 20, marginBottom: 24 },
   input: {
     width: "100%",
-    backgroundColor: "#14141E",
     borderRadius: 14,
     padding: 16,
-    color: "#F0F0FF",
     fontSize: 18,
     fontWeight: "700",
     letterSpacing: 2,
     borderWidth: 1,
-    borderColor: "#2A2A42",
     textAlign: "center",
     fontFamily: "monospace",
     marginBottom: 16,
   },
   btn: {
     width: "100%",
-    backgroundColor: "#7B6EF6",
     borderRadius: 14,
     paddingVertical: 15,
     alignItems: "center",
   },
-  btnOff: { backgroundColor: "#7B6EF630" },
-  btnText: { color: "#F0F0FF", fontSize: 15, fontWeight: "800" },
+  btnText: { color: Colors.gray[0], fontSize: 15, fontWeight: "800" },
 });
-
-// ─── Styles principaux ────────────────────────────────────────────────────────
 const pw = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "#000000BB",
+    backgroundColor: "rgba(0,0,0,.45)",
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: "#0E0E18",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 22,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: "#2A2A3C",
     maxHeight: "95%",
   },
   handleRow: {
@@ -711,93 +795,64 @@ const pw = StyleSheet.create({
     paddingTop: 12,
     marginBottom: 4,
   },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#2A2A3C",
-    flex: 1,
-    marginRight: 8,
-  },
+  handle: { height: 4, borderRadius: 2, flex: 1, marginRight: 8 },
   closeBtn: {
     width: 28,
     height: 28,
     borderRadius: 9,
-    backgroundColor: "#1C1C2C",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
   },
-  closeBtnText: { fontSize: 11, color: "#5A5A80", fontWeight: "700" },
-
+  closeBtnText: { fontSize: 11, fontWeight: "700" },
   tabs: {
     flexDirection: "row",
-    backgroundColor: "#0E0E18",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     marginBottom: 16,
     overflow: "hidden",
   },
   tabBtn: { flex: 1, paddingVertical: 10, alignItems: "center" },
-  tabBtnActive: { backgroundColor: "#16103A" },
-  tabBtnText: { fontSize: 13, fontWeight: "600", color: "#3A3A58" },
-  tabBtnTextActive: { color: "#9B8FFF" },
-
+  tabBtnText: { fontSize: 13, fontWeight: "600" },
   hero: { alignItems: "center", paddingVertical: 16 },
   heroIconWrap: {
     width: 64,
     height: 64,
     borderRadius: 20,
-    backgroundColor: "#16103A",
-    borderWidth: 1,
-    borderColor: "#4A3F8A",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 10,
   },
-  heroIcon: { fontSize: 28, color: "#7B6EF6" },
+  heroIcon: { fontSize: 28, color: Colors.gray[0] },
   premiumBadge: {
-    backgroundColor: "#7B6EF620",
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: "#7B6EF640",
     marginBottom: 8,
   },
-  premiumBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#9B8FFF",
-    letterSpacing: 1.5,
-  },
+  premiumBadgeText: { fontSize: 11, fontWeight: "800", letterSpacing: 1.5 },
   heroTitle: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#F0F0FF",
     marginBottom: 6,
     textAlign: "center",
     letterSpacing: -0.5,
   },
   heroSub: {
     fontSize: 13,
-    color: "#3A3A58",
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 20,
   },
-
   tableWrap: {
-    backgroundColor: "#0A0A14",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     overflow: "hidden",
     marginBottom: 20,
   },
   tableHeader: {
     flexDirection: "row",
-    backgroundColor: "#14141E",
     paddingVertical: 9,
     paddingHorizontal: 12,
   },
@@ -805,39 +860,29 @@ const pw = StyleSheet.create({
     flex: 2,
     fontSize: 9,
     fontWeight: "700",
-    color: "#2E2E48",
     letterSpacing: 1.5,
   },
-  tableHeaderFree: { flex: 1.2, textAlign: "center", color: "#3A3A58" },
-  tableHeaderPremium: { flex: 1.5, textAlign: "center", color: "#7B6EF6" },
+  tableHeaderFree: { flex: 1.2, textAlign: "center" },
+  tableHeaderPremium: { flex: 1.5, textAlign: "center" },
   tableRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 9,
     paddingHorizontal: 12,
   },
-  tableRowAlt: { backgroundColor: "#0E0E1A" },
   tableFeature: { flex: 2, flexDirection: "row", alignItems: "center", gap: 6 },
-  tableFeatureIcon: { fontSize: 11, color: "#5A5A80" },
-  tableFeatureLabel: { fontSize: 12, color: "#C0C0D8", fontWeight: "500" },
-  tableFreeVal: {
-    flex: 1.2,
-    fontSize: 11,
-    color: "#3A3A58",
-    textAlign: "center",
-  },
+  tableFeatureIcon: { fontSize: 11 },
+  tableFeatureLabel: { fontSize: 12, fontWeight: "500" },
+  tableFreeVal: { flex: 1.2, fontSize: 11, textAlign: "center" },
   tablePremiumVal: {
     flex: 1.5,
     fontSize: 11,
-    color: "#9B8FFF",
     textAlign: "center",
     fontWeight: "700",
   },
-
   plansTitle: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#2E2E48",
     letterSpacing: 2,
     marginBottom: 10,
   },
@@ -845,76 +890,59 @@ const pw = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#14141E",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     padding: 14,
     marginBottom: 8,
     overflow: "hidden",
   },
-  planCardSelected: { backgroundColor: "#16103A", borderColor: "#7B6EF6" },
   planBadge: {
     position: "absolute",
     top: -1,
     right: -1,
-    backgroundColor: "#7B6EF6",
     borderBottomLeftRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
-  planBadgeText: { fontSize: 9, fontWeight: "800", color: "#F0F0FF" },
+  planBadgeText: { fontSize: 9, fontWeight: "800", color: Colors.gray[0] },
   planLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   planRadio: {
     width: 18,
     height: 18,
     borderRadius: 9,
     borderWidth: 2,
-    borderColor: "#2A2A42",
     justifyContent: "center",
     alignItems: "center",
   },
-  planRadioSelected: { borderColor: "#7B6EF6" },
   planRadioDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#7B6EF6",
+    backgroundColor: Colors.blue[500],
   },
-  planLabel: { fontSize: 14, fontWeight: "700", color: "#5A5A80" },
-  planLabelSelected: { color: "#F0F0FF" },
+  planLabel: { fontSize: 14, fontWeight: "700" },
   planRight: { alignItems: "flex-end" },
-  planPrice: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#5A5A80",
-    letterSpacing: -0.5,
-  },
-  planPriceSelected: { color: "#9B8FFF" },
-  planPeriod: { fontSize: 10, color: "#2E2E48", marginTop: 1 },
+  planPrice: { fontSize: 16, fontWeight: "800", letterSpacing: -0.5 },
+  planPeriod: { fontSize: 10, marginTop: 1 },
   legalText: {
     fontSize: 10,
-    color: "#2E2E48",
     textAlign: "center",
     marginTop: 6,
     marginBottom: 12,
     lineHeight: 16,
   },
-
   ctaBtn: {
-    backgroundColor: "#7B6EF6",
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: "center",
     marginTop: 8,
   },
-  ctaBtnLoading: { backgroundColor: "#7B6EF640" },
   ctaBtnText: {
-    color: "#F0F0FF",
+    color: Colors.gray[0],
     fontSize: 16,
     fontWeight: "800",
     letterSpacing: -0.3,
   },
   restoreBtn: { paddingVertical: 12, alignItems: "center" },
-  restoreBtnText: { fontSize: 12, color: "#2E2E48", fontWeight: "500" },
+  restoreBtnText: { fontSize: 12, fontWeight: "500" },
 });

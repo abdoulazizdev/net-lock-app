@@ -1,4 +1,5 @@
 import { useAppInfo } from "@/hooks/useAppInfo";
+import { Colors, Semantic, useTheme } from "@/theme";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -16,7 +17,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const CONTACT_EMAIL = "abdoulaziz.dev@gmail.com";
 
-// ─── Staggered fade-in hook ───────────────────────────────────────────────────
 function useStagger(count: number, delay = 55) {
   const anims = useRef(
     Array.from({ length: count }, () => new Animated.Value(0)),
@@ -37,7 +37,6 @@ function useStagger(count: number, delay = 55) {
   return anims;
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
 function Section({
   anim,
   children,
@@ -64,17 +63,16 @@ function Section({
   );
 }
 
-// ─── Info row ─────────────────────────────────────────────────────────────────
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const { t } = useTheme();
   return (
     <View style={row.container}>
-      <Text style={row.label}>{label}</Text>
-      <Text style={row.value}>{value}</Text>
+      <Text style={[row.label, { color: t.text.secondary }]}>{label}</Text>
+      <Text style={[row.value, { color: t.text.primary }]}>{value}</Text>
     </View>
   );
 }
 
-// ─── Feature item ─────────────────────────────────────────────────────────────
 function FeatureItem({
   icon,
   title,
@@ -86,27 +84,36 @@ function FeatureItem({
   desc: string;
   accent?: string;
 }) {
+  const { t } = useTheme();
   return (
     <View style={feat.container}>
       <View
         style={[
           feat.iconWrap,
+          { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
           accent
             ? { backgroundColor: accent + "18", borderColor: accent + "40" }
             : {},
         ]}
       >
-        <Text style={[feat.icon, accent ? { color: accent } : {}]}>{icon}</Text>
+        <Text
+          style={[
+            feat.icon,
+            { color: t.text.muted },
+            accent ? { color: accent } : {},
+          ]}
+        >
+          {icon}
+        </Text>
       </View>
       <View style={feat.text}>
-        <Text style={feat.title}>{title}</Text>
-        <Text style={feat.desc}>{desc}</Text>
+        <Text style={[feat.title, { color: t.text.primary }]}>{title}</Text>
+        <Text style={[feat.desc, { color: t.text.secondary }]}>{desc}</Text>
       </View>
     </View>
   );
 }
 
-// ─── Link row ─────────────────────────────────────────────────────────────────
 function LinkRow({
   icon,
   label,
@@ -118,30 +125,34 @@ function LinkRow({
   onPress: () => void;
   danger?: boolean;
 }) {
+  const { t } = useTheme();
   return (
     <TouchableOpacity
       style={lnk.container}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Text style={lnk.icon}>{icon}</Text>
-      <Text style={[lnk.label, danger && lnk.labelDanger]}>{label}</Text>
-      <Text style={lnk.arrow}>›</Text>
+      <Text style={[lnk.icon, { color: t.text.muted }]}>{icon}</Text>
+      <Text
+        style={[lnk.label, { color: danger ? t.danger.text : t.text.primary }]}
+      >
+        {label}
+      </Text>
+      <Text style={[lnk.arrow, { color: t.border.normal }]}>›</Text>
     </TouchableOpacity>
   );
 }
 
-// ─── Stat pill ────────────────────────────────────────────────────────────────
 function StatPill({ value, label }: { value: string; label: string }) {
+  const { t } = useTheme();
   return (
     <View style={stat.container}>
-      <Text style={stat.value}>{value}</Text>
-      <Text style={stat.label}>{label}</Text>
+      <Text style={[stat.value, { color: t.text.link }]}>{value}</Text>
+      <Text style={[stat.label, { color: t.text.muted }]}>{label}</Text>
     </View>
   );
 }
 
-// ─── Feature section with collapsible ────────────────────────────────────────
 function FeatureGroup({
   title,
   children,
@@ -149,329 +160,30 @@ function FeatureGroup({
   title: string;
   children: React.ReactNode;
 }) {
+  const { t } = useTheme();
   const [open, setOpen] = useState(true);
   return (
-    <View style={styles.card}>
+    <View
+      style={[
+        s.card,
+        { backgroundColor: t.bg.card, borderColor: t.border.light },
+      ]}
+    >
       <TouchableOpacity
-        style={grp.header}
+        style={[grp.header, { borderBottomColor: t.border.light }]}
         onPress={() => setOpen((v) => !v)}
         activeOpacity={0.7}
       >
-        <Text style={grp.title}>{title}</Text>
-        <Text style={grp.chevron}>{open ? "⌃" : "⌄"}</Text>
+        <Text style={[grp.title, { color: t.text.secondary }]}>{title}</Text>
+        <Text style={[grp.chevron, { color: t.text.muted }]}>
+          {open ? "⌃" : "⌄"}
+        </Text>
       </TouchableOpacity>
       {open && children}
     </View>
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
-export default function AboutScreen() {
-  const insets = useSafeAreaInsets();
-  const appInfo = useAppInfo();
-  const anims = useStagger(11, 50);
-
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080810" />
-
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backBtn}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.backText}>← Retour</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>À propos</Text>
-      </View>
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingBottom: insets.bottom + 40 },
-        ]}
-      >
-        {/* ── Hero ──────────────────────────────────────────────────────── */}
-        <Section anim={anims[0]}>
-          <View style={styles.hero}>
-            <View style={styles.logoWrap}>
-              <View style={styles.logoOuter}>
-                <View style={styles.logoInner}>
-                  <Text style={styles.logoIcon}>◉</Text>
-                </View>
-              </View>
-              <View style={[styles.ring, styles.ring1]} />
-              <View style={[styles.ring, styles.ring2]} />
-            </View>
-
-            <Text style={styles.appName}>{appInfo.appName}</Text>
-            <Text style={styles.appTagline}>Contrôle réseau intelligent</Text>
-
-            <View style={styles.versionRow}>
-              <View style={styles.versionBadge}>
-                <Text style={styles.versionText}>
-                  {appInfo.loading ? "…" : `v${appInfo.version}`}
-                </Text>
-              </View>
-              <View style={styles.buildBadge}>
-                <Text style={styles.buildText}>
-                  {appInfo.loading ? "…" : `build ${appInfo.buildNumber}`}
-                </Text>
-              </View>
-            </View>
-
-            {/* Quick stats */}
-            <View style={styles.statsRow}>
-              <StatPill value="VPN" label="local" />
-              <View style={styles.statsDivider} />
-              <StatPill value="100%" label="privé" />
-              <View style={styles.statsDivider} />
-              <StatPill value="∞" label="profils" />
-              <View style={styles.statsDivider} />
-              <StatPill value="0" label="collecte" />
-            </View>
-          </View>
-        </Section>
-
-        {/* ── Mission ───────────────────────────────────────────────────── */}
-        <Section anim={anims[1]}>
-          <View style={styles.missionCard}>
-            <View style={styles.missionAccent} />
-            <Text style={styles.missionTitle}>Notre mission</Text>
-            <Text style={styles.missionText}>
-              NetOff vous donne un contrôle total sur les connexions réseau de
-              vos applications. Via un VPN local Android natif, chaque tentative
-              de connexion est analysée et filtrée selon vos profils — sans
-              qu'aucune donnée ne quitte votre appareil.
-            </Text>
-          </View>
-        </Section>
-
-        {/* ── Fonctionnalités principales ───────────────────────────────── */}
-        <Section anim={anims[2]}>
-          <Text style={styles.sectionLabel}>FONCTIONNALITÉS</Text>
-          <FeatureGroup title="Contrôle & VPN">
-            <FeatureItem
-              icon="◈"
-              title="VPN local natif"
-              desc="Filtrage via VpnService Android. Aucune donnée ne quitte l'appareil. Règles globales ou par profil, synchronisées instantanément."
-              accent="#7B6EF6"
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="◎"
-              title="Blocage par application"
-              desc="Liste complète des apps installées (utilisateur + système). Blocage ou autorisation d'un tap, avec fiche détaillée par app."
-              accent="#7B6EF6"
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="⊡"
-              title="Widget écran d'accueil"
-              desc="Statut VPN en temps réel, compteur d'apps bloquées et toggle — sans ouvrir l'app. Mise à jour instantanée."
-              accent="#7B6EF6"
-            />
-          </FeatureGroup>
-        </Section>
-
-        <Section anim={anims[3]}>
-          <FeatureGroup title="Profils & Planifications">
-            <FeatureItem
-              icon="◷"
-              title="Profils personnalisés"
-              desc="Groupes de règles nommés : Travail, Soirée, Enfants… Activation manuelle ou automatique selon des créneaux hebdomadaires."
-              accent="#3DDB8A"
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="⊙"
-              title="Planifications hebdomadaires"
-              desc="Alarmes via AlarmManager — activation/désactivation automatique à des jours et heures précis. Se reprogramment 7 jours après chaque déclenchement et survivent aux reboots."
-              accent="#3DDB8A"
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="◉"
-              title="Persistance au redémarrage"
-              desc="VPN et sessions relancés automatiquement après un reboot via BootReceiver. État sauvegardé en SharedPreferences natif."
-              accent="#3DDB8A"
-            />
-          </FeatureGroup>
-        </Section>
-
-        <Section anim={anims[4]}>
-          <FeatureGroup title="Focus & Sécurité">
-            <FeatureItem
-              icon="◔"
-              title="Mode Focus"
-              desc="Session de blocage minutée (25 min à 4h). Impossible d'annuler sans maintenir 5 secondes. Notification persistante avec compte à rebours. Fin automatique même app fermée."
-              accent="#FF6B6B"
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="◈"
-              title="Authentification"
-              desc="PIN applicatif (4–6 chiffres) et/ou biométrie/PIN téléphone. Les deux méthodes sont indépendantes et cumulables. Configuration dans Paramètres."
-              accent="#FF6B6B"
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="◎"
-              title="Import / Export"
-              desc="Export JSON de toutes les règles et profils via le partage Android. Import avec validation et remplacement des données existantes."
-              accent="#FF6B6B"
-            />
-          </FeatureGroup>
-        </Section>
-
-        <Section anim={anims[5]}>
-          <FeatureGroup title="Statistiques & Historique">
-            <FeatureItem
-              icon="◉"
-              title="Historique des connexions"
-              desc="Log de toutes les tentatives (bloquées/autorisées) avec horodatage. Limité à 500 entrées, effaçable."
-              accent="#F0A500"
-            />
-            <View style={styles.divider} />
-            <FeatureItem
-              icon="◷"
-              title="3 vues dans Stats"
-              desc="Vue d'ensemble avec top apps — historique chronologique groupé par date — détail par application avec ratio et dernière activité."
-              accent="#F0A500"
-            />
-          </FeatureGroup>
-        </Section>
-
-        {/* ── App info ──────────────────────────────────────────────────── */}
-        <Section anim={anims[6]}>
-          <Text style={styles.sectionLabel}>INFORMATIONS</Text>
-          <View style={styles.card}>
-            <InfoRow
-              label="Version"
-              value={appInfo.loading ? "…" : appInfo.fullVersion}
-            />
-            <View style={styles.divider} />
-            <InfoRow
-              label="Bundle ID"
-              value={appInfo.loading ? "…" : appInfo.bundleId || "—"}
-            />
-            <View style={styles.divider} />
-            <InfoRow
-              label="Plateforme"
-              value={
-                appInfo.loading ? "…" : `${appInfo.osName} ${appInfo.osVersion}`
-              }
-            />
-            <View style={styles.divider} />
-            <InfoRow
-              label="Appareil"
-              value={appInfo.loading ? "…" : (appInfo.deviceModel ?? "—")}
-            />
-            <View style={styles.divider} />
-            <InfoRow
-              label="Environnement"
-              value={
-                appInfo.loading
-                  ? "…"
-                  : appInfo.isDevice
-                    ? "Appareil réel"
-                    : "Émulateur"
-              }
-            />
-            <View style={styles.divider} />
-            <InfoRow label="Données collectées" value="Aucune" />
-            <View style={styles.divider} />
-            <InfoRow label="Connexion requise" value="Non" />
-            <View style={styles.divider} />
-            <InfoRow label="Stockage des règles" value="Local (SharedPrefs)" />
-            <View style={styles.divider} />
-            <InfoRow label="Entrées historique max" value="500" />
-          </View>
-        </Section>
-
-        {/* ── Privacy ───────────────────────────────────────────────────── */}
-        <Section anim={anims[7]}>
-          <View style={styles.privacyCard}>
-            <View style={styles.privacyIconWrap}>
-              <Text style={styles.privacyIcon}>◈</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.privacyTitle}>100% privé, 100% local</Text>
-              <Text style={styles.privacyText}>
-                NetOff ne collecte aucune donnée personnelle. Le VPN fonctionne
-                entièrement sur votre appareil via VpnService Android. Vos
-                règles, profils, statistiques et historique restent sur votre
-                téléphone. Aucune requête vers un serveur externe n'est
-                effectuée.
-              </Text>
-            </View>
-          </View>
-        </Section>
-
-        {/* ── Technologie ───────────────────────────────────────────────── */}
-        <Section anim={anims[8]}>
-          <Text style={styles.sectionLabel}>TECHNOLOGIE</Text>
-          <View style={styles.card}>
-            <View style={styles.techRow}>
-              <TechBadge label="VpnService" color="#7B6EF6" />
-              <TechBadge label="AlarmManager" color="#3DDB8A" />
-              <TechBadge label="BootReceiver" color="#3DDB8A" />
-              <TechBadge label="SharedPreferences" color="#F0A500" />
-              <TechBadge label="LocalAuthentication" color="#FF6B6B" />
-              <TechBadge label="WidgetSyncModule" color="#7B6EF6" />
-            </View>
-          </View>
-        </Section>
-
-        {/* ── Links ─────────────────────────────────────────────────────── */}
-        <Section anim={anims[9]}>
-          <Text style={styles.sectionLabel}>LIENS</Text>
-          <View style={styles.card}>
-            <LinkRow
-              icon="◎"
-              label="Politique de confidentialité"
-              onPress={() => {}}
-            />
-            <View style={styles.divider} />
-            <LinkRow
-              icon="◈"
-              label="Conditions d'utilisation"
-              onPress={() => {}}
-            />
-            <View style={styles.divider} />
-            <LinkRow
-              icon="◷"
-              label="Signaler un problème"
-              onPress={() =>
-                Linking.openURL(
-                  `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("[NetOff] Signaler un problème")}`,
-                )
-              }
-            />
-            <View style={styles.divider} />
-            <LinkRow icon="⊙" label="Changelog" onPress={() => {}} />
-          </View>
-        </Section>
-
-        {/* ── Footer ────────────────────────────────────────────────────── */}
-        <Section anim={anims[10]}>
-          <View style={styles.footer}>
-            <Text style={styles.footerLogo}>◉ NetOff</Text>
-            <Text style={styles.footerCopy}>
-              © {new Date().getFullYear()} — Fait avec soin
-            </Text>
-            <Text style={styles.footerSub}>Votre réseau, vos règles.</Text>
-          </View>
-        </Section>
-      </ScrollView>
-    </View>
-  );
-}
-
-// ─── Tech badge ───────────────────────────────────────────────────────────────
 function TechBadge({ label, color }: { label: string; color: string }) {
   return (
     <View
@@ -485,28 +197,419 @@ function TechBadge({ label, color }: { label: string; color: string }) {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#080810" },
+export default function AboutScreen() {
+  const insets = useSafeAreaInsets();
+  const { t } = useTheme();
+  const appInfo = useAppInfo();
+  const anims = useStagger(11, 50);
 
-  header: {
-    paddingHorizontal: 22,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#13131F",
-  },
+  return (
+    <View style={[s.container, { backgroundColor: t.bg.page }]}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={Semantic.bg.header}
+      />
+      <View
+        style={[
+          s.header,
+          {
+            paddingTop: insets.top + 10,
+            backgroundColor: Semantic.bg.header,
+            borderBottomColor: "rgba(255,255,255,.1)",
+          },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={s.backBtn}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={s.backText}>← Retour</Text>
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>À propos</Text>
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          s.scroll,
+          { paddingBottom: insets.bottom + 40 },
+        ]}
+      >
+        {/* Hero */}
+        <Section anim={anims[0]}>
+          <View style={s.hero}>
+            <View style={s.logoWrap}>
+              <View
+                style={[
+                  s.logoOuter,
+                  {
+                    backgroundColor: Colors.purple[50],
+                    borderColor: Colors.purple[100],
+                  },
+                ]}
+              >
+                <View style={s.logoInner}>
+                  <Text style={s.logoIcon}>◉</Text>
+                </View>
+              </View>
+              <View style={[s.ring, s.ring1]} />
+              <View style={[s.ring, s.ring2]} />
+            </View>
+            <Text style={[s.appName, { color: t.text.primary }]}>
+              {appInfo.appName}
+            </Text>
+            <Text style={[s.appTagline, { color: t.text.muted }]}>
+              Contrôle réseau intelligent
+            </Text>
+            <View style={s.versionRow}>
+              <View
+                style={[
+                  s.versionBadge,
+                  {
+                    backgroundColor: Colors.purple[50],
+                    borderColor: Colors.purple[100],
+                  },
+                ]}
+              >
+                <Text style={[s.versionText, { color: Colors.purple[600] }]}>
+                  {appInfo.loading ? "…" : `v${appInfo.version}`}
+                </Text>
+              </View>
+              <View
+                style={[
+                  s.buildBadge,
+                  {
+                    backgroundColor: t.bg.cardAlt,
+                    borderColor: t.border.light,
+                  },
+                ]}
+              >
+                <Text style={[s.buildText, { color: t.text.muted }]}>
+                  {appInfo.loading ? "…" : `build ${appInfo.buildNumber}`}
+                </Text>
+              </View>
+            </View>
+            <View
+              style={[
+                s.statsRow,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <StatPill value="VPN" label="local" />
+              <View
+                style={[s.statsDivider, { backgroundColor: t.border.light }]}
+              />
+              <StatPill value="100%" label="privé" />
+              <View
+                style={[s.statsDivider, { backgroundColor: t.border.light }]}
+              />
+              <StatPill value="∞" label="profils" />
+              <View
+                style={[s.statsDivider, { backgroundColor: t.border.light }]}
+              />
+              <StatPill value="0" label="collecte" />
+            </View>
+          </View>
+        </Section>
+
+        {/* Mission */}
+        <Section anim={anims[1]}>
+          <View
+            style={[
+              s.missionCard,
+              { backgroundColor: t.bg.card, borderColor: t.border.light },
+            ]}
+          >
+            <View
+              style={[s.missionAccent, { backgroundColor: Colors.purple[400] }]}
+            />
+            <Text style={[s.missionTitle, { color: t.text.primary }]}>
+              Notre mission
+            </Text>
+            <Text style={[s.missionText, { color: t.text.secondary }]}>
+              NetOff vous donne un contrôle total sur les connexions réseau de
+              vos applications. Via un VPN local Android natif, chaque tentative
+              de connexion est analysée et filtrée selon vos profils — sans
+              qu'aucune donnée ne quitte votre appareil.
+            </Text>
+          </View>
+        </Section>
+
+        {/* Fonctionnalités */}
+        <Section anim={anims[2]}>
+          <Text style={[s.sectionLabel, { color: t.text.muted }]}>
+            FONCTIONNALITÉS
+          </Text>
+          <FeatureGroup title="Contrôle & VPN">
+            <FeatureItem
+              icon="◈"
+              title="VPN local natif"
+              desc="Filtrage via VpnService Android. Aucune donnée ne quitte l'appareil. Règles globales ou par profil, synchronisées instantanément."
+              accent={Colors.purple[400]}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <FeatureItem
+              icon="◎"
+              title="Blocage par application"
+              desc="Liste complète des apps installées (utilisateur + système). Blocage ou autorisation d'un tap, avec fiche détaillée par app."
+              accent={Colors.purple[400]}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <FeatureItem
+              icon="⊡"
+              title="Widget écran d'accueil"
+              desc="Statut VPN en temps réel, compteur d'apps bloquées et toggle — sans ouvrir l'app. Mise à jour instantanée."
+              accent={Colors.purple[400]}
+            />
+          </FeatureGroup>
+        </Section>
+
+        <Section anim={anims[3]}>
+          <FeatureGroup title="Profils & Planifications">
+            <FeatureItem
+              icon="◷"
+              title="Profils personnalisés"
+              desc="Groupes de règles nommés : Travail, Soirée, Enfants… Activation manuelle ou automatique selon des créneaux hebdomadaires."
+              accent={Colors.green[400]}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <FeatureItem
+              icon="⊙"
+              title="Planifications hebdomadaires"
+              desc="Alarmes via AlarmManager — activation/désactivation automatique à des jours et heures précis. Se reprogramment 7 jours après chaque déclenchement et survivent aux reboots."
+              accent={Colors.green[400]}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <FeatureItem
+              icon="◉"
+              title="Persistance au redémarrage"
+              desc="VPN et sessions relancés automatiquement après un reboot via BootReceiver. État sauvegardé en SharedPreferences natif."
+              accent={Colors.green[400]}
+            />
+          </FeatureGroup>
+        </Section>
+
+        <Section anim={anims[4]}>
+          <FeatureGroup title="Focus & Sécurité">
+            <FeatureItem
+              icon="◔"
+              title="Mode Focus"
+              desc="Session de blocage minutée (25 min à 4h). Impossible d'annuler sans maintenir 5 secondes. Notification persistante avec compte à rebours. Fin automatique même app fermée."
+              accent={Colors.red[400]}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <FeatureItem
+              icon="◈"
+              title="Authentification"
+              desc="PIN applicatif (4–6 chiffres) et/ou biométrie/PIN téléphone. Les deux méthodes sont indépendantes et cumulables. Configuration dans Paramètres."
+              accent={Colors.red[400]}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <FeatureItem
+              icon="◎"
+              title="Import / Export"
+              desc="Export JSON de toutes les règles et profils via le partage Android. Import avec validation et remplacement des données existantes."
+              accent={Colors.red[400]}
+            />
+          </FeatureGroup>
+        </Section>
+
+        <Section anim={anims[5]}>
+          <FeatureGroup title="Statistiques & Historique">
+            <FeatureItem
+              icon="◉"
+              title="Historique des connexions"
+              desc="Log de toutes les tentatives (bloquées/autorisées) avec horodatage. Limité à 500 entrées, effaçable."
+              accent={Colors.amber[400]}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <FeatureItem
+              icon="◷"
+              title="3 vues dans Stats"
+              desc="Vue d'ensemble avec top apps — historique chronologique groupé par date — détail par application avec ratio et dernière activité."
+              accent={Colors.amber[400]}
+            />
+          </FeatureGroup>
+        </Section>
+
+        {/* App info */}
+        <Section anim={anims[6]}>
+          <Text style={[s.sectionLabel, { color: t.text.muted }]}>
+            INFORMATIONS
+          </Text>
+          <View
+            style={[
+              s.card,
+              { backgroundColor: t.bg.card, borderColor: t.border.light },
+            ]}
+          >
+            <InfoRow
+              label="Version"
+              value={appInfo.loading ? "…" : appInfo.fullVersion}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow
+              label="Bundle ID"
+              value={appInfo.loading ? "…" : appInfo.bundleId || "—"}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow
+              label="Plateforme"
+              value={
+                appInfo.loading ? "…" : `${appInfo.osName} ${appInfo.osVersion}`
+              }
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow
+              label="Appareil"
+              value={appInfo.loading ? "…" : (appInfo.deviceModel ?? "—")}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow
+              label="Environnement"
+              value={
+                appInfo.loading
+                  ? "…"
+                  : appInfo.isDevice
+                    ? "Appareil réel"
+                    : "Émulateur"
+              }
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow label="Données collectées" value="Aucune" />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow label="Connexion requise" value="Non" />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow label="Stockage des règles" value="Local (SharedPrefs)" />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <InfoRow label="Entrées historique max" value="500" />
+          </View>
+        </Section>
+
+        {/* Privacy */}
+        <Section anim={anims[7]}>
+          <View
+            style={[
+              s.privacyCard,
+              { backgroundColor: t.allowed.bg, borderColor: t.allowed.border },
+            ]}
+          >
+            <View
+              style={[
+                s.privacyIconWrap,
+                {
+                  backgroundColor: t.allowed.bg,
+                  borderColor: t.allowed.border,
+                },
+              ]}
+            >
+              <Text style={[s.privacyIcon, { color: t.allowed.accent }]}>
+                ◈
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.privacyTitle, { color: t.allowed.text }]}>
+                100% privé, 100% local
+              </Text>
+              <Text style={[s.privacyText, { color: t.allowed.text }]}>
+                NetOff ne collecte aucune donnée personnelle. Le VPN fonctionne
+                entièrement sur votre appareil via VpnService Android. Vos
+                règles, profils, statistiques et historique restent sur votre
+                téléphone.
+              </Text>
+            </View>
+          </View>
+        </Section>
+
+        {/* Technologie */}
+        <Section anim={anims[8]}>
+          <Text style={[s.sectionLabel, { color: t.text.muted }]}>
+            TECHNOLOGIE
+          </Text>
+          <View
+            style={[
+              s.card,
+              { backgroundColor: t.bg.card, borderColor: t.border.light },
+            ]}
+          >
+            <View style={s.techRow}>
+              <TechBadge label="VpnService" color={Colors.purple[400]} />
+              <TechBadge label="AlarmManager" color={Colors.green[400]} />
+              <TechBadge label="BootReceiver" color={Colors.green[400]} />
+              <TechBadge label="SharedPreferences" color={Colors.amber[400]} />
+              <TechBadge label="LocalAuthentication" color={Colors.red[400]} />
+              <TechBadge label="WidgetSyncModule" color={Colors.purple[400]} />
+            </View>
+          </View>
+        </Section>
+
+        {/* Liens */}
+        <Section anim={anims[9]}>
+          <Text style={[s.sectionLabel, { color: t.text.muted }]}>LIENS</Text>
+          <View
+            style={[
+              s.card,
+              { backgroundColor: t.bg.card, borderColor: t.border.light },
+            ]}
+          >
+            <LinkRow
+              icon="◎"
+              label="Politique de confidentialité"
+              onPress={() => {}}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <LinkRow
+              icon="◈"
+              label="Conditions d'utilisation"
+              onPress={() => {}}
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <LinkRow
+              icon="◷"
+              label="Signaler un problème"
+              onPress={() =>
+                Linking.openURL(
+                  `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("[NetOff] Signaler un problème")}`,
+                )
+              }
+            />
+            <View style={[s.divider, { backgroundColor: t.border.light }]} />
+            <LinkRow icon="⊙" label="Changelog" onPress={() => {}} />
+          </View>
+        </Section>
+
+        {/* Footer */}
+        <Section anim={anims[10]}>
+          <View style={s.footer}>
+            <Text style={[s.footerLogo, { color: Colors.purple[400] }]}>
+              ◉ NetOff
+            </Text>
+            <Text style={[s.footerCopy, { color: t.text.muted }]}>
+              © {new Date().getFullYear()} — Fait avec soin
+            </Text>
+            <Text style={[s.footerSub, { color: t.border.normal }]}>
+              Votre réseau, vos règles.
+            </Text>
+          </View>
+        </Section>
+      </ScrollView>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  container: { flex: 1 },
+  header: { paddingHorizontal: 22, paddingBottom: 16, borderBottomWidth: 1 },
   backBtn: { marginBottom: 12 },
-  backText: { color: "#3DDB8A", fontSize: 14, fontWeight: "600" },
+  backText: { color: Colors.gray[0], fontSize: 14, fontWeight: "600" },
   headerTitle: {
     fontSize: 34,
     fontWeight: "800",
-    color: "#F0F0FF",
+    color: Colors.gray[0],
     letterSpacing: -1.5,
   },
-
   scroll: { paddingHorizontal: 22, paddingTop: 28 },
-
-  // ── Hero
   hero: { alignItems: "center", marginBottom: 32 },
   logoWrap: {
     width: 96,
@@ -519,9 +622,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 26,
-    backgroundColor: "#7B6EF618",
     borderWidth: 1,
-    borderColor: "#7B6EF640",
     justifyContent: "center",
     alignItems: "center",
     zIndex: 2,
@@ -530,85 +631,65 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 18,
-    backgroundColor: "#7B6EF6",
+    backgroundColor: Colors.purple[400],
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#7B6EF6",
+    shadowColor: Colors.purple[400],
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.5,
     shadowRadius: 16,
     elevation: 12,
   },
-  logoIcon: { fontSize: 26, color: "#F0F0FF" },
+  logoIcon: { fontSize: 26, color: Colors.gray[0] },
   ring: {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#7B6EF620",
+    borderColor: Colors.purple[100],
   },
   ring1: { width: 96, height: 96 },
-  ring2: { width: 116, height: 116, borderColor: "#7B6EF610" },
-
+  ring2: { width: 116, height: 116, borderColor: Colors.purple[50] },
   appName: {
     fontSize: 36,
     fontWeight: "800",
-    color: "#F0F0FF",
     letterSpacing: -2,
     marginBottom: 6,
   },
   appTagline: {
     fontSize: 14,
-    color: "#3A3A58",
     fontWeight: "500",
     marginBottom: 16,
     letterSpacing: 0.3,
   },
   versionRow: { flexDirection: "row", gap: 8, marginBottom: 20 },
   versionBadge: {
-    backgroundColor: "#7B6EF618",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: "#7B6EF640",
   },
-  versionText: { fontSize: 12, color: "#9B8FFF", fontWeight: "700" },
+  versionText: { fontSize: 12, fontWeight: "700" },
   buildBadge: {
-    backgroundColor: "#14141E",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
   },
-  buildText: { fontSize: 12, color: "#3A3A58", fontWeight: "600" },
-
-  // ── Stats row
+  buildText: { fontSize: 12, fontWeight: "600" },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#0E0E18",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     paddingHorizontal: 16,
     paddingVertical: 14,
     gap: 4,
   },
-  statsDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: "#1C1C2C",
-    marginHorizontal: 8,
-  },
-
-  // ── Mission card
+  statsDivider: { width: 1, height: 28, marginHorizontal: 8 },
   missionCard: {
-    backgroundColor: "#0E0E18",
     borderRadius: 18,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     marginBottom: 28,
     overflow: "hidden",
   },
@@ -619,88 +700,49 @@ const styles = StyleSheet.create({
     bottom: 14,
     width: 3,
     borderRadius: 2,
-    backgroundColor: "#7B6EF6",
   },
   missionTitle: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#F0F0FF",
     marginBottom: 10,
     letterSpacing: -0.3,
   },
-  missionText: {
-    fontSize: 14,
-    color: "#5A5A80",
-    lineHeight: 22,
-  },
-
-  // ── Section label + card
+  missionText: { fontSize: 14, lineHeight: 22 },
   sectionLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#2E2E48",
     letterSpacing: 2,
     marginBottom: 10,
   },
   card: {
-    backgroundColor: "#0E0E18",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     marginBottom: 14,
     overflow: "hidden",
   },
-  divider: {
-    height: 1,
-    backgroundColor: "#13131F",
-    marginHorizontal: 16,
-  },
-
-  // ── Tech row
-  techRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    padding: 16,
-  },
-
-  // ── Privacy card
+  divider: { height: 1, marginHorizontal: 16 },
+  techRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 16 },
   privacyCard: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 14,
-    backgroundColor: "#0D221880",
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: "#3DDB8A30",
     marginBottom: 28,
   },
   privacyIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: "#3DDB8A15",
     borderWidth: 1,
-    borderColor: "#3DDB8A40",
     justifyContent: "center",
     alignItems: "center",
     flexShrink: 0,
   },
-  privacyIcon: { fontSize: 18, color: "#3DDB8A" },
-  privacyTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#3DDB8A",
-    marginBottom: 6,
-  },
-  privacyText: {
-    fontSize: 13,
-    color: "#4A8A6A",
-    lineHeight: 20,
-  },
-
-  // ── Footer
+  privacyIcon: { fontSize: 18 },
+  privacyTitle: { fontSize: 14, fontWeight: "800", marginBottom: 6 },
+  privacyText: { fontSize: 13, lineHeight: 20 },
   footer: {
     alignItems: "center",
     paddingTop: 8,
@@ -708,26 +750,10 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 12,
   },
-  footerLogo: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#7B6EF6",
-    letterSpacing: -0.5,
-  },
-  footerCopy: {
-    fontSize: 12,
-    color: "#2E2E48",
-    fontWeight: "500",
-  },
-  footerSub: {
-    fontSize: 11,
-    color: "#1E1E30",
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
+  footerLogo: { fontSize: 16, fontWeight: "800", letterSpacing: -0.5 },
+  footerCopy: { fontSize: 12, fontWeight: "500" },
+  footerSub: { fontSize: 11, fontWeight: "600", letterSpacing: 0.5 },
 });
-
-// ─── Feature item styles ───────────────────────────────────────────────────────
 const feat = StyleSheet.create({
   container: {
     flexDirection: "row",
@@ -739,29 +765,16 @@ const feat = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 11,
-    backgroundColor: "#7B6EF618",
     borderWidth: 1,
-    borderColor: "#7B6EF630",
     justifyContent: "center",
     alignItems: "center",
     flexShrink: 0,
   },
-  icon: { fontSize: 16, color: "#7B6EF6" },
+  icon: { fontSize: 16 },
   text: { flex: 1 },
-  title: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#E8E8F8",
-    marginBottom: 4,
-  },
-  desc: {
-    fontSize: 12,
-    color: "#3A3A58",
-    lineHeight: 18,
-  },
+  title: { fontSize: 14, fontWeight: "700", marginBottom: 4 },
+  desc: { fontSize: 12, lineHeight: 18 },
 });
-
-// ─── Info row styles ──────────────────────────────────────────────────────────
 const row = StyleSheet.create({
   container: {
     flexDirection: "row",
@@ -770,11 +783,9 @@ const row = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  label: { fontSize: 14, color: "#5A5A80", fontWeight: "500" },
-  value: { fontSize: 14, color: "#E8E8F8", fontWeight: "600" },
+  label: { fontSize: 14, fontWeight: "500" },
+  value: { fontSize: 14, fontWeight: "600" },
 });
-
-// ─── Link row styles ──────────────────────────────────────────────────────────
 const lnk = StyleSheet.create({
   container: {
     flexDirection: "row",
@@ -783,31 +794,15 @@ const lnk = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  icon: { fontSize: 14, color: "#5A5A80" },
-  label: { flex: 1, fontSize: 14, color: "#E8E8F8", fontWeight: "500" },
-  labelDanger: { color: "#D04070" },
-  arrow: { fontSize: 20, color: "#2E2E48", fontWeight: "300" },
+  icon: { fontSize: 14 },
+  label: { flex: 1, fontSize: 14, fontWeight: "500" },
+  arrow: { fontSize: 20, fontWeight: "300" },
 });
-
-// ─── Stat pill styles ─────────────────────────────────────────────────────────
 const stat = StyleSheet.create({
   container: { flex: 1, alignItems: "center" },
-  value: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#9B8FFF",
-    letterSpacing: -0.5,
-  },
-  label: {
-    fontSize: 11,
-    color: "#2E2E48",
-    fontWeight: "600",
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
+  value: { fontSize: 18, fontWeight: "800", letterSpacing: -0.5 },
+  label: { fontSize: 11, fontWeight: "600", letterSpacing: 0.5, marginTop: 2 },
 });
-
-// ─── Feature group styles ─────────────────────────────────────────────────────
 const grp = StyleSheet.create({
   header: {
     flexDirection: "row",
@@ -816,21 +811,10 @@ const grp = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#13131F",
   },
-  title: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#5A5A80",
-    letterSpacing: 0.3,
-  },
-  chevron: {
-    fontSize: 14,
-    color: "#2E2E48",
-  },
+  title: { fontSize: 13, fontWeight: "700", letterSpacing: 0.3 },
+  chevron: { fontSize: 14 },
 });
-
-// ─── Tech badge styles ─────────────────────────────────────────────────────────
 const tech = StyleSheet.create({
   badge: {
     borderRadius: 8,
@@ -838,9 +822,5 @@ const tech = StyleSheet.create({
     paddingVertical: 5,
     borderWidth: 1,
   },
-  label: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
+  label: { fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
 });

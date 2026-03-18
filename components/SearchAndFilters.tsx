@@ -1,3 +1,4 @@
+import { Colors, useTheme } from "@/theme";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -10,21 +11,13 @@ import {
 } from "react-native";
 import { Text } from "react-native-paper";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-// scope : quel ensemble d'apps afficher
-// state : filtrer par état de blocage
 export type ScopeKey = "all" | "user" | "system";
 export type StateKey = "any" | "allowed" | "blocked";
-
-// Rétrocompat — on exporte FilterKey comme alias de ScopeKey pour ne pas
-// casser les imports existants dans HomeScreen
 export type FilterKey = ScopeKey | StateKey;
-
 export interface Filters {
   scope: ScopeKey;
   state: StateKey;
 }
-
 export const DEFAULT_FILTERS: Filters = { scope: "all", state: "any" };
 
 interface Props {
@@ -36,43 +29,42 @@ interface Props {
   systemAppsLoading?: boolean;
 }
 
-// ─── Filter config ────────────────────────────────────────────────────────────
-const SCOPE_FILTERS: { key: ScopeKey; label: string; icon: string }[] = [
-  { key: "all", label: "Tous", icon: "◈" },
-  { key: "user", label: "Installées", icon: "◎" },
-  { key: "system", label: "Système", icon: "◉" },
+const SCOPE_FILTERS = [
+  { key: "all" as ScopeKey, label: "Tous", icon: "◈" },
+  { key: "user" as ScopeKey, label: "Installées", icon: "◎" },
+  { key: "system" as ScopeKey, label: "Système", icon: "◉" },
+];
+const STATE_FILTERS = [
+  { key: "any" as StateKey, label: "Tout état", icon: "◌" },
+  { key: "allowed" as StateKey, label: "Autorisées", icon: "●" },
+  { key: "blocked" as StateKey, label: "Bloquées", icon: "✕" },
 ];
 
-const STATE_FILTERS: { key: StateKey; label: string; icon: string }[] = [
-  { key: "any", label: "Tout état", icon: "◌" },
-  { key: "allowed", label: "Autorisées", icon: "●" },
-  { key: "blocked", label: "Bloquées", icon: "✕" },
-];
+// Chip colors are semantic — same meaning in both themes
+function chipColors(
+  key: ScopeKey | StateKey,
+  t: ReturnType<typeof useTheme>["t"],
+) {
+  if (key === "all" || key === "user")
+    return { bg: t.bg.accent, border: t.border.focus, text: t.text.link };
+  if (key === "system")
+    return {
+      bg: t.bg.cardAlt,
+      border: t.border.normal,
+      text: t.text.secondary,
+    };
+  if (key === "allowed")
+    return { bg: t.allowed.bg, border: t.allowed.accent, text: t.allowed.text };
+  if (key === "blocked")
+    return { bg: t.blocked.bg, border: t.blocked.accent, text: t.blocked.text };
+  return { bg: t.bg.cardAlt, border: t.border.light, text: t.text.muted };
+}
 
-const SCOPE_COLORS: Record<
-  ScopeKey,
-  { bg: string; border: string; text: string }
-> = {
-  all: { bg: "#16103A", border: "#7B6EF6", text: "#9B8FFF" },
-  user: { bg: "#141230", border: "#3A3460", text: "#8880C0" },
-  system: { bg: "#0E1820", border: "#264058", text: "#5090B0" },
-};
-
-const STATE_COLORS: Record<
-  StateKey,
-  { bg: string; border: string; text: string }
-> = {
-  any: { bg: "#14141E", border: "#2A2A3A", text: "#5A5A80" },
-  allowed: { bg: "#0D2218", border: "#1E6A46", text: "#3DDB8A" },
-  blocked: { bg: "#1E0E16", border: "#6A1A35", text: "#D04070" },
-};
-
-// ─── Chip component ───────────────────────────────────────────────────────────
 function Chip({
   icon,
   label,
   active,
-  colors,
+  chipKey,
   onPress,
   spinner,
   spinDeg,
@@ -82,19 +74,22 @@ function Chip({
   icon: string;
   label: string;
   active: boolean;
-  colors: { bg: string; border: string; text: string };
+  chipKey: ScopeKey | StateKey;
   onPress: () => void;
   spinner?: boolean;
   spinDeg?: Animated.AnimatedInterpolation<string>;
   dimmed?: boolean;
   dot?: boolean;
 }) {
+  const { t } = useTheme();
+  const colors = chipColors(chipKey, t);
   return (
     <TouchableOpacity
       style={[
-        styles.chip,
+        st.chip,
+        { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
         active && { backgroundColor: colors.bg, borderColor: colors.border },
-        dimmed && styles.chipDimmed,
+        dimmed && st.chipDimmed,
       ]}
       onPress={onPress}
       activeOpacity={0.7}
@@ -102,26 +97,34 @@ function Chip({
       {spinner && spinDeg ? (
         <Animated.Text
           style={[
-            styles.chipIcon,
-            { transform: [{ rotate: spinDeg }], color: "#8880C0" },
+            st.chipIcon,
+            { color: t.text.link, transform: [{ rotate: spinDeg }] },
           ]}
         >
           ◌
         </Animated.Text>
       ) : (
-        <Text style={[styles.chipIcon, active && { color: colors.text }]}>
+        <Text
+          style={[st.chipIcon, { color: active ? colors.text : t.text.muted }]}
+        >
           {icon}
         </Text>
       )}
-      <Text style={[styles.chipLabel, active && { color: colors.text }]}>
+      <Text
+        style={[
+          st.chipLabel,
+          { color: active ? colors.text : t.text.secondary },
+        ]}
+      >
         {spinner ? "Chargement…" : label}
       </Text>
-      {dot && <View style={styles.chipDot} />}
+      {dot && (
+        <View style={[st.chipDot, { backgroundColor: t.border.strong }]} />
+      )}
     </TouchableOpacity>
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
 export default function SearchAndFilters({
   query,
   onQueryChange,
@@ -130,6 +133,7 @@ export default function SearchAndFilters({
   systemAppsLoaded,
   systemAppsLoading,
 }: Props) {
+  const { t } = useTheme();
   const [inputFocused, setInputFocused] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -139,7 +143,6 @@ export default function SearchAndFilters({
   const chevronRot = useRef(new Animated.Value(0)).current;
   const spinAnim = useRef(new Animated.Value(0)).current;
 
-  // ── Spin loader ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (systemAppsLoading) {
       Animated.loop(
@@ -155,7 +158,6 @@ export default function SearchAndFilters({
     }
   }, [systemAppsLoading]);
 
-  // ── Input focus border ───────────────────────────────────────────────────
   useEffect(() => {
     Animated.timing(focusBorder, {
       toValue: inputFocused ? 1 : 0,
@@ -165,7 +167,6 @@ export default function SearchAndFilters({
     }).start();
   }, [inputFocused]);
 
-  // ── Panel open/close ──────────────────────────────────────────────────────
   useEffect(() => {
     Animated.parallel([
       Animated.timing(panelHeight, {
@@ -192,11 +193,11 @@ export default function SearchAndFilters({
 
   const borderColor = focusBorder.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#1C1C2C", "#4A3F8A"],
+    outputRange: [t.border.light, t.border.focus],
   });
   const bgColor = focusBorder.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#0E0E18", "#0D0C1A"],
+    outputRange: [t.bg.card, t.bg.accent],
   });
   const chevronAngle = chevronRot.interpolate({
     inputRange: [0, 1],
@@ -207,35 +208,32 @@ export default function SearchAndFilters({
     outputRange: ["0deg", "360deg"],
   });
 
-  // Badge count = number of non-default filters active
   const activeCount =
     (filters.scope !== "all" ? 1 : 0) + (filters.state !== "any" ? 1 : 0);
-
   const setScope = (scope: ScopeKey) => onFiltersChange({ ...filters, scope });
   const setState = (state: StateKey) => onFiltersChange({ ...filters, state });
 
   return (
-    <View style={styles.wrapper}>
-      {/* ── Search row ── */}
-      <View style={styles.searchRow}>
+    <View style={st.wrapper}>
+      <View style={st.searchRow}>
         <Animated.View
           style={[
-            styles.searchContainer,
+            st.searchContainer,
             { borderColor, backgroundColor: bgColor },
           ]}
         >
           <Text
             style={[
-              styles.searchIcon,
-              inputFocused && styles.searchIconFocused,
+              st.searchIcon,
+              { color: inputFocused ? t.text.link : t.text.muted },
             ]}
           >
             ⌕
           </Text>
           <TextInput
-            style={styles.searchInput}
+            style={[st.searchInput, { color: t.text.primary }]}
             placeholder="Rechercher une application…"
-            placeholderTextColor="#2E2E48"
+            placeholderTextColor={t.text.muted}
             value={query}
             onChangeText={onQueryChange}
             onFocus={() => setInputFocused(true)}
@@ -247,43 +245,58 @@ export default function SearchAndFilters({
           {query.length > 0 && (
             <TouchableOpacity
               onPress={() => onQueryChange("")}
-              style={styles.clearBtn}
+              style={st.clearBtn}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <View style={styles.clearIcon}>
-                <Text style={styles.clearIconText}>✕</Text>
+              <View style={[st.clearIcon, { backgroundColor: t.bg.cardAlt }]}>
+                <Text style={[st.clearIconText, { color: t.text.secondary }]}>
+                  ✕
+                </Text>
               </View>
             </TouchableOpacity>
           )}
         </Animated.View>
 
-        {/* Filter toggle button */}
         <TouchableOpacity
           style={[
-            styles.filterToggle,
-            panelOpen && styles.filterToggleOpen,
-            activeCount > 0 && styles.filterToggleActive,
+            st.filterToggle,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+            panelOpen && {
+              backgroundColor: t.bg.accent,
+              borderColor: t.border.focus,
+            },
+            activeCount > 0 && { borderColor: t.border.focus },
           ]}
           onPress={() => setPanelOpen((v) => !v)}
           activeOpacity={0.7}
         >
           {activeCount > 0 && (
-            <View style={styles.filterBadge}>
-              <Text style={styles.filterBadgeText}>{activeCount}</Text>
+            <View
+              style={[
+                st.filterBadge,
+                { backgroundColor: Colors.blue[600], borderColor: t.bg.page },
+              ]}
+            >
+              <Text style={[st.filterBadgeText, { color: Colors.gray[0] }]}>
+                {activeCount}
+              </Text>
             </View>
           )}
           <Text
             style={[
-              styles.filterToggleIcon,
-              (panelOpen || activeCount > 0) && styles.filterToggleIconOpen,
+              st.filterToggleIcon,
+              {
+                color:
+                  panelOpen || activeCount > 0 ? t.text.link : t.text.muted,
+              },
             ]}
           >
             ⊟
           </Text>
           <Animated.Text
             style={[
-              styles.filterChevron,
-              { transform: [{ rotate: chevronAngle }] },
+              st.filterChevron,
+              { color: t.text.muted, transform: [{ rotate: chevronAngle }] },
             ]}
           >
             ⌄
@@ -291,29 +304,29 @@ export default function SearchAndFilters({
         </TouchableOpacity>
       </View>
 
-      {/* ── Filters panel ── */}
       <Animated.View
         style={[
-          styles.panel,
+          st.panel,
           { height: panelHeight, opacity: panelOpacity, overflow: "hidden" },
         ]}
       >
-        <View style={styles.panelInner}>
-          {/* Row 1 — Scope */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterRowLabel}>APPS</Text>
+        <View style={st.panelInner}>
+          <View style={st.filterRow}>
+            <Text style={[st.filterRowLabel, { color: t.text.muted }]}>
+              APPS
+            </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipRow}
+              contentContainerStyle={st.chipRow}
             >
               {SCOPE_FILTERS.map((f) => (
                 <Chip
                   key={f.key}
                   icon={f.icon}
                   label={f.label}
+                  chipKey={f.key}
                   active={filters.scope === f.key}
-                  colors={SCOPE_COLORS[f.key]}
                   onPress={() => setScope(f.key)}
                   spinner={f.key === "system" && !!systemAppsLoading}
                   spinDeg={spinDeg}
@@ -333,22 +346,22 @@ export default function SearchAndFilters({
               ))}
             </ScrollView>
           </View>
-
-          {/* Row 2 — State */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterRowLabel}>ÉTAT</Text>
+          <View style={st.filterRow}>
+            <Text style={[st.filterRowLabel, { color: t.text.muted }]}>
+              ÉTAT
+            </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipRow}
+              contentContainerStyle={st.chipRow}
             >
               {STATE_FILTERS.map((f) => (
                 <Chip
                   key={f.key}
                   icon={f.icon}
                   label={f.label}
+                  chipKey={f.key}
                   active={filters.state === f.key}
-                  colors={STATE_COLORS[f.key]}
                   onPress={() => setState(f.key)}
                 />
               ))}
@@ -360,10 +373,8 @@ export default function SearchAndFilters({
   );
 }
 
-const styles = StyleSheet.create({
+const st = StyleSheet.create({
   wrapper: { gap: 0 },
-
-  // Search
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   searchContainer: {
     flex: 1,
@@ -374,26 +385,17 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderWidth: 1,
   },
-  searchIcon: {
-    fontSize: 16,
-    color: "#2E2E48",
-    marginRight: 8,
-    lineHeight: 20,
-  },
-  searchIconFocused: { color: "#7B6EF6" },
-  searchInput: { flex: 1, color: "#E8E8F8", fontSize: 14, paddingVertical: 0 },
+  searchIcon: { fontSize: 16, marginRight: 8, lineHeight: 20 },
+  searchInput: { flex: 1, fontSize: 14, paddingVertical: 0 },
   clearBtn: { marginLeft: 6 },
   clearIcon: {
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: "#2A2A3C",
     justifyContent: "center",
     alignItems: "center",
   },
-  clearIconText: { fontSize: 9, color: "#8080A0", fontWeight: "700" },
-
-  // Filter toggle
+  clearIconText: { fontSize: 9, fontWeight: "700" },
   filterToggle: {
     flexDirection: "row",
     alignItems: "center",
@@ -401,13 +403,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 12,
-    backgroundColor: "#0E0E18",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
     position: "relative",
   },
-  filterToggleOpen: { backgroundColor: "#16103A", borderColor: "#4A3F8A" },
-  filterToggleActive: { borderColor: "#4A3F8A" },
   filterBadge: {
     position: "absolute",
     top: -5,
@@ -415,18 +413,13 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#7B6EF6",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "#080810",
   },
-  filterBadgeText: { fontSize: 9, color: "#FFF", fontWeight: "800" },
-  filterToggleIcon: { fontSize: 15, color: "#3A3A58" },
-  filterToggleIconOpen: { color: "#9B8FFF" },
-  filterChevron: { fontSize: 13, color: "#3A3A58", lineHeight: 16 },
-
-  // Panel
+  filterBadgeText: { fontSize: 9, fontWeight: "800" },
+  filterToggleIcon: { fontSize: 15 },
+  filterChevron: { fontSize: 13, lineHeight: 16 },
   panel: { marginTop: 8 },
   panelInner: {
     display: "flex",
@@ -438,14 +431,11 @@ const styles = StyleSheet.create({
   filterRowLabel: {
     fontSize: 8,
     fontWeight: "700",
-    color: "#2A2A42",
     letterSpacing: 1.5,
     width: 30,
     flexShrink: 0,
   },
   chipRow: { flexDirection: "row", gap: 6, alignItems: "center" },
-
-  // Chip
   chip: {
     flexDirection: "row",
     alignItems: "center",
@@ -453,23 +443,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: "#0E0E18",
     borderWidth: 1,
-    borderColor: "#1C1C2C",
   },
   chipDimmed: { opacity: 0.45 },
-  chipIcon: { fontSize: 10, color: "#3A3A58" },
-  chipLabel: {
-    fontSize: 12,
-    color: "#3A3A58",
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  chipDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "#3A3460",
-    marginLeft: 2,
-  },
+  chipIcon: { fontSize: 10 },
+  chipLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.2 },
+  chipDot: { width: 5, height: 5, borderRadius: 3, marginLeft: 2 },
 });

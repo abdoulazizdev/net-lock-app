@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 
 import { HapticTab } from "@/components/haptic-tab";
+import { Colors, useTheme } from "@/theme";
 
 const TABS = [
   { name: "index", title: "Apps", icon: "apps" },
@@ -14,7 +15,6 @@ const TABS = [
 
 export const TAB_BAR_HEIGHT = 62;
 
-// ─── Animated tab icon ────────────────────────────────────────────────────────
 function TabIcon({
   icon,
   color,
@@ -24,6 +24,7 @@ function TabIcon({
   color: string;
   focused: boolean;
 }) {
+  const { t } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const bgAnim = useRef(new Animated.Value(0)).current;
 
@@ -46,19 +47,16 @@ function TabIcon({
 
   const backgroundColor = bgAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["transparent", "#16103A"],
+    outputRange: ["transparent", t.bg.accent],
   });
   const borderColor = bgAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["transparent", "#4A3F8A"],
+    outputRange: ["transparent", t.border.strong],
   });
 
   return (
     <Animated.View
-      style={[
-        styles.iconWrap,
-        { backgroundColor, borderColor, borderWidth: 1 },
-      ]}
+      style={[st.iconWrap, { backgroundColor, borderColor, borderWidth: 1 }]}
     >
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         <Icon name={icon} size={21} color={color} />
@@ -69,6 +67,7 @@ function TabIcon({
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { t } = useTheme();
 
   return (
     <Tabs
@@ -78,18 +77,18 @@ export default function TabLayout() {
         tabBarShowLabel: true,
         tabBarStyle: {
           height: TAB_BAR_HEIGHT + insets.bottom,
-          backgroundColor: "#0B0B14",
+          backgroundColor: t.bg.card,
           borderTopWidth: 1,
-          borderTopColor: "#1C1C2C",
+          borderTopColor: t.border.light,
           paddingTop: 8,
           paddingBottom: insets.bottom + 6,
           elevation: 0,
           shadowOpacity: 0,
         },
-        tabBarActiveTintColor: "#9B8FFF",
-        tabBarInactiveTintColor: "#3A3A58",
-        tabBarLabelStyle: styles.tabLabel,
-        tabBarItemStyle: styles.tabItem,
+        tabBarActiveTintColor: Colors.blue[600],
+        tabBarInactiveTintColor: t.text.muted,
+        tabBarLabelStyle: st.tabLabel,
+        tabBarItemStyle: st.tabItem,
       }}
     >
       {TABS.map(({ name, title, icon }) => (
@@ -108,17 +107,9 @@ export default function TabLayout() {
   );
 }
 
-const styles = StyleSheet.create({
-  tabItem: {
-    gap: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tabLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
+const st = StyleSheet.create({
+  tabItem: { gap: 4, alignItems: "center", justifyContent: "center" },
+  tabLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 0.4 },
   iconWrap: {
     width: 44,
     height: 30,
