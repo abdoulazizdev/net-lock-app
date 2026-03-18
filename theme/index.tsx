@@ -344,7 +344,7 @@ function isNightTime(): boolean {
   return h < DAY_START || h >= DAY_END;
 }
 
-type ThemeMode = "auto" | "light" | "dark";
+export type ThemeMode = "auto" | "light" | "dark";
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 type ThemeContextValue = {

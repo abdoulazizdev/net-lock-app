@@ -323,7 +323,28 @@ function FreeLimitBanner({
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { isPremium, refresh: refreshPremium } = usePremium();
-  const { t, isDark } = useTheme();
+  const { t, isDark, mode, setMode } = useTheme();
+  const themeCycleAnim = useRef(new Animated.Value(1)).current;
+  const THEME_CYCLE = ["auto", "light", "dark"] as const;
+  const THEME_ICONS = { auto: "◑", light: "◎", dark: "◉" } as const;
+  const handleThemeCycle = () => {
+    const idx = THEME_CYCLE.indexOf(mode as "auto" | "light" | "dark");
+    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
+    setMode(next);
+    Animated.sequence([
+      Animated.timing(themeCycleAnim, {
+        toValue: 0.3,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(themeCycleAnim, {
+        toValue: 1,
+        tension: 200,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   const [apps, setApps] = useState<AppItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -591,7 +612,22 @@ export default function HomeScreen() {
             <View style={st.titleRow}>
               <Text style={st.headerTitle}>NetOff</Text>
               {/* Indicateur de thème discret */}
-              <Text style={st.themeIndicator}>{isDark ? "◉" : "◎"}</Text>
+              <TouchableOpacity
+                onPress={handleThemeCycle}
+                activeOpacity={0.7}
+                style={st.themeCycleBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Animated.Text
+                  style={[
+                    st.themeCycleIcon,
+                    { transform: [{ scale: themeCycleAnim }] },
+                  ]}
+                >
+                  {THEME_ICONS[mode as keyof typeof THEME_ICONS] ??
+                    (isDark ? "◉" : "◎")}
+                </Animated.Text>
+              </TouchableOpacity>
               {isPremium ? (
                 <View style={st.premiumBadge}>
                   <Text style={st.premiumBadgeText}>PRO</Text>
@@ -799,7 +835,13 @@ const st = StyleSheet.create({
     color: Colors.gray[0],
     letterSpacing: -1.2,
   },
-  themeIndicator: { fontSize: 9, color: "rgba(255,255,255,.4)", marginTop: 2 },
+  themeCycleBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  themeCycleIcon: { fontSize: 14, color: "rgba(255,255,255,.55)" },
 
   freeBadge: {
     backgroundColor: "rgba(255,255,255,.15)",
