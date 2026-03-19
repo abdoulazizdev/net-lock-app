@@ -1,3 +1,4 @@
+// hooks/usePremium.ts
 import SubscriptionService from "@/services/subscription.service";
 import { useCallback, useEffect, useState } from "react";
 
@@ -6,6 +7,7 @@ export function usePremium() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     const p = await SubscriptionService.isPremium();
     setIsPremium(p);
     setLoading(false);

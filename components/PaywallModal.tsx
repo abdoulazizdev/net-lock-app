@@ -1,3 +1,4 @@
+// components/PaywallModal.tsx
 import SubscriptionService, {
   FREE_LIMITS,
 } from "@/services/subscription.service";
@@ -9,6 +10,7 @@ import {
   Animated,
   Easing,
   Keyboard,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -21,15 +23,30 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-let Purchases: any = null;
-try {
-  Purchases = require("react-native-purchases").default;
-} catch {
-  console.warn(
-    "[PaywallModal] react-native-purchases non installé — mode simulation",
-  );
-}
+// ─── Config contact ───────────────────────────────────────────────────────────
+const CONTACT = {
+  whatsapp: "+212646534846",
+  email: "abdoulaziz.dev@gmail.com",
+} as const;
 
+const openWhatsApp = () => {
+  const msg = encodeURIComponent(
+    "Bonjour, je souhaite obtenir un accès Premium à NetOff.",
+  );
+  Linking.openURL(`https://wa.me/${CONTACT.whatsapp}?text=${msg}`).catch(() =>
+    Linking.openURL(`https://wa.me/${CONTACT.whatsapp}`),
+  );
+};
+
+const openEmail = () => {
+  const subject = encodeURIComponent("[NetOff] Accès Premium");
+  const body = encodeURIComponent(
+    "Bonjour,\n\nJe souhaite obtenir un accès Premium à NetOff.\n\nMerci.",
+  );
+  Linking.openURL(`mailto:${CONTACT.email}?subject=${subject}&body=${body}`);
+};
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -45,6 +62,7 @@ interface Props {
     | "general";
 }
 
+// ─── Données statiques ────────────────────────────────────────────────────────
 const REASON_MESSAGES: Record<
   string,
   { icon: string; title: string; sub: string }
@@ -90,6 +108,7 @@ const REASON_MESSAGES: Record<
     sub: "Débloquez toutes les fonctionnalités de NetOff.",
   },
 };
+
 const FEATURES = [
   { icon: "◈", label: "Apps bloquées", free: "3 apps", premium: "Illimité" },
   { icon: "◉", label: "Profils", free: "1 profil", premium: "Illimité" },
@@ -110,6 +129,7 @@ const FEATURES = [
   { icon: "◈", label: "PIN & Biométrie", free: "—", premium: "✓" },
   { icon: "◎", label: "VPN persistant", free: "✓", premium: "✓" },
 ];
+
 const PLANS = [
   {
     id: "monthly",
@@ -136,7 +156,92 @@ const PLANS = [
     rcId: "netoff_lifetime",
   },
 ];
+// ─── Mapping erreurs internes → messages UX ───────────────────────────────────
+// Les codes viennent de subscription.service.ts — jamais de messages SDK bruts.
+const PURCHASE_ERROR_MESSAGES: Record<string, string> = {
+  PURCHASE_FAILED:
+    "Le paiement n'a pas pu être traité. Vérifiez votre moyen de paiement.",
+  RESTORE_FAILED:
+    "La restauration a échoué. Vérifiez votre connexion et réessayez.",
+  SDK_NOT_READY: "Le service de paiement n'est pas disponible pour le moment.",
+  NO_OFFERING: "Ce plan n'est pas disponible pour le moment.",
+  NOT_CONFIRMED:
+    "Votre paiement a été traité mais n'a pas encore été confirmé. Attendez quelques secondes puis relancez l'app.",
+  USER_CANCELLED: "", // silence — l'utilisateur a annulé volontairement
+};
 
+function friendlyPurchaseError(code: string | undefined): string {
+  if (!code) return "Une erreur inattendue est survenue.";
+  return PURCHASE_ERROR_MESSAGES[code] ?? "Une erreur inattendue est survenue.";
+}
+
+function friendlyPromoError(code: string | undefined): string {
+  // Les erreurs de code promo sont déjà UX-friendly dans le service
+  // On les retourne telles quelles, jamais de stack/SDK
+  if (!code) return "Ce code n'est pas valide.";
+  // On s'assure qu'aucun message technique ne passe
+  const safe = [
+    "Code invalide ou inexistant.",
+    "Ce code promotionnel a expiré.",
+  ];
+  return safe.includes(code) ? code : "Ce code n'est pas valide.";
+}
+
+// ─── Section contact (réutilisable dans les 2 onglets) ───────────────────────
+function ContactSection() {
+  const { t } = useTheme();
+  return (
+    <View style={cs.container}>
+      <View style={[cs.divider, { backgroundColor: t.border.light }]} />
+      <Text style={[cs.label, { color: t.text.muted }]}>
+        Besoin d'aide ou d'un accès personnalisé ?
+      </Text>
+      <View style={cs.btns}>
+        {/* WhatsApp */}
+        <TouchableOpacity
+          style={[
+            cs.btn,
+            { backgroundColor: "#25D36618", borderColor: "#25D36640" },
+          ]}
+          onPress={openWhatsApp}
+          activeOpacity={0.75}
+        >
+          <Text style={cs.btnIcon}>💬</Text>
+          <View style={cs.btnBody}>
+            <Text style={[cs.btnLabel, { color: "#25D366" }]}>WhatsApp</Text>
+            <Text style={[cs.btnSub, { color: t.text.muted }]}>
+              +212 646 534 846
+            </Text>
+          </View>
+          <Text style={[cs.arrow, { color: t.border.normal }]}>›</Text>
+        </TouchableOpacity>
+
+        {/* Email */}
+        <TouchableOpacity
+          style={[
+            cs.btn,
+            { backgroundColor: Colors.blue[50], borderColor: Colors.blue[100] },
+          ]}
+          onPress={openEmail}
+          activeOpacity={0.75}
+        >
+          <Text style={cs.btnIcon}>✉️</Text>
+          <View style={cs.btnBody}>
+            <Text style={[cs.btnLabel, { color: Colors.blue[600] }]}>
+              Email
+            </Text>
+            <Text style={[cs.btnSub, { color: t.text.muted }]}>
+              abdoulaziz.dev@gmail.com
+            </Text>
+          </View>
+          <Text style={[cs.arrow, { color: t.border.normal }]}>›</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ─── Tab Code promo ───────────────────────────────────────────────────────────
 function CodeTab({
   promoCode,
   setPromoCode,
@@ -150,6 +255,7 @@ function CodeTab({
 }) {
   const { t } = useTheme();
   const shiftAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     const showEvt =
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -177,6 +283,7 @@ function CodeTab({
       s2.remove();
     };
   }, []);
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <Animated.View
@@ -192,6 +299,7 @@ function CodeTab({
           Si vous avez reçu un code d'activation, saisissez-le ci-dessous pour
           activer Premium gratuitement.
         </Text>
+
         <TextInput
           style={[
             ct.input,
@@ -210,6 +318,7 @@ function CodeTab({
           returnKeyType="done"
           onSubmitEditing={onSubmit}
         />
+
         <TouchableOpacity
           style={[
             ct.btn,
@@ -230,11 +339,14 @@ function CodeTab({
             <Text style={ct.btnText}>Activer le code</Text>
           )}
         </TouchableOpacity>
+
+        <ContactSection />
       </Animated.View>
     </TouchableWithoutFeedback>
   );
 }
 
+// ─── Modal principal ──────────────────────────────────────────────────────────
 export default function PaywallModal({
   visible,
   onClose,
@@ -242,14 +354,15 @@ export default function PaywallModal({
   reason = "general",
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { t, isDark } = useTheme();
+  const { t } = useTheme();
+
   const [selectedPlan, setSelectedPlan] = useState("yearly");
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [rcPackages, setRcPackages] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"plans" | "code">("plans");
   const [promoCode, setPromoCode] = useState("");
   const [codeLoading, setCodeLoading] = useState(false);
+
   const slideAnim = useRef(new Animated.Value(600)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const msg = REASON_MESSAGES[reason] ?? REASON_MESSAGES.general;
@@ -258,7 +371,6 @@ export default function PaywallModal({
     if (visible) {
       setActiveTab("plans");
       setPromoCode("");
-      loadRCPackages();
       Animated.parallel([
         Animated.timing(overlayAnim, {
           toValue: 1,
@@ -290,96 +402,66 @@ export default function PaywallModal({
     }
   }, [visible]);
 
-  const loadRCPackages = async () => {
-    if (!Purchases) return;
-    try {
-      const o = await Purchases.getOfferings();
-      if (o.current?.availablePackages)
-        setRcPackages(o.current.availablePackages);
-    } catch (e) {
-      console.warn("[PaywallModal] RevenueCat:", e);
-    }
-  };
-
+  // ── Achat réel via RevenueCat ── pas d'auto-activation ─────────────────────
   const handleUpgrade = async () => {
+    const plan = PLANS.find((p) => p.id === selectedPlan);
+    if (!plan) return;
     setLoading(true);
     try {
-      if (Purchases && rcPackages.length > 0) {
-        const plan = PLANS.find((p) => p.id === selectedPlan);
-        const pkg =
-          rcPackages.find(
-            (p) =>
-              p.packageType === plan?.rcId ||
-              p.identifier === plan?.rcId ||
-              p.identifier.toLowerCase().includes(plan?.id ?? ""),
-          ) ?? rcPackages[0];
-        const { customerInfo } = await Purchases.purchasePackage(pkg);
-        const isActive =
-          typeof customerInfo.entitlements?.active?.["premium"] !==
-            "undefined" ||
-          Object.keys(customerInfo.entitlements?.active ?? {}).length > 0;
-        if (isActive) {
-          await SubscriptionService.activateFromPurchase(
-            customerInfo.latestExpirationDate ?? undefined,
-          );
-          onUpgraded();
-          onClose();
-        } else Alert.alert("Erreur", "L'achat n'a pas pu être vérifié.");
-      } else {
-        await SubscriptionService.activate();
+      const result = await SubscriptionService.purchase(plan.rcId);
+      if (result.success) {
         onUpgraded();
         onClose();
+      } else if (result.error && result.error !== "USER_CANCELLED") {
+        const msg = friendlyPurchaseError(result.error);
+        Alert.alert("Paiement impossible", msg, [
+          { text: "Réessayer", onPress: handleUpgrade },
+          {
+            text: "Nous contacter",
+            onPress: () =>
+              Alert.alert("Besoin d'aide ?", "Contactez-nous directement :", [
+                { text: "WhatsApp", onPress: openWhatsApp },
+                { text: "Email", onPress: openEmail },
+                { text: "Fermer", style: "cancel" },
+              ]),
+          },
+          { text: "Annuler", style: "cancel" },
+        ]);
       }
-    } catch (e: any) {
-      if (!e?.userCancelled)
-        Alert.alert(
-          "Erreur",
-          e?.message || "Une erreur est survenue lors du paiement.",
-        );
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Restauration via RevenueCat ─────────────────────────────────────────────
   const handleRestore = async () => {
     setRestoring(true);
     try {
-      if (Purchases) {
-        const customerInfo = await Purchases.restorePurchases();
-        const isActive =
-          typeof customerInfo.entitlements?.active?.["premium"] !==
-            "undefined" ||
-          Object.keys(customerInfo.entitlements?.active ?? {}).length > 0;
-        if (isActive) {
-          await SubscriptionService.activateFromRestore(
-            customerInfo.latestExpirationDate ?? undefined,
-          );
-          onUpgraded();
-          onClose();
-          Alert.alert(
-            "✓ Achat restauré",
-            "Votre abonnement Premium a été restauré.",
-          );
-        } else
-          Alert.alert(
-            "Aucun achat trouvé",
-            "Aucun achat Premium associé à votre compte.",
-          );
-      } else
+      const result = await SubscriptionService.restore();
+      if (result.success) {
+        onUpgraded();
+        onClose();
         Alert.alert(
-          "Info",
-          "La restauration n'est pas disponible en mode simulation.",
+          "✓ Achat restauré",
+          "Votre abonnement Premium a été restauré.",
         );
-    } catch (e: any) {
-      Alert.alert(
-        "Erreur",
-        e?.message || "Impossible de restaurer vos achats.",
-      );
+      } else {
+        Alert.alert(
+          "Aucun achat trouvé",
+          "Aucun achat Premium associé à votre compte.\nSi vous pensez qu'il s'agit d'une erreur, contactez-nous.",
+          [
+            { text: "WhatsApp", onPress: openWhatsApp },
+            { text: "Email", onPress: openEmail },
+            { text: "OK", style: "cancel" },
+          ],
+        );
+      }
     } finally {
       setRestoring(false);
     }
   };
 
+  // ── Code promo ──────────────────────────────────────────────────────────────
   const handlePromoCode = async () => {
     const code = promoCode.trim();
     if (!code) return;
@@ -390,11 +472,9 @@ export default function PaywallModal({
         onUpgraded();
         onClose();
         Alert.alert("⚡ Premium activé !", "Votre code a été validé !");
-      } else
-        Alert.alert(
-          "Code invalide",
-          result.error ?? "Ce code n'est pas valide.",
-        );
+      } else {
+        Alert.alert("Code invalide", friendlyPromoError(result.error));
+      }
     } finally {
       setCodeLoading(false);
     }
@@ -416,6 +496,7 @@ export default function PaywallModal({
             onClose();
           }}
         />
+
         <Animated.View
           style={[
             pw.sheet,
@@ -427,7 +508,7 @@ export default function PaywallModal({
             },
           ]}
         >
-          {/* Handle */}
+          {/* Handle + fermer */}
           <View style={pw.handleRow}>
             <View style={[pw.handle, { backgroundColor: t.border.normal }]} />
             <TouchableOpacity
@@ -476,6 +557,7 @@ export default function PaywallModal({
             ))}
           </View>
 
+          {/* ── Onglet Plans ── */}
           {activeTab === "plans" && (
             <>
               <ScrollView
@@ -540,7 +622,7 @@ export default function PaywallModal({
                     <Text
                       style={[
                         pw.tableHeaderCell,
-                        pw.tableHeaderFree,
+                        pw.headerFree,
                         { color: t.text.muted },
                       ]}
                     >
@@ -549,7 +631,7 @@ export default function PaywallModal({
                     <Text
                       style={[
                         pw.tableHeaderCell,
-                        pw.tableHeaderPremium,
+                        pw.headerPremium,
                         { color: Colors.blue[600] },
                       ]}
                     >
@@ -565,28 +647,20 @@ export default function PaywallModal({
                       ]}
                     >
                       <View style={pw.tableFeature}>
-                        <Text
-                          style={[pw.tableFeatureIcon, { color: t.text.muted }]}
-                        >
+                        <Text style={[pw.featureIcon, { color: t.text.muted }]}>
                           {f.icon}
                         </Text>
                         <Text
-                          style={[
-                            pw.tableFeatureLabel,
-                            { color: t.text.secondary },
-                          ]}
+                          style={[pw.featureLabel, { color: t.text.secondary }]}
                         >
                           {f.label}
                         </Text>
                       </View>
-                      <Text style={[pw.tableFreeVal, { color: t.text.muted }]}>
+                      <Text style={[pw.freeVal, { color: t.text.muted }]}>
                         {f.free}
                       </Text>
                       <Text
-                        style={[
-                          pw.tablePremiumVal,
-                          { color: Colors.blue[600] },
-                        ]}
+                        style={[pw.premiumVal, { color: Colors.blue[600] }]}
                       >
                         {f.premium}
                       </Text>
@@ -675,13 +749,18 @@ export default function PaywallModal({
                     </View>
                   </TouchableOpacity>
                 ))}
+
                 <Text style={[pw.legalText, { color: t.text.muted }]}>
                   Paiement sécurisé via Google Play.
                   {Platform.OS === "ios" ? " App Store." : ""} Annulable à tout
                   moment.
                 </Text>
+
+                {/* Contact dans l'onglet plans */}
+                <ContactSection />
               </ScrollView>
 
+              {/* CTA */}
               <TouchableOpacity
                 style={[
                   pw.ctaBtn,
@@ -701,6 +780,7 @@ export default function PaywallModal({
                   <Text style={pw.ctaBtnText}>Passer à Premium ◎</Text>
                 )}
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={pw.restoreBtn}
                 onPress={handleRestore}
@@ -717,6 +797,8 @@ export default function PaywallModal({
               </TouchableOpacity>
             </>
           )}
+
+          {/* ── Onglet Code promo ── */}
           {activeTab === "code" && (
             <CodeTab
               promoCode={promoCode}
@@ -731,11 +813,12 @@ export default function PaywallModal({
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const ct = StyleSheet.create({
   wrap: {
     alignItems: "center",
     paddingTop: 28,
-    paddingBottom: 32,
+    paddingBottom: 12,
     paddingHorizontal: 8,
   },
   iconWrap: {
@@ -771,9 +854,37 @@ const ct = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 15,
     alignItems: "center",
+    marginBottom: 20,
   },
   btnText: { color: Colors.gray[0], fontSize: 15, fontWeight: "800" },
 });
+
+const cs = StyleSheet.create({
+  container: { width: "100%", marginTop: 8, paddingBottom: 4 },
+  divider: { height: 1, marginBottom: 18 },
+  label: {
+    fontSize: 11,
+    textAlign: "center",
+    marginBottom: 14,
+    fontWeight: "500",
+  },
+  btns: { flexDirection: "column", gap: 10 },
+  btn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderWidth: 1,
+  },
+  btnIcon: { fontSize: 20 },
+  btnBody: { flex: 1 },
+  btnLabel: { fontSize: 13, fontWeight: "700", marginBottom: 1 },
+  btnSub: { fontSize: 11 },
+  arrow: { fontSize: 20, fontWeight: "300" },
+});
+
 const pw = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -862,8 +973,8 @@ const pw = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1.5,
   },
-  tableHeaderFree: { flex: 1.2, textAlign: "center" },
-  tableHeaderPremium: { flex: 1.5, textAlign: "center" },
+  headerFree: { flex: 1.2, textAlign: "center" },
+  headerPremium: { flex: 1.5, textAlign: "center" },
   tableRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -871,10 +982,10 @@ const pw = StyleSheet.create({
     paddingHorizontal: 12,
   },
   tableFeature: { flex: 2, flexDirection: "row", alignItems: "center", gap: 6 },
-  tableFeatureIcon: { fontSize: 11 },
-  tableFeatureLabel: { fontSize: 12, fontWeight: "500" },
-  tableFreeVal: { flex: 1.2, fontSize: 11, textAlign: "center" },
-  tablePremiumVal: {
+  featureIcon: { fontSize: 11 },
+  featureLabel: { fontSize: 12, fontWeight: "500" },
+  freeVal: { flex: 1.2, fontSize: 11, textAlign: "center" },
+  premiumVal: {
     flex: 1.5,
     fontSize: 11,
     textAlign: "center",
@@ -928,7 +1039,7 @@ const pw = StyleSheet.create({
     fontSize: 10,
     textAlign: "center",
     marginTop: 6,
-    marginBottom: 12,
+    marginBottom: 16,
     lineHeight: 16,
   },
   ctaBtn: {

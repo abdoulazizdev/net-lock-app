@@ -10,7 +10,7 @@ const CODES_KEY = "@netoff_promo_codes_used";
 export interface SubscriptionState {
   isPremium: boolean;
   activatedAt?: string;
-  expiresAt?: string;
+  expiresAt?: string; // undefined = à vie
   source?: "purchase" | "promo_code" | "restore";
   promoCode?: string;
 }
@@ -26,42 +26,72 @@ export const FREE_LIMITS = {
   BIOMETRIC_AUTH: false,
 };
 
-const VALID_PROMO_CODES: Record<string, string | null> = {
-  "NETOFF-PRO-2025": null,
-  "BETA-TESTER": null,
-  "ABDOULAZIZ-DEV": null,
+// ─── Codes promos ─────────────────────────────────────────────────────────────
+// expiresAt: ISO string = expire à cette date | null = à vie
+// Pour calculer dynamiquement depuis maintenant, utilisez une fonction helper :
+//   addMonths(n)  → maintenant + n mois
+//   addYears(n)   → maintenant + n ans
+//   null          → permanent (à vie)
+//
+// La date d'expiration ici est la date jusqu'à laquelle le CODE peut être
+// utilisé (pas la durée de l'abonnement résultant — celui-ci est toujours
+// "à vie" une fois activé via code promo).
+
+interface PromoCodeDef {
+  expiresAt: string | null; // null = code utilisable à vie
+  note?: string;
+}
+
+const VALID_PROMO_CODES: Record<string, PromoCodeDef> = {
+  // Permanent — développeur
+  "ABDOULAZIZ-DEV": {
+    expiresAt: null,
+    note: "Compte développeur — permanent",
+  },
+  // Permanent — beta testeurs
+  "BETA-TESTER": {
+    expiresAt: null,
+    note: "Beta testeurs saison 1",
+  },
+  // Campagne 2025 — expire fin 2025
+  "NETOFF-PRO-2025": {
+    expiresAt: "2025-12-31T23:59:59.000Z",
+    note: "Campagne lancement 2025",
+  },
+  // Exemple : code limité dans le temps (6 mois depuis le 1er jan 2025)
+  LAUNCH6M: {
+    expiresAt: "2025-07-01T00:00:00.000Z",
+    note: "Accès 6 mois post-lancement",
+  },
+  // Exemple : code partenaire, expire dans 1 an
+  PARTNER2026: {
+    expiresAt: "2026-12-31T23:59:59.000Z",
+    note: "Partenaires — expire fin 2026",
+  },
 };
 
+// ─── Service ──────────────────────────────────────────────────────────────────
 class SubscriptionService {
   private _cache: SubscriptionState | null = null;
   private _sdkConfigured = false;
 
-  // ── Init RevenueCat SDK ───────────────────────────────────────────────────────
+  // ── Init RevenueCat SDK ─────────────────────────────────────────────────────
   async configure(userId?: string): Promise<void> {
     if (this._sdkConfigured) return;
-
     try {
-      // En développement, activer les logs pour débugger
-      if (__DEV__) {
-        Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-      }
+      if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.DEBUG);
 
       const apiKey =
         Platform.OS === "android"
           ? REVENUECAT_CONFIG.ANDROID_API_KEY
           : REVENUECAT_CONFIG.IOS_API_KEY;
 
-      // ✅ Vérification basique avant d'appeler SDK
       if (!apiKey || apiKey.includes("xxxxxxx")) {
         console.warn("[RevenueCat] Clé API non configurée — SDK désactivé");
         return;
       }
 
-      await Purchases.configure({
-        apiKey,
-        appUserID: userId ?? null, // null = ID anonyme généré par RevenueCat
-      });
-
+      await Purchases.configure({ apiKey, appUserID: userId ?? null });
       this._sdkConfigured = true;
       console.log("[RevenueCat] SDK configuré avec succès");
     } catch (e) {
@@ -69,20 +99,18 @@ class SubscriptionService {
     }
   }
 
-  // ── Vérifier le statut premium via RevenueCat ─────────────────────────────────
+  // ── Sync avec RevenueCat ────────────────────────────────────────────────────
   async syncWithRevenueCat(): Promise<boolean> {
     if (!this._sdkConfigured) return false;
     try {
       const info = await Purchases.getCustomerInfo();
       const isPremium = Object.keys(info.entitlements.active).length > 0;
-
       if (isPremium) {
         const entitlement = Object.values(info.entitlements.active)[0];
         await this.activateFromPurchase(
           entitlement?.expirationDate ?? undefined,
         );
       }
-
       return isPremium;
     } catch (e) {
       console.error("[RevenueCat] Erreur sync:", e);
@@ -90,6 +118,7 @@ class SubscriptionService {
     }
   }
 
+  // ── État local ──────────────────────────────────────────────────────────────
   async getState(): Promise<SubscriptionState> {
     if (this._cache) return this._cache;
     try {
@@ -98,6 +127,7 @@ class SubscriptionService {
     } catch {
       this._cache = { isPremium: false };
     }
+    // Vérifier expiration
     if (this._cache!.isPremium && this._cache!.expiresAt) {
       if (new Date(this._cache!.expiresAt) < new Date()) {
         this._cache = { isPremium: false };
@@ -112,6 +142,7 @@ class SubscriptionService {
     return s.isPremium;
   }
 
+  // ── Activation depuis un achat vérifié RevenueCat ───────────────────────────
   async activateFromPurchase(expiresAt?: string): Promise<void> {
     const state: SubscriptionState = {
       isPremium: true,
@@ -123,43 +154,7 @@ class SubscriptionService {
     this._cache = state;
   }
 
-  async activateWithCode(
-    code: string,
-  ): Promise<{ success: boolean; error?: string }> {
-    const normalized = code.trim().toUpperCase();
-
-    if (!(normalized in VALID_PROMO_CODES)) {
-      return { success: false, error: "Code invalide ou inexistant." };
-    }
-
-    const expiry = VALID_PROMO_CODES[normalized];
-    if (expiry && new Date(expiry) < new Date()) {
-      return { success: false, error: "Ce code a expiré." };
-    }
-
-    try {
-      const usedRaw = await AsyncStorage.getItem(CODES_KEY);
-      const used: string[] = usedRaw ? JSON.parse(usedRaw) : [];
-      if (!used.includes(normalized)) {
-        await AsyncStorage.setItem(
-          CODES_KEY,
-          JSON.stringify([...used, normalized]),
-        );
-      }
-    } catch {}
-
-    const state: SubscriptionState = {
-      isPremium: true,
-      activatedAt: new Date().toISOString(),
-      expiresAt: expiry ?? undefined,
-      source: "promo_code",
-      promoCode: normalized,
-    };
-    await AsyncStorage.setItem(KEY, JSON.stringify(state));
-    this._cache = state;
-    return { success: true };
-  }
-
+  // ── Activation depuis une restauration RevenueCat ───────────────────────────
   async activateFromRestore(expiresAt?: string): Promise<void> {
     const state: SubscriptionState = {
       isPremium: true,
@@ -171,17 +166,16 @@ class SubscriptionService {
     this._cache = state;
   }
 
-  // ── Achat via RevenueCat ──────────────────────────────────────────────────────
+  // ── Achat via RevenueCat (SEUL chemin d'achat réel) ─────────────────────────
   async purchase(
     packageIdentifier: string,
   ): Promise<{ success: boolean; error?: string }> {
-    if (!this._sdkConfigured) {
+    if (!this._sdkConfigured)
       return { success: false, error: "SDK non configuré." };
-    }
     try {
       const offerings = await Purchases.getOfferings();
       const pkg = offerings.current?.availablePackages.find(
-        (p) => p.identifier === packageIdentifier,
+        (p: any) => p.identifier === packageIdentifier,
       );
       if (!pkg) return { success: false, error: "Offre introuvable." };
 
@@ -190,29 +184,31 @@ class SubscriptionService {
         Object.keys(customerInfo.entitlements.active).length > 0;
 
       if (isPremium) {
-        const entitlement = Object.values(customerInfo.entitlements.active)[0];
+        const entitlement = Object.values(
+          customerInfo.entitlements.active,
+        )[0] as any;
         await this.activateFromPurchase(
           entitlement?.expirationDate ?? undefined,
         );
         return { success: true };
       }
-      return { success: false, error: "Achat non confirmé." };
+      return { success: false, error: "Achat non confirmé par RevenueCat." };
     } catch (e: any) {
-      if (e?.userCancelled) return { success: false, error: "Annulé." };
-      return { success: false, error: e?.message ?? "Erreur inconnue." };
+      if (e?.userCancelled) return { success: false, error: "USER_CANCELLED" };
+      console.error("[RC] purchase:", e);
+      return { success: false, error: "PURCHASE_FAILED" };
     }
   }
 
-  // ── Restauration ──────────────────────────────────────────────────────────────
+  // ── Restauration via RevenueCat ─────────────────────────────────────────────
   async restore(): Promise<{ success: boolean; error?: string }> {
-    if (!this._sdkConfigured) {
+    if (!this._sdkConfigured)
       return { success: false, error: "SDK non configuré." };
-    }
     try {
       const info = await Purchases.restorePurchases();
       const isPremium = Object.keys(info.entitlements.active).length > 0;
       if (isPremium) {
-        const entitlement = Object.values(info.entitlements.active)[0];
+        const entitlement = Object.values(info.entitlements.active)[0] as any;
         await this.activateFromRestore(
           entitlement?.expirationDate ?? undefined,
         );
@@ -220,14 +216,51 @@ class SubscriptionService {
       }
       return { success: false, error: "Aucun achat à restaurer." };
     } catch (e: any) {
-      return { success: false, error: e?.message ?? "Erreur de restauration." };
+      console.error("[RC] restore:", e);
+      return { success: false, error: "RESTORE_FAILED" };
     }
   }
 
-  async activate(): Promise<void> {
-    await this.activateFromPurchase();
+  // ── Code promo ──────────────────────────────────────────────────────────────
+  async activateWithCode(
+    code: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const normalized = code.trim().toUpperCase();
+    const def = VALID_PROMO_CODES[normalized];
+
+    if (!def) return { success: false, error: "Code invalide ou inexistant." };
+
+    // Vérifier la date d'expiration du CODE (pas de l'abonnement)
+    if (def.expiresAt && new Date(def.expiresAt) < new Date()) {
+      return { success: false, error: "Ce code promotionnel a expiré." };
+    }
+
+    // Enregistrer l'utilisation (sans bloquer)
+    try {
+      const usedRaw = await AsyncStorage.getItem(CODES_KEY);
+      const used: string[] = usedRaw ? JSON.parse(usedRaw) : [];
+      if (!used.includes(normalized)) {
+        await AsyncStorage.setItem(
+          CODES_KEY,
+          JSON.stringify([...used, normalized]),
+        );
+      }
+    } catch {}
+
+    // L'abonnement via code promo est toujours "à vie" (pas d'expiresAt sur l'état)
+    const state: SubscriptionState = {
+      isPremium: true,
+      activatedAt: new Date().toISOString(),
+      expiresAt: undefined, // à vie
+      source: "promo_code",
+      promoCode: normalized,
+    };
+    await AsyncStorage.setItem(KEY, JSON.stringify(state));
+    this._cache = state;
+    return { success: true };
   }
 
+  // ── Désactivation (dev / tests) ─────────────────────────────────────────────
   async deactivate(): Promise<void> {
     const state: SubscriptionState = { isPremium: false };
     await AsyncStorage.setItem(KEY, JSON.stringify(state));

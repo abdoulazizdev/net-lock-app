@@ -1,4 +1,4 @@
-import FocusBanner from "@/components/FocusBanner";
+import FocusBanner, { FocusFullScreen } from "@/components/FocusBanner";
 import FocusModal from "@/components/FocusModal";
 import HomeScreenSkeleton from "@/components/HomeScreenSkeleton";
 import PaywallModal from "@/components/PaywallModal";
@@ -357,6 +357,7 @@ export default function HomeScreen() {
   const [systemAppsLoading, setSystemAppsLoading] = useState(false);
   const [focusVisible, setFocusVisible] = useState(false);
   const [focusStatus, setFocusStatus] = useState<FocusStatus | null>(null);
+  const [focusExpanded, setFocusExpanded] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<any>("general");
   const appStateRef = useRef(AppState.currentState);
@@ -714,8 +715,11 @@ export default function HomeScreen() {
                 status={focusStatus}
                 onStopped={() => {
                   setFocusStatus(null);
+                  setFocusExpanded(false);
                   refreshRules();
                 }}
+                expanded={focusExpanded}
+                onToggleExpand={() => setFocusExpanded((v) => !v)}
               />
             )}
             {!isPremium && (
@@ -797,6 +801,19 @@ export default function HomeScreen() {
           setPaywallVisible(false);
         }}
       />
+      {/* Plein écran Focus — hors FlatList pour éviter le clipping */}
+      {focusActive && focusStatus && (
+        <FocusFullScreen
+          status={focusStatus}
+          onStopped={() => {
+            setFocusStatus(null);
+            setFocusExpanded(false);
+            refreshRules();
+          }}
+          visible={focusExpanded}
+          onClose={() => setFocusExpanded(false)}
+        />
+      )}
     </View>
   );
 }
