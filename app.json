@@ -2,7 +2,7 @@
   "expo": {
     "name": "NetOff",
     "slug": "netoff",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icons/netoff_icon.png",
     "scheme": "netoff",
@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.netoff.app",
       "icon": "./assets/icons/netoff_icon.png",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Utilisé pour sécuriser l'accès à l'application."
       }
