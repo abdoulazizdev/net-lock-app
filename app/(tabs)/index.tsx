@@ -38,25 +38,26 @@ import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type AppItem = InstalledApp & { rule?: AppRule };
-const CARD_H = 80;
+// Approximate card height for getItemLayout (padding 12*2 + icon 44 + margin 8)
+const CARD_H = 68 + 8;
 
 // ─── PulseDot ─────────────────────────────────────────────────────────────────
 function PulseDot({ color = Colors.purple[400] }: { color?: string }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const opacity = useRef(new Animated.Value(0.6)).current;
+  const opacity = useRef(new Animated.Value(0.5)).current;
   useEffect(() => {
     Animated.loop(
       Animated.parallel([
         Animated.sequence([
           Animated.timing(scale, {
-            toValue: 2.2,
-            duration: 900,
+            toValue: 2.4,
+            duration: 1000,
             easing: Easing.out(Easing.ease),
             useNativeDriver: true,
           }),
           Animated.timing(scale, {
             toValue: 1,
-            duration: 900,
+            duration: 1000,
             easing: Easing.in(Easing.ease),
             useNativeDriver: true,
           }),
@@ -64,12 +65,12 @@ function PulseDot({ color = Colors.purple[400] }: { color?: string }) {
         Animated.sequence([
           Animated.timing(opacity, {
             toValue: 0,
-            duration: 900,
+            duration: 1000,
             useNativeDriver: true,
           }),
           Animated.timing(opacity, {
-            toValue: 0.6,
-            duration: 900,
+            toValue: 0.5,
+            duration: 1000,
             useNativeDriver: true,
           }),
         ]),
@@ -81,7 +82,7 @@ function PulseDot({ color = Colors.purple[400] }: { color?: string }) {
       <Animated.View
         style={[
           st.pulseDotGlow,
-          { transform: [{ scale }], opacity, backgroundColor: color + "40" },
+          { transform: [{ scale }], opacity, backgroundColor: color + "50" },
         ]}
       />
       <View style={[st.pulseDotCore, { backgroundColor: color }]} />
@@ -89,7 +90,7 @@ function PulseDot({ color = Colors.purple[400] }: { color?: string }) {
   );
 }
 
-// ─── VPN pill ─────────────────────────────────────────────────────────────────
+// ─── VPN pill — soft frosted style ───────────────────────────────────────────
 function VpnPill({
   active,
   locked,
@@ -104,8 +105,8 @@ function VpnPill({
   useEffect(() => {
     Animated.timing(animVal, {
       toValue: active ? 1 : 0,
-      duration: 280,
-      easing: Easing.out(Easing.ease),
+      duration: 350,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
   }, [active]);
@@ -130,7 +131,7 @@ function VpnPill({
       : t.vpnOff.text;
 
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={locked ? 1 : 0.8}>
+    <TouchableOpacity onPress={onPress} activeOpacity={locked ? 1 : 0.75}>
       <Animated.View
         style={[st.vpnPill, { backgroundColor: bg, borderColor: border }]}
       >
@@ -148,7 +149,135 @@ function VpnPill({
   );
 }
 
-// ─── AppCard ──────────────────────────────────────────────────────────────────
+// ─── AppSwitch — exact ProfileDetailScreen style + spring on thumb ────────────
+function AppSwitch({
+  value,
+  onToggle,
+  locked,
+  cannotBlock,
+}: {
+  value: boolean;
+  onToggle: () => void;
+  locked: boolean;
+  cannotBlock: boolean;
+}) {
+  const { t } = useTheme();
+
+  // Only the thumb position animates — keeps it simple like ProfileDetailScreen
+  const thumbAnim = useRef(new Animated.Value(value ? 0 : 1)).current;
+
+  useEffect(() => {
+    Animated.spring(thumbAnim, {
+      toValue: value ? 0 : 1, // 0 = flex-start (bloqué/gauche), 1 = flex-end (libre/droite)
+      tension: 280,
+      friction: 24,
+      useNativeDriver: false,
+    }).start();
+  }, [value]);
+
+  // Interpolate marginLeft (flex-start) and marginRight (flex-end) for smooth slide
+  const marginLeft = thumbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, 19],
+  });
+  const marginRight = thumbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [19, 2],
+  });
+
+  if (locked) {
+    return (
+      <View
+        style={[
+          sw.track,
+          { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+        ]}
+      >
+        <View
+          style={[
+            sw.thumb,
+            { alignSelf: "flex-start", backgroundColor: t.border.normal },
+          ]}
+        />
+      </View>
+    );
+  }
+
+  if (cannotBlock) {
+    return (
+      <TouchableOpacity
+        onPress={onToggle}
+        activeOpacity={0.8}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <View
+          style={[
+            sw.track,
+            {
+              backgroundColor: t.bg.cardAlt,
+              borderColor: t.border.light,
+              alignItems: "center",
+              justifyContent: "center",
+            },
+          ]}
+        >
+          <Text style={{ fontSize: 12 }}>🔒</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <TouchableOpacity
+      onPress={onToggle}
+      activeOpacity={0.85}
+      hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+    >
+      <View
+        style={[
+          sw.track,
+          value
+            ? { backgroundColor: t.blocked.bg, borderColor: t.blocked.border } // bloqué = rouge
+            : { backgroundColor: t.allowed.bg, borderColor: t.allowed.border }, // libre = vert
+        ]}
+      >
+        <Animated.View
+          style={[
+            sw.thumb,
+            {
+              marginLeft,
+              marginRight,
+              backgroundColor: value ? t.blocked.accent : t.allowed.accent,
+            },
+          ]}
+        />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+const sw = StyleSheet.create({
+  track: {
+    width: 42,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    padding: 2,
+    borderWidth: 1,
+  },
+  thumb: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+});
+
+// ─── AppCard — ProfileDetailScreen card style + soft shadow ──────────────────
 const AppCard = React.memo(
   ({
     item,
@@ -181,19 +310,13 @@ const AppCard = React.memo(
         onPress={() => onPress(item.packageName)}
         activeOpacity={0.75}
       >
+        {/* Left accent bar when blocked */}
         {blocked && (
           <View style={[st.accentBar, { backgroundColor: t.blocked.accent }]} />
         )}
-        <View
-          style={[
-            st.appIconWrap,
-            { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
-            blocked && {
-              backgroundColor: t.blocked.bg,
-              borderColor: t.blocked.border,
-            },
-          ]}
-        >
+
+        {/* Icon + badge overlay */}
+        <View style={st.iconWrap}>
           {item.icon ? (
             <Image
               source={{ uri: `data:image/png;base64,${item.icon}` }}
@@ -201,62 +324,66 @@ const AppCard = React.memo(
               resizeMode="contain"
             />
           ) : (
-            <Text
+            <View
               style={[
-                st.appIconText,
-                { color: blocked ? t.blocked.accent : t.text.muted },
+                st.appIconFallback,
+                {
+                  backgroundColor: blocked
+                    ? t.blocked.accent + "18"
+                    : t.bg.accent,
+                },
               ]}
             >
-              {item.appName.charAt(0).toUpperCase()}
-            </Text>
+              <Text
+                style={[
+                  st.appIconLetter,
+                  { color: blocked ? t.blocked.accent : t.text.link },
+                ]}
+              >
+                {item.appName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          {/* Small dot badge on icon when blocked */}
+          {blocked && (
+            <View
+              style={[
+                st.blockedBadge,
+                { backgroundColor: t.blocked.accent, borderColor: t.bg.card },
+              ]}
+            >
+              <Text style={st.blockedBadgeText}>✕</Text>
+            </View>
           )}
         </View>
+
+        {/* Info */}
         <View style={st.appInfo}>
           <Text
             style={[
               st.appName,
               { color: t.text.primary },
-              blocked && { color: t.text.secondary },
+              blocked && {
+                color: t.text.secondary,
+                textDecorationLine: "line-through",
+              },
             ]}
             numberOfLines={1}
           >
             {item.appName}
           </Text>
-          <Text
-            style={[st.appPkg, { color: t.border.strong }]}
-            numberOfLines={1}
-          >
+          <Text style={[st.appPkg, { color: t.text.muted }]} numberOfLines={1}>
             {item.packageName}
           </Text>
         </View>
-        <TouchableOpacity
-          style={[
-            st.blockBtn,
-            blocked
-              ? { backgroundColor: t.blocked.bg, borderColor: t.blocked.border }
-              : {
-                  backgroundColor: t.allowed.bg,
-                  borderColor: t.allowed.border,
-                },
-            locked && {
-              backgroundColor: t.bg.cardAlt,
-              borderColor: t.border.light,
-            },
-          ]}
-          onPress={() => !locked && onToggle(item)}
-          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-          activeOpacity={locked ? 1 : 0.8}
-        >
-          <Text
-            style={[
-              st.blockBtnText,
-              blocked ? { color: t.blocked.text } : { color: t.allowed.text },
-              locked && { color: t.text.muted, fontSize: 12 },
-            ]}
-          >
-            {locked ? "◈" : cannotBlock ? "🔒" : blocked ? "Bloqué" : "Libre"}
-          </Text>
-        </TouchableOpacity>
+
+        {/* Switch */}
+        <AppSwitch
+          value={blocked}
+          onToggle={() => !locked && onToggle(item)}
+          locked={locked}
+          cannotBlock={cannotBlock}
+        />
       </TouchableOpacity>
     );
   },
@@ -268,7 +395,7 @@ const AppCard = React.memo(
     p.isFreeLimitReached === n.isFreeLimitReached,
 );
 
-// ─── FreeLimitBanner ──────────────────────────────────────────────────────────
+// ─── FreeLimitBanner — soft amber tone ────────────────────────────────────────
 function FreeLimitBanner({
   current,
   max,
@@ -287,31 +414,34 @@ function FreeLimitBanner({
         { backgroundColor: t.warning.bg, borderColor: t.warning.border },
       ]}
       onPress={onUpgrade}
-      activeOpacity={0.85}
+      activeOpacity={0.8}
     >
       <View
         style={[
-          st.limitBannerIconWrap,
-          { backgroundColor: t.warning.bg, borderColor: t.warning.border },
+          st.limitBannerDot,
+          {
+            backgroundColor: t.warning.accent + "30",
+            borderColor: t.warning.border,
+          },
         ]}
       >
-        <Text style={[st.limitBannerIcon, { color: t.warning.accent }]}>◈</Text>
+        <Text style={{ fontSize: 13, color: t.warning.accent }}>◈</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[st.limitBannerTitle, { color: t.warning.text }]}>
-          Limite atteinte — {current}/{max} apps
+          Limite atteinte · {current}/{max}
         </Text>
         <Text style={[st.limitBannerSub, { color: t.warning.accent }]}>
-          Passez à Premium pour bloquer sans limite
+          Débloquer toutes les apps avec Premium
         </Text>
       </View>
       <View
         style={[
           st.limitBannerCta,
-          { backgroundColor: t.bg.accent, borderColor: t.border.strong },
+          { backgroundColor: t.bg.accent, borderColor: t.border.focus },
         ]}
       >
-        <Text style={[st.limitBannerCtaText, { color: t.text.link }]}>
+        <Text style={[{ fontSize: 10, fontWeight: "800", color: t.text.link }]}>
           ⚡ Pro
         </Text>
       </View>
@@ -324,23 +454,23 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { isPremium, refresh: refreshPremium } = usePremium();
   const { t, isDark, mode, setMode } = useTheme();
-  const themeCycleAnim = useRef(new Animated.Value(1)).current;
+
   const THEME_CYCLE = ["auto", "light", "dark"] as const;
   const THEME_ICONS = { auto: "◑", light: "◎", dark: "◉" } as const;
+  const themeCycleAnim = useRef(new Animated.Value(1)).current;
   const handleThemeCycle = () => {
-    const idx = THEME_CYCLE.indexOf(mode as "auto" | "light" | "dark");
-    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
-    setMode(next);
+    const idx = THEME_CYCLE.indexOf(mode as any);
+    setMode(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
     Animated.sequence([
       Animated.timing(themeCycleAnim, {
-        toValue: 0.3,
-        duration: 100,
+        toValue: 0.4,
+        duration: 80,
         useNativeDriver: true,
       }),
       Animated.spring(themeCycleAnim, {
         toValue: 1,
-        tension: 200,
-        friction: 8,
+        tension: 280,
+        friction: 10,
         useNativeDriver: true,
       }),
     ]).start();
@@ -361,36 +491,41 @@ export default function HomeScreen() {
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<any>("general");
   const appStateRef = useRef(AppState.currentState);
-
-  const headerFade = useRef(new Animated.Value(0)).current;
-  const headerSlide = useRef(new Animated.Value(-16)).current;
   const focusActive = focusStatus?.isActive ?? false;
   const limitReached =
     !isPremium && blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS;
 
+  // Mount stagger
+  const mountFade = useRef(new Animated.Value(0)).current;
+  const mountSlide = useRef(new Animated.Value(14)).current;
   useEffect(() => {
-    VpnService.isVpnActive().then(setVpnActive);
-    loadInitial();
-    checkFocus();
     Animated.parallel([
-      Animated.timing(headerFade, {
+      Animated.timing(mountFade, {
         toValue: 1,
         duration: 420,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(headerSlide, {
+      Animated.timing(mountSlide, {
         toValue: 0,
         duration: 420,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && appStateRef.current !== "active") {
+  }, []);
+
+  // ── Data ────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    VpnService.isVpnActive().then(setVpnActive);
+    loadInitial();
+    checkFocus();
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active" && appStateRef.current !== "active") {
         refreshRules();
         checkFocus();
       }
-      appStateRef.current = state;
+      appStateRef.current = s;
     });
     return () => sub.remove();
   }, []);
@@ -429,12 +564,11 @@ export default function HomeScreen() {
     }
   };
 
-  // Merge apps + rules en PRÉSERVANT les icônes déjà chargées dans le state
   const mergeAppsRules = useCallback(
     (
       incoming: InstalledApp[],
       rules: AppRule[],
-      existing?: AppItem[], // state courant — pour récupérer les icônes
+      existing?: AppItem[],
     ): AppItem[] => {
       const ruleMap = new Map(rules.map((r) => [r.packageName, r]));
       const iconMap = new Map(
@@ -442,7 +576,6 @@ export default function HomeScreen() {
       );
       return incoming.map((a) => ({
         ...a,
-        // Priorité : icône de l'app entrante, sinon icône déjà en state
         icon: a.icon ?? iconMap.get(a.packageName) ?? null,
         rule: ruleMap.get(a.packageName),
       }));
@@ -459,30 +592,24 @@ export default function HomeScreen() {
       ]);
       setVpnActive(isVpn);
       setBlockedCount(rules.filter((r) => r.isBlocked).length);
-
-      // Phase 1 — apps utilisateur SANS icônes → affichage immédiat (< 200ms)
-      const userAppsLight = await AppListService.getNonSystemApps();
-      setApps((prev) => mergeAppsRules(userAppsLight, rules, prev));
+      const light = await AppListService.getNonSystemApps();
+      setApps((prev) => mergeAppsRules(light, rules, prev));
       setLoading(false);
-
-      // Phase 2 — apps utilisateur AVEC icônes → enrichissement silencieux
       AppListService.getNonSystemAppsWithIcons()
-        .then((userAppsFull) =>
+        .then((full) =>
           StorageService.getRules().then((r) =>
-            setApps((prev) => mergeAppsRules(userAppsFull, r, prev)),
+            setApps((prev) => mergeAppsRules(full, r, prev)),
           ),
         )
         .catch(() => {});
     } catch {
       setLoading(false);
     }
-
-    // Phase 3 — toutes les apps (+ système) AVEC icônes en arrière-plan
     setSystemAppsLoading(true);
     AppListService.getAllAppsWithIcons()
-      .then((allApps) =>
+      .then((all) =>
         StorageService.getRules().then((rules) => {
-          setApps((prev) => mergeAppsRules(allApps, rules, prev));
+          setApps((prev) => mergeAppsRules(all, rules, prev));
           setSystemAppsLoaded(true);
         }),
       )
@@ -497,7 +624,6 @@ export default function HomeScreen() {
     ]);
     setVpnActive(isVpn);
     setBlockedCount(rules.filter((r) => r.isBlocked).length);
-    // Préserve les icônes — ne remplace que les règles
     setApps((prev) => mergeAppsRules(prev, rules, prev));
   }, [mergeAppsRules]);
 
@@ -595,10 +721,10 @@ export default function HomeScreen() {
   }, []);
   const keyExtractor = useCallback((item: AppItem) => item.packageName, []);
   const getItemLayout = useCallback(
-    (_: unknown, index: number) => ({
+    (_: unknown, i: number) => ({
       length: CARD_H,
-      offset: CARD_H * index,
-      index,
+      offset: CARD_H * i,
+      index: i,
     }),
     [],
   );
@@ -621,30 +747,34 @@ export default function HomeScreen() {
     <View style={[st.container, { backgroundColor: t.bg.page }]}>
       <StatusBar
         barStyle="light-content"
-        backgroundColor={Semantic.bg.header}
+        backgroundColor="transparent"
+        translucent
       />
 
-      {/* ── Header (toujours bleu) ── */}
+      {/* ── Header — deep blue with soft gradient feel ── */}
       <Animated.View
         style={[
           st.header,
-          {
-            paddingTop: insets.top + 14,
-            opacity: headerFade,
-            transform: [{ translateY: headerSlide }],
-          },
+          { paddingTop: insets.top + 14 },
+          { opacity: mountFade, transform: [{ translateY: mountSlide }] },
         ]}
       >
-        {/* ── Ligne 1 : logo à gauche, actions à droite ── */}
+        {/* Row 1 */}
         <View style={st.headerRow}>
-          {/* Logo + thème + badge — rétrécissable si besoin */}
           <View style={st.headerLeft}>
-            <Text style={st.headerTitle}>NetOff</Text>
+            {/* Logo mark */}
+            <View style={st.logoMark}>
+              <Text style={st.logoMarkText}>N</Text>
+            </View>
+            <View>
+              <Text style={st.headerTitle}>NetOff</Text>
+              <Text style={st.headerEyebrow}>Gestionnaire réseau</Text>
+            </View>
             <TouchableOpacity
               onPress={handleThemeCycle}
               activeOpacity={0.7}
               style={st.themeCycleBtn}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
               <Animated.Text
                 style={[
@@ -656,6 +786,9 @@ export default function HomeScreen() {
                   (isDark ? "◉" : "◎")}
               </Animated.Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={st.headerRight}>
             {isPremium ? (
               <View style={st.premiumBadge}>
                 <Text style={st.premiumBadgeText}>PRO</Text>
@@ -664,65 +797,106 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={st.freeBadge}
                 onPress={() => showPaywall("general")}
-                activeOpacity={0.8}
+                activeOpacity={0.75}
               >
                 <Text style={st.freeBadgeText}>FREE</Text>
               </TouchableOpacity>
             )}
           </View>
-
-          {/* Actions : Focus + VPN — taille fixe, ne rétrécissent jamais */}
-          <View style={st.headerActions}>
-            <TouchableOpacity
-              style={[
-                st.focusBtn,
-                focusActive && {
-                  backgroundColor: Colors.purple[50],
-                  borderColor: Colors.purple[200],
-                },
-              ]}
-              onPress={() => {
-                if (!focusActive) setFocusVisible(true);
-              }}
-              activeOpacity={0.85}
-            >
-              {focusActive ? (
-                <PulseDot color={Colors.purple[100]} />
-              ) : (
-                <Text style={st.focusBtnIcon}>◎</Text>
-              )}
-              <Text
-                style={[
-                  st.focusBtnText,
-                  focusActive && { color: Colors.purple[600] },
-                ]}
-              >
-                Focus
-              </Text>
-            </TouchableOpacity>
-            <VpnPill
-              active={vpnActive}
-              locked={focusActive}
-              onPress={toggleVpn}
-            />
-          </View>
         </View>
 
-        {/* ── Ligne 2 : état de session ── */}
-        <View style={st.headerSubRow}>
-          {focusActive && <PulseDot color={Colors.purple[100]} />}
-          <Text
-            style={[st.headerSub, focusActive && st.headerSubFocus]}
-            numberOfLines={1}
+        {/* Row 2 — stat pills */}
+        <View style={st.headerStats}>
+          {/* Blocked count pill */}
+          <View style={st.statPill}>
+            <View
+              style={[
+                st.statDot,
+                {
+                  backgroundColor:
+                    blockedCount > 0 ? "#f87171" : "rgba(255,255,255,.3)",
+                },
+              ]}
+            />
+            <Text style={st.statPillText}>
+              {blockedCount} bloquée{blockedCount > 1 ? "s" : ""}
+              {!isPremium ? ` · max ${FREE_LIMITS.MAX_BLOCKED_APPS}` : ""}
+            </Text>
+          </View>
+
+          <View style={st.headerStatsDivider} />
+
+          {/* Focus pill */}
+          <TouchableOpacity
+            style={[st.statPill, focusActive && st.statPillFocus]}
+            onPress={() => {
+              if (!focusActive) setFocusVisible(true);
+            }}
+            activeOpacity={0.8}
           >
-            {focusActive
-              ? "Session Focus active"
-              : `${blockedCount} app${blockedCount > 1 ? "s" : ""} bloquée${blockedCount > 1 ? "s" : ""}${!isPremium ? ` · max ${FREE_LIMITS.MAX_BLOCKED_APPS}` : ""}`}
-          </Text>
+            {focusActive ? (
+              <PulseDot color={Colors.purple[200]} />
+            ) : (
+              <Text style={[st.statPillIcon, { opacity: 0.6 }]}>◎</Text>
+            )}
+            <Text
+              style={[
+                st.statPillText,
+                focusActive && { color: Colors.purple[100], fontWeight: "700" },
+              ]}
+            >
+              {focusActive ? "Focus actif" : "Focus"}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={st.headerStatsDivider} />
+
+          {/* VPN pill */}
+          <VpnPill
+            active={vpnActive}
+            locked={focusActive}
+            onPress={toggleVpn}
+          />
         </View>
       </Animated.View>
 
-      {/* ── Liste ── */}
+      {/* ── Sticky bar ── */}
+      <View
+        style={[
+          st.stickyBar,
+          { backgroundColor: t.bg.page, borderBottomColor: t.border.light },
+        ]}
+      >
+        {focusActive && focusStatus && (
+          <FocusBanner
+            status={focusStatus}
+            onStopped={() => {
+              setFocusStatus(null);
+              setFocusExpanded(false);
+              refreshRules();
+            }}
+            expanded={focusExpanded}
+            onToggleExpand={() => setFocusExpanded((v) => !v)}
+          />
+        )}
+        {!isPremium && (
+          <FreeLimitBanner
+            current={blockedCount}
+            max={FREE_LIMITS.MAX_BLOCKED_APPS}
+            onUpgrade={() => showPaywall("blocked_apps")}
+          />
+        )}
+        <SearchAndFilters
+          query={query}
+          onQueryChange={setQuery}
+          filters={filters}
+          onFiltersChange={setFilters}
+          systemAppsLoaded={systemAppsLoaded}
+          systemAppsLoading={systemAppsLoading}
+        />
+      </View>
+
+      {/* ── List ── */}
       <FlatList
         data={filteredApps}
         keyExtractor={keyExtractor}
@@ -731,7 +905,11 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
         windowSize={13}
-        contentContainerStyle={[st.list, { paddingBottom: insets.bottom + 90 }]}
+        style={st.list}
+        contentContainerStyle={[
+          st.listContent,
+          { paddingBottom: insets.bottom + 96 },
+        ]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -742,39 +920,10 @@ export default function HomeScreen() {
           />
         }
         ListHeaderComponent={
-          <View>
-            {focusActive && focusStatus && (
-              <FocusBanner
-                status={focusStatus}
-                onStopped={() => {
-                  setFocusStatus(null);
-                  setFocusExpanded(false);
-                  refreshRules();
-                }}
-                expanded={focusExpanded}
-                onToggleExpand={() => setFocusExpanded((v) => !v)}
-              />
-            )}
-            {!isPremium && (
-              <FreeLimitBanner
-                current={blockedCount}
-                max={FREE_LIMITS.MAX_BLOCKED_APPS}
-                onUpgrade={() => showPaywall("blocked_apps")}
-              />
-            )}
-            <SearchAndFilters
-              query={query}
-              onQueryChange={setQuery}
-              filters={filters}
-              onFiltersChange={setFilters}
-              systemAppsLoaded={systemAppsLoaded}
-              systemAppsLoading={systemAppsLoading}
-            />
-            <Text style={[st.countLabel, { color: t.text.muted }]}>
-              {filteredApps.length} application
-              {filteredApps.length > 1 ? "s" : ""}
-            </Text>
-          </View>
+          <Text style={[st.countLabel, { color: t.text.muted }]}>
+            {filteredApps.length} application
+            {filteredApps.length > 1 ? "s" : ""}
+          </Text>
         }
         ListEmptyComponent={
           <View style={st.empty}>
@@ -800,20 +949,15 @@ export default function HomeScreen() {
       <TouchableOpacity
         style={[
           st.fab,
-          { bottom: insets.bottom + 22 },
-          focusActive && { backgroundColor: t.bg.cardAlt, shadowOpacity: 0 },
+          { bottom: insets.bottom + 24 },
+          focusActive && { opacity: 0.45 },
         ]}
         onPress={() => {
           if (!focusActive) router.push("/settings");
         }}
-        activeOpacity={focusActive ? 1 : 0.85}
+        activeOpacity={focusActive ? 1 : 0.8}
       >
-        <Text style={[st.fabText, focusActive && { color: t.text.muted }]}>
-          ◈
-        </Text>
-        {focusActive && (
-          <View style={[st.fabLockDot, { backgroundColor: t.border.strong }]} />
-        )}
+        <Text style={st.fabText}>◈</Text>
       </TouchableOpacity>
 
       <FocusModal
@@ -834,7 +978,6 @@ export default function HomeScreen() {
           setPaywallVisible(false);
         }}
       />
-      {/* Plein écran Focus — hors FlatList pour éviter le clipping */}
       {focusActive && focusStatus && (
         <FocusFullScreen
           status={focusStatus}
@@ -851,130 +994,164 @@ export default function HomeScreen() {
   );
 }
 
-// ─── Styles statiques (layout) ────────────────────────────────────────────────
-// Les couleurs sont injectées inline via useTheme().t — seul le layout est ici.
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const st = StyleSheet.create({
   container: { flex: 1 },
 
-  // Header (toujours bleu — Semantic.bg.header)
+  // ── Header ──────────────────────────────────────────────────────────────────
   header: {
     paddingHorizontal: 22,
-    paddingBottom: 16,
+    paddingBottom: 18,
     backgroundColor: Semantic.bg.header,
-    shadowColor: Colors.blue[800],
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    // Deep diffuse shadow instead of hard line
+    shadowColor: "#0f2d5e",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  // ── Ligne 1 ──────────────────────────────────────────────────────────────
+
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 14,
   },
-  // Gauche : shrink autorisé — cède de l'espace si les actions en ont besoin
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    flexShrink: 1, // rétrécit si l'écran est étroit
-    marginRight: 8,
-    minWidth: 0, // permet au texte de se couper
+    gap: 10,
+    flexShrink: 1,
   },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: Colors.gray[0],
-    letterSpacing: -1,
-    flexShrink: 0, // "NetOff" ne se compresse jamais
-  },
-  themeCycleBtn: {
-    width: 26,
-    height: 26,
+
+  // Logo mark — small frosted square
+  logoMark: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,.22)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  logoMarkText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#fff",
+    letterSpacing: -0.5,
+  },
+
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.6,
+    lineHeight: 22,
+  },
+  headerEyebrow: {
+    fontSize: 9,
+    fontWeight: "500",
+    color: "rgba(255,255,255,.5)",
+    letterSpacing: 0.4,
+    marginTop: 1,
+  },
+  themeCycleBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  themeCycleIcon: { fontSize: 13, color: "rgba(255,255,255,.6)" },
+
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     flexShrink: 0,
   },
-  themeCycleIcon: { fontSize: 15, color: "rgba(255,255,255,.65)" },
   freeBadge: {
-    backgroundColor: "rgba(255,255,255,.15)",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,.25)",
-    flexShrink: 0,
-  },
-  freeBadgeText: {
-    fontSize: 8,
-    fontWeight: "800",
-    color: Colors.blue[100],
-    letterSpacing: 1.2,
-  },
-  premiumBadge: {
-    backgroundColor: Colors.purple[50],
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: Colors.purple[100],
-    flexShrink: 0,
-  },
-  premiumBadgeText: {
-    fontSize: 8,
-    fontWeight: "800",
-    color: Colors.purple[600],
-    letterSpacing: 1.2,
-  },
-  // Droite : ne rétrécit jamais
-  headerActions: {
-    flexDirection: "row",
-    gap: 7,
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  focusBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 11,
     backgroundColor: "rgba(255,255,255,.12)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,.2)",
   },
-  focusBtnIcon: { fontSize: 11, color: Colors.blue[100] },
-  focusBtnText: {
-    fontSize: 11,
+  freeBadgeText: {
+    fontSize: 9,
     fontWeight: "800",
-    color: Colors.blue[100],
-    letterSpacing: 0.2,
+    color: "rgba(255,255,255,.7)",
+    letterSpacing: 1.5,
+  },
+  premiumBadge: {
+    backgroundColor: Colors.purple[50],
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.purple[200],
+  },
+  premiumBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: Colors.purple[600],
+    letterSpacing: 1.5,
   },
 
-  // ── Ligne 2 ──────────────────────────────────────────────────────────────
-  headerSubRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  headerSub: {
-    fontSize: 11,
-    color: Colors.blue[200],
-    fontWeight: "600",
-    flexShrink: 1,
+  // Stat pills row
+  headerStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 0,
+    backgroundColor: "rgba(255,255,255,.1)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,.14)",
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
   },
-  headerSubFocus: { color: Colors.purple[100], fontWeight: "700" },
+  headerStatsDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: "rgba(255,255,255,.18)",
+    marginHorizontal: 2,
+  },
+  statPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  statPillFocus: {
+    backgroundColor: "rgba(167,139,250,.18)",
+  },
+  statDot: { width: 5, height: 5, borderRadius: 3 },
+  statPillIcon: { fontSize: 10, color: "rgba(255,255,255,.8)" },
+  statPillText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "rgba(255,255,255,.85)",
+    letterSpacing: 0.1,
+  },
 
   vpnPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 12,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
     borderWidth: 1,
   },
-  vpnDot: { width: 6, height: 6, borderRadius: 3 },
-  vpnPillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.3 },
+  vpnDot: { width: 5, height: 5, borderRadius: 3 },
+  vpnPillText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.2 },
 
   pulseDotWrap: {
     width: 10,
@@ -990,101 +1167,142 @@ const st = StyleSheet.create({
     position: "absolute",
   },
 
-  list: { paddingHorizontal: 16, paddingTop: 16 },
+  // ── Sticky bar ──────────────────────────────────────────────────────────────
+  stickyBar: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  // ── List ────────────────────────────────────────────────────────────────────
+  list: { flex: 1 },
+  listContent: { paddingHorizontal: 16, paddingTop: 12 },
   countLabel: {
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 2,
-    marginBottom: 10,
-    marginTop: 6,
+    textTransform: "uppercase",
+    marginBottom: 12,
+    marginTop: 2,
+    paddingHorizontal: 4,
+    opacity: 0.6,
   },
 
+  // ── App cards — ProfileDetailScreen style ───────────────────────────────────
+  appRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 16,
+    padding: 12,
+    paddingLeft: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  accentBar: {
+    position: "absolute",
+    left: 0,
+    top: 10,
+    bottom: 10,
+    width: 3,
+    borderRadius: 2,
+  },
+  iconWrap: {
+    position: "relative",
+    marginRight: 12,
+  },
+  appIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  appIconImg: { width: 44, height: 44, borderRadius: 12 },
+  appIconFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  appIconLetter: { fontSize: 18, fontWeight: "800" },
+  blockedBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+  },
+  blockedBadgeText: { fontSize: 7, color: "#fff", fontWeight: "800" },
+  appInfo: { flex: 1, minWidth: 0, marginRight: 12 },
+  appName: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
+  appPkg: { fontSize: 10, fontFamily: "monospace", opacity: 0.7 },
+
+  // ── Banners ─────────────────────────────────────────────────────────────────
   limitBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 12,
+    padding: 12,
+    marginBottom: 10,
   },
-  limitBannerIconWrap: {
-    width: 36,
-    height: 36,
+  limitBannerDot: {
+    width: 34,
+    height: 34,
     borderRadius: 11,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  limitBannerIcon: { fontSize: 16 },
-  limitBannerTitle: { fontSize: 12, fontWeight: "800", marginBottom: 2 },
-  limitBannerSub: { fontSize: 11 },
+  limitBannerTitle: { fontSize: 12, fontWeight: "700", marginBottom: 2 },
+  limitBannerSub: { fontSize: 10, opacity: 0.8 },
   limitBannerCta: {
-    borderRadius: 8,
+    borderRadius: 9,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderWidth: 1,
   },
-  limitBannerCtaText: { fontSize: 11, fontWeight: "800" },
 
-  appRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 7,
-    gap: 12,
-    height: CARD_H,
-    overflow: "hidden",
-  },
-  accentBar: {
-    position: "absolute",
-    left: 0,
-    top: 14,
-    bottom: 14,
-    width: 3,
-    borderRadius: 2,
-  },
-  appIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  appIconImg: { width: 38, height: 38 },
-  appIconText: { fontSize: 18, fontWeight: "700" },
-  appInfo: { flex: 1 },
-  appName: { fontSize: 13, fontWeight: "700", marginBottom: 3 },
-  appPkg: { fontSize: 10, fontFamily: "monospace" },
-  blockBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    minWidth: 64,
-    alignItems: "center",
-  },
-  blockBtnText: { fontSize: 11, fontWeight: "700" },
-
-  empty: { alignItems: "center", paddingTop: 70 },
+  // ── Empty state ─────────────────────────────────────────────────────────────
+  empty: { alignItems: "center", paddingTop: 72 },
   emptyIconWrap: {
     width: 64,
     height: 64,
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 18,
   },
   emptyIconText: { fontSize: 28 },
-  emptyTitle: { fontSize: 15, fontWeight: "700", marginBottom: 6 },
-  emptySubtitle: { fontSize: 12 },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 6,
+    letterSpacing: -0.2,
+  },
+  emptySubtitle: { fontSize: 12, opacity: 0.6 },
 
+  // ── FAB — pill shape, very soft shadow ──────────────────────────────────────
   fab: {
     position: "absolute",
     right: 20,
@@ -1094,19 +1312,11 @@ const st = StyleSheet.create({
     backgroundColor: Semantic.bg.header,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: Colors.blue[800],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowColor: "#0f2d5e",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  fabText: { fontSize: 22, color: Colors.gray[0] },
-  fabLockDot: {
-    position: "absolute",
-    top: 9,
-    right: 9,
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
+  fabText: { fontSize: 22, color: "#fff" },
 });
