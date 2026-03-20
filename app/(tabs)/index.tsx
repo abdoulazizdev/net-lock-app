@@ -409,10 +409,10 @@ export default function HomeScreen() {
     setSystemAppsLoading(true);
     try {
       const [allApps, rules] = await Promise.all([
-        AppListService.getInstalledApps(),
+        AppListService.getAllAppsWithIcons(),
         StorageService.getRules(),
       ]);
-      setApps(mergeAppsRules(allApps, rules));
+      setApps((prev) => mergeAppsRules(allApps, rules, prev));
       setSystemAppsLoaded(true);
     } catch {
     } finally {
@@ -429,6 +429,27 @@ export default function HomeScreen() {
     }
   };
 
+  // Merge apps + rules en PRÉSERVANT les icônes déjà chargées dans le state
+  const mergeAppsRules = useCallback(
+    (
+      incoming: InstalledApp[],
+      rules: AppRule[],
+      existing?: AppItem[], // state courant — pour récupérer les icônes
+    ): AppItem[] => {
+      const ruleMap = new Map(rules.map((r) => [r.packageName, r]));
+      const iconMap = new Map(
+        (existing ?? []).map((a) => [a.packageName, a.icon]),
+      );
+      return incoming.map((a) => ({
+        ...a,
+        // Priorité : icône de l'app entrante, sinon icône déjà en state
+        icon: a.icon ?? iconMap.get(a.packageName) ?? null,
+        rule: ruleMap.get(a.packageName),
+      }));
+    },
+    [],
+  );
+
   const loadInitial = async () => {
     setLoading(true);
     try {
@@ -438,23 +459,35 @@ export default function HomeScreen() {
       ]);
       setVpnActive(isVpn);
       setBlockedCount(rules.filter((r) => r.isBlocked).length);
-      const userApps = await AppListService.getNonSystemApps();
-      setApps(mergeAppsRules(userApps, rules));
-    } finally {
+
+      // Phase 1 — apps utilisateur SANS icônes → affichage immédiat (< 200ms)
+      const userAppsLight = await AppListService.getNonSystemApps();
+      setApps((prev) => mergeAppsRules(userAppsLight, rules, prev));
+      setLoading(false);
+
+      // Phase 2 — apps utilisateur AVEC icônes → enrichissement silencieux
+      AppListService.getNonSystemAppsWithIcons()
+        .then((userAppsFull) =>
+          StorageService.getRules().then((r) =>
+            setApps((prev) => mergeAppsRules(userAppsFull, r, prev)),
+          ),
+        )
+        .catch(() => {});
+    } catch {
       setLoading(false);
     }
+
+    // Phase 3 — toutes les apps (+ système) AVEC icônes en arrière-plan
     setSystemAppsLoading(true);
-    try {
-      const [allApps, rules] = await Promise.all([
-        AppListService.getInstalledApps(),
-        StorageService.getRules(),
-      ]);
-      setApps(mergeAppsRules(allApps, rules));
-      setSystemAppsLoaded(true);
-    } catch {
-    } finally {
-      setSystemAppsLoading(false);
-    }
+    AppListService.getAllAppsWithIcons()
+      .then((allApps) =>
+        StorageService.getRules().then((rules) => {
+          setApps((prev) => mergeAppsRules(allApps, rules, prev));
+          setSystemAppsLoaded(true);
+        }),
+      )
+      .catch(() => {})
+      .finally(() => setSystemAppsLoading(false));
   };
 
   const refreshRules = useCallback(async () => {
@@ -464,22 +497,16 @@ export default function HomeScreen() {
     ]);
     setVpnActive(isVpn);
     setBlockedCount(rules.filter((r) => r.isBlocked).length);
-    setApps((prev) => mergeAppsRules(prev, rules));
-  }, []);
+    // Préserve les icônes — ne remplace que les règles
+    setApps((prev) => mergeAppsRules(prev, rules, prev));
+  }, [mergeAppsRules]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refreshRules(), checkFocus()]);
+    AppListService.invalidateCache();
+    await Promise.all([loadInitial(), checkFocus()]);
     setRefreshing(false);
-  }, [refreshRules]);
-
-  const mergeAppsRules = (
-    list: InstalledApp[],
-    rules: AppRule[],
-  ): AppItem[] => {
-    const map = new Map(rules.map((r) => [r.packageName, r]));
-    return list.map((a) => ({ ...a, rule: map.get(a.packageName) }));
-  };
+  }, []);
 
   const filteredApps = useMemo(() => {
     let list = [...apps];
@@ -608,50 +635,43 @@ export default function HomeScreen() {
           },
         ]}
       >
+        {/* ── Ligne 1 : logo à gauche, actions à droite ── */}
         <View style={st.headerRow}>
+          {/* Logo + thème + badge — rétrécissable si besoin */}
           <View style={st.headerLeft}>
-            <View style={st.titleRow}>
-              <Text style={st.headerTitle}>NetOff</Text>
-              {/* Indicateur de thème discret */}
-              <TouchableOpacity
-                onPress={handleThemeCycle}
-                activeOpacity={0.7}
-                style={st.themeCycleBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            <Text style={st.headerTitle}>NetOff</Text>
+            <TouchableOpacity
+              onPress={handleThemeCycle}
+              activeOpacity={0.7}
+              style={st.themeCycleBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Animated.Text
+                style={[
+                  st.themeCycleIcon,
+                  { transform: [{ scale: themeCycleAnim }] },
+                ]}
               >
-                <Animated.Text
-                  style={[
-                    st.themeCycleIcon,
-                    { transform: [{ scale: themeCycleAnim }] },
-                  ]}
-                >
-                  {THEME_ICONS[mode as keyof typeof THEME_ICONS] ??
-                    (isDark ? "◉" : "◎")}
-                </Animated.Text>
+                {THEME_ICONS[mode as keyof typeof THEME_ICONS] ??
+                  (isDark ? "◉" : "◎")}
+              </Animated.Text>
+            </TouchableOpacity>
+            {isPremium ? (
+              <View style={st.premiumBadge}>
+                <Text style={st.premiumBadgeText}>PRO</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={st.freeBadge}
+                onPress={() => showPaywall("general")}
+                activeOpacity={0.8}
+              >
+                <Text style={st.freeBadgeText}>FREE</Text>
               </TouchableOpacity>
-              {isPremium ? (
-                <View style={st.premiumBadge}>
-                  <Text style={st.premiumBadgeText}>PRO</Text>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={st.freeBadge}
-                  onPress={() => showPaywall("general")}
-                  activeOpacity={0.8}
-                >
-                  <Text style={st.freeBadgeText}>FREE</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={st.headerSubRow}>
-              {focusActive && <PulseDot color={Colors.purple[100]} />}
-              <Text style={[st.headerSub, focusActive && st.headerSubFocus]}>
-                {focusActive
-                  ? "Session Focus active"
-                  : `${blockedCount} bloquée${blockedCount > 1 ? "s" : ""}${!isPremium ? ` / ${FREE_LIMITS.MAX_BLOCKED_APPS}` : ""}`}
-              </Text>
-            </View>
+            )}
           </View>
+
+          {/* Actions : Focus + VPN — taille fixe, ne rétrécissent jamais */}
           <View style={st.headerActions}>
             <TouchableOpacity
               style={[
@@ -686,6 +706,19 @@ export default function HomeScreen() {
               onPress={toggleVpn}
             />
           </View>
+        </View>
+
+        {/* ── Ligne 2 : état de session ── */}
+        <View style={st.headerSubRow}>
+          {focusActive && <PulseDot color={Colors.purple[100]} />}
+          <Text
+            style={[st.headerSub, focusActive && st.headerSubFocus]}
+            numberOfLines={1}
+          >
+            {focusActive
+              ? "Session Focus active"
+              : `${blockedCount} app${blockedCount > 1 ? "s" : ""} bloquée${blockedCount > 1 ? "s" : ""}${!isPremium ? ` · max ${FREE_LIMITS.MAX_BLOCKED_APPS}` : ""}`}
+          </Text>
         </View>
       </Animated.View>
 
@@ -834,84 +867,102 @@ const st = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  // ── Ligne 1 ──────────────────────────────────────────────────────────────
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: 8,
   },
-  headerLeft: { flex: 1 },
-  titleRow: {
+  // Gauche : shrink autorisé — cède de l'espace si les actions en ont besoin
+  headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 4,
+    gap: 7,
+    flexShrink: 1, // rétrécit si l'écran est étroit
+    marginRight: 8,
+    minWidth: 0, // permet au texte de se couper
   },
   headerTitle: {
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: "800",
     color: Colors.gray[0],
-    letterSpacing: -1.2,
+    letterSpacing: -1,
+    flexShrink: 0, // "NetOff" ne se compresse jamais
   },
   themeCycleBtn: {
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+    width: 26,
+    height: 26,
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
   },
-  themeCycleIcon: { fontSize: 14, color: "rgba(255,255,255,.55)" },
-
+  themeCycleIcon: { fontSize: 15, color: "rgba(255,255,255,.65)" },
   freeBadge: {
     backgroundColor: "rgba(255,255,255,.15)",
     borderRadius: 6,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,.25)",
+    flexShrink: 0,
   },
   freeBadgeText: {
     fontSize: 8,
     fontWeight: "800",
     color: Colors.blue[100],
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
   },
   premiumBadge: {
     backgroundColor: Colors.purple[50],
     borderRadius: 6,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderWidth: 1,
     borderColor: Colors.purple[100],
+    flexShrink: 0,
   },
   premiumBadgeText: {
     fontSize: 8,
     fontWeight: "800",
     color: Colors.purple[600],
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
   },
-
-  headerSubRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  headerSub: { fontSize: 11, color: Colors.blue[200], fontWeight: "600" },
-  headerSubFocus: { color: Colors.purple[100], fontWeight: "700" },
-  headerActions: { flexDirection: "row", gap: 8, alignItems: "center" },
-
+  // Droite : ne rétrécit jamais
+  headerActions: {
+    flexDirection: "row",
+    gap: 7,
+    alignItems: "center",
+    flexShrink: 0,
+  },
   focusBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 12,
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 11,
     backgroundColor: "rgba(255,255,255,.12)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,.2)",
   },
-  focusBtnIcon: { fontSize: 12, color: Colors.blue[100] },
+  focusBtnIcon: { fontSize: 11, color: Colors.blue[100] },
   focusBtnText: {
     fontSize: 11,
     fontWeight: "800",
     color: Colors.blue[100],
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
+
+  // ── Ligne 2 ──────────────────────────────────────────────────────────────
+  headerSubRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  headerSub: {
+    fontSize: 11,
+    color: Colors.blue[200],
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+  headerSubFocus: { color: Colors.purple[100], fontWeight: "700" },
 
   vpnPill: {
     flexDirection: "row",

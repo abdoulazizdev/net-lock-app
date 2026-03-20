@@ -6,9 +6,8 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.uimanager.ViewManager
 
 class AppListPackage : ReactPackage {
-  override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> =
-    listOf(AppListModule(context))
-
-  override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> =
-    emptyList()
+    override fun createNativeModules(ctx: ReactApplicationContext): List<NativeModule> =
+        listOf(AppListModule(ctx))
+    override fun createViewManagers(ctx: ReactApplicationContext): List<ViewManager<*, *>> =
+        emptyList()
 }

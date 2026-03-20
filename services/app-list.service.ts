@@ -1,222 +1,131 @@
-import { NativeModules, Platform } from "react-native";
-import { InstalledApp } from "../types";
+import { InstalledApp } from "@/types";
+import { NativeModules } from "react-native";
 
 const { AppListModule } = NativeModules;
 
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
-// Cache séparé : apps utilisateur / apps complètes (avec système)
-let _cacheUser: InstalledApp[] | null = null;
-let _cacheAll: InstalledApp[] | null = null;
-let _cacheTsUser = 0;
-let _cacheTsAll = 0;
-
-function isFresh(ts: number) {
-  return Date.now() - ts < CACHE_TTL_MS;
+interface RawApp {
+  packageName: string;
+  appName: string;
+  isSystemApp: boolean;
+  userId: number;
+  isWorkProfile: boolean;
+  versionName: string;
+  icon: string | null;
 }
 
 class AppListService {
-  // ── Appel natif brut ───────────────────────────────────────────────────────
-  private async _fetchAll(): Promise<InstalledApp[]> {
-    if (_cacheAll && isFresh(_cacheTsAll)) return _cacheAll;
-    try {
-      if (Platform.OS === "android" && AppListModule) {
-        const raw = await AppListModule.getInstalledApps();
-        _cacheAll = raw.map((app: any) => ({
-          packageName: app.packageName,
-          appName: app.appName ?? app.packageName,
-          isSystemApp: app.isSystemApp ?? false,
-          icon: app.icon ?? null,
-        }));
-        _cacheTsAll = Date.now();
-        // Mettre à jour le cache user aussi
-        _cacheUser = _cacheAll!.filter((a) => !a.isSystemApp);
-        _cacheTsUser = Date.now();
-        return _cacheAll!;
-      }
-    } catch (e) {
-      console.error("[AppListService] _fetchAll:", e);
-    }
-    return this._getMock(true);
-  }
+  private cacheUserLight: InstalledApp[] | null = null;
+  private cacheUserFull: InstalledApp[] | null = null;
+  private cacheAllLight: InstalledApp[] | null = null;
+  private cacheAllFull: InstalledApp[] | null = null;
 
-  // ── Apps utilisateur uniquement (défaut) ──────────────────────────────────
-  async getUserApps(): Promise<InstalledApp[]> {
-    if (_cacheUser && isFresh(_cacheTsUser)) return _cacheUser;
-    const all = await this._fetchAll();
-    return all.filter((a) => !a.isSystemApp);
-  }
-
-  // ── Toutes les apps (avec système) ────────────────────────────────────────
-  async getAllApps(): Promise<InstalledApp[]> {
-    return this._fetchAll();
-  }
-
-  // ── Chargement progressif ─────────────────────────────────────────────────
-  // includeSystem = false → liste user rapide
-  // includeSystem = true  → tout charger (peut prendre quelques secondes)
-  async getAppsProgressive(
-    onReady: (withIcons: InstalledApp[]) => void,
-    includeSystem = false,
-  ): Promise<InstalledApp[]> {
-    // Cache chaud → immédiat
-    if (includeSystem && _cacheAll && isFresh(_cacheTsAll)) {
-      onReady(_cacheAll);
-      return _cacheAll;
-    }
-    if (!includeSystem && _cacheUser && isFresh(_cacheTsUser)) {
-      onReady(_cacheUser);
-      return _cacheUser;
-    }
-
-    try {
-      if (Platform.OS === "android" && AppListModule) {
-        const raw = await AppListModule.getInstalledApps();
-        const full: InstalledApp[] = raw.map((app: any) => ({
-          packageName: app.packageName,
-          appName: app.appName ?? app.packageName,
-          isSystemApp: app.isSystemApp ?? false,
-          icon: app.icon ?? null,
-        }));
-        _cacheAll = full;
-        _cacheTsAll = Date.now();
-        _cacheUser = full.filter((a) => !a.isSystemApp);
-        _cacheTsUser = Date.now();
-
-        const result = includeSystem ? full : _cacheUser;
-        onReady(result);
-        return result;
-      }
-    } catch (e) {
-      console.error("[AppListService] getAppsProgressive:", e);
-    }
-
-    const mock = this._getMock(includeSystem);
-    onReady(mock);
-    return mock;
-  }
-
-  // ── Utilitaires ───────────────────────────────────────────────────────────
-  async getInstalledApps(): Promise<InstalledApp[]> {
-    return this._fetchAll();
-  }
-
-  async getAppByPackage(packageName: string): Promise<InstalledApp | null> {
-    const apps = await this._fetchAll();
-    return apps.find((a) => a.packageName === packageName) ?? null;
-  }
+  // ── Sans icônes (rapide) ───────────────────────────────────────────────────
 
   async getNonSystemApps(): Promise<InstalledApp[]> {
-    return this.getUserApps();
+    if (this.cacheUserLight) return this.cacheUserLight;
+    const raw: RawApp[] = await AppListModule.getInstalledApps(false, false);
+    this.cacheUserLight = this.normalize(raw);
+    return this.cacheUserLight;
   }
 
-  async searchApps(
-    query: string,
-    includeSystem = false,
-  ): Promise<InstalledApp[]> {
-    const q = query.toLowerCase();
-    const apps = includeSystem
-      ? await this._fetchAll()
-      : await this.getUserApps();
-    return apps.filter(
-      (a) =>
-        a.appName.toLowerCase().includes(q) ||
-        a.packageName.toLowerCase().includes(q),
-    );
+  async getUserApps(): Promise<InstalledApp[]> {
+    return this.getNonSystemApps();
   }
 
-  invalidateCache(): void {
-    _cacheUser = null;
-    _cacheAll = null;
-    _cacheTsUser = 0;
-    _cacheTsAll = 0;
+  async getAllApps(): Promise<InstalledApp[]> {
+    if (this.cacheAllLight) return this.cacheAllLight;
+    const raw: RawApp[] = await AppListModule.getInstalledApps(true, false);
+    this.cacheAllLight = this.normalize(raw);
+    return this.cacheAllLight;
   }
 
-  // ── Mock ──────────────────────────────────────────────────────────────────
-  private _getMock(includeSystem: boolean): InstalledApp[] {
-    const userApps: InstalledApp[] = [
-      {
-        packageName: "com.android.chrome",
-        appName: "Chrome",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.facebook.katana",
-        appName: "Facebook",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.instagram.android",
-        appName: "Instagram",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.whatsapp",
-        appName: "WhatsApp",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.twitter.android",
-        appName: "Twitter",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.spotify.music",
-        appName: "Spotify",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.google.android.youtube",
-        appName: "YouTube",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.netflix.mediaclient",
-        appName: "Netflix",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.snapchat.android",
-        appName: "Snapchat",
-        isSystemApp: false,
-        icon: null,
-      },
-      {
-        packageName: "com.tiktok",
-        appName: "TikTok",
-        isSystemApp: false,
-        icon: null,
-      },
-    ];
-    const systemApps: InstalledApp[] = [
-      {
-        packageName: "com.android.settings",
-        appName: "Paramètres",
-        isSystemApp: true,
-        icon: null,
-      },
-      {
-        packageName: "com.android.vending",
-        appName: "Play Store",
-        isSystemApp: true,
-        icon: null,
-      },
-      {
-        packageName: "com.google.android.gms",
-        appName: "Services Google",
-        isSystemApp: true,
-        icon: null,
-      },
-    ];
-    return includeSystem ? [...userApps, ...systemApps] : userApps;
+  async getInstalledApps(): Promise<InstalledApp[]> {
+    return this.getAllApps();
+  }
+
+  // ── Avec icônes (arrière-plan) ─────────────────────────────────────────────
+
+  async getNonSystemAppsWithIcons(): Promise<InstalledApp[]> {
+    if (this.cacheUserFull) return this.cacheUserFull;
+    const raw: RawApp[] = await AppListModule.getInstalledApps(false, true);
+    this.cacheUserFull = this.normalize(raw);
+    this.cacheUserLight = this.cacheUserFull;
+    return this.cacheUserFull;
+  }
+
+  async getAllAppsWithIcons(): Promise<InstalledApp[]> {
+    if (this.cacheAllFull) return this.cacheAllFull;
+    const raw: RawApp[] = await AppListModule.getInstalledApps(true, true);
+    this.cacheAllFull = this.normalize(raw);
+    this.cacheAllLight = this.cacheAllFull;
+    return this.cacheAllFull;
+  }
+
+  // ── Compat ─────────────────────────────────────────────────────────────────
+
+  async getAppsProgressive(includeSystem: boolean): Promise<InstalledApp[]> {
+    if (includeSystem) {
+      this.getAllAppsWithIcons().catch(() => {});
+      return this.getAllApps();
+    }
+    this.getNonSystemAppsWithIcons().catch(() => {});
+    return this.getNonSystemApps();
+  }
+
+  // ── Par packageName ────────────────────────────────────────────────────────
+
+  async getAppByPackage(packageName: string): Promise<InstalledApp | null> {
+    for (const cache of [
+      this.cacheUserFull,
+      this.cacheAllFull,
+      this.cacheUserLight,
+      this.cacheAllLight,
+    ]) {
+      if (!cache) continue;
+      const found = cache.find((a) => a.packageName === packageName);
+      if (found) return found;
+    }
+    try {
+      const raw: RawApp | null =
+        await AppListModule.getAppByPackage(packageName);
+      return raw ? this.normalizeOne(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Cache ──────────────────────────────────────────────────────────────────
+
+  invalidateCache() {
+    this.cacheUserLight = null;
+    this.cacheUserFull = null;
+    this.cacheAllLight = null;
+    this.cacheAllFull = null;
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  private normalize(raw: RawApp[]): InstalledApp[] {
+    return raw
+      .filter((a) => a.packageName && a.appName)
+      .map((a) => this.normalizeOne(a))
+      .sort((a, b) =>
+        a.appName.localeCompare(b.appName, "fr", { sensitivity: "base" }),
+      );
+  }
+
+  private normalizeOne(raw: RawApp): InstalledApp {
+    return {
+      packageName: raw.packageName,
+      appName:
+        raw.appName?.trim() ||
+        raw.packageName.split(".").pop() ||
+        raw.packageName,
+      isSystemApp: raw.isSystemApp ?? false,
+      isWorkProfile: raw.isWorkProfile ?? false,
+      userId: raw.userId ?? 0,
+      icon: raw.icon ?? null,
+    };
   }
 }
 

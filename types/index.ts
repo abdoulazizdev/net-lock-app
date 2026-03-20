@@ -3,6 +3,8 @@ export interface InstalledApp {
   appName: string;
   isSystemApp: boolean;
   icon?: string | null;
+  userId?: number;
+  isWorkProfile?: boolean;
 }
 
 export interface AppRule {
@@ -21,7 +23,7 @@ export interface Schedule {
   startMinute: number;
   endHour: number;
   endMinute: number;
-  days: number[]; // 0=Dim, 1=Lun, ..., 6=Sam
+  days: number[];
   isActive: boolean;
   action: "block" | "allow";
 }
@@ -29,13 +31,13 @@ export interface Schedule {
 export interface ProfileSchedule {
   id: string;
   label: string;
-  days: number[]; // 0=Dim, 1=Lun, ..., 6=Sam
+  days: number[];
   startHour: number;
   startMinute: number;
   endHour: number;
   endMinute: number;
   isActive: boolean;
-  action: "activate" | "deactivate"; // active ou désactive le profil
+  action: "activate" | "deactivate";
 }
 
 export interface Profile {
