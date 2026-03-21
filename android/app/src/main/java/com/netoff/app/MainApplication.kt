@@ -16,40 +16,49 @@ import expo.modules.ReactNativeHostWrapper
 
 class MainApplication : Application(), ReactApplication {
 
-  override val reactNativeHost: ReactNativeHost = ReactNativeHostWrapper(
-      this,
-      object : DefaultReactNativeHost(this) {
-        override fun getPackages(): List<ReactPackage> =
-            PackageList(this).packages.apply {
-              add(AppListPackage())
-              add(VpnPackage())
-              add(AppBlockPackage())
-              add(SchedulePackage())
-              add(FocusPackage())
-              add(WidgetSyncPackage())
-              add(ConnectionLogPackage())
-              add(AppInfoPackage())
-            }
-          override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
-          override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
-          override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
-      }
-  )
+    override val reactNativeHost: ReactNativeHost = ReactNativeHostWrapper(
+        this,
+        object : DefaultReactNativeHost(this) {
+            override fun getPackages(): List<ReactPackage> =
+                PackageList(this).packages.apply {
+                    add(AppListPackage())
+                    add(VpnPackage())
+                    add(AppBlockPackage())
+                    add(SchedulePackage())
+                    add(FocusPackage())
+                    add(WidgetSyncPackage())
+                    add(ConnectionLogPackage())
+                    add(AppInfoPackage())
+                    add(WatchdogPackage())      // ← Watchdog
+                }
 
-  override val reactHost: ReactHost
-    get() = ReactNativeHostWrapper.createReactHost(applicationContext, reactNativeHost)
+            override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
+            override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
+            override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
+        }
+    )
 
-  override fun onCreate() {
-    super.onCreate()
-    DefaultNewArchitectureEntryPoint.releaseLevel = try {
-      ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
-    } catch (e: IllegalArgumentException) { ReleaseLevel.STABLE }
-    loadReactNative(this)
-    ApplicationLifecycleDispatcher.onApplicationCreate(this)
-  }
+    override val reactHost: ReactHost
+        get() = ReactNativeHostWrapper.createReactHost(applicationContext, reactNativeHost)
 
-  override fun onConfigurationChanged(newConfig: Configuration) {
-    super.onConfigurationChanged(newConfig)
-    ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
-  }
+    override fun onCreate() {
+        super.onCreate()
+
+        DefaultNewArchitectureEntryPoint.releaseLevel = try {
+            ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
+        } catch (e: IllegalArgumentException) { ReleaseLevel.STABLE }
+
+        loadReactNative(this)
+        ApplicationLifecycleDispatcher.onApplicationCreate(this)
+
+        // ── Watchdog : relance le VPN si il devrait être actif ──────────────
+        // Planifié seulement si le VPN était actif avant le redémarrage.
+        // WorkManager gère la persistance et la replanification automatique.
+        WatchdogWorker.scheduleIfNeeded(this)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
+    }
 }

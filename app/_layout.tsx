@@ -9,51 +9,83 @@ import React, { useEffect, useState } from "react";
 import { Provider as PaperProvider } from "react-native-paper";
 import "react-native-reanimated";
 
+import WeeklyReportModal from "@/components/WeeklyReportModal";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import FocusService from "@/services/focus.service";
 import StorageService from "@/services/storage.service";
 import SubscriptionService from "@/services/subscription.service";
+import WatchdogService from "@/services/watchdog.service";
+import WeeklyReportService from "@/services/weekly-report.service";
 import { NetOffThemeProvider } from "@/theme";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
+export const ONBOARDING_KEY = "@netoff_onboarding_done";
 export const unstable_settings = { anchor: "(tabs)" };
+
+async function isOnboardingDone(): Promise<boolean> {
+  return (await AsyncStorage.getItem(ONBOARDING_KEY)) === "true";
+}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [ready, setReady] = useState(false);
 
+  // null = inconnu (splash), false = onboarding requis, true = app normale
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
+  const [ready, setReady] = useState(false);
+  const [showWeeklyReport, setShowWeeklyReport] = useState(false);
+
+  // ── Étape 1 : init async (RevenueCat + onboarding check) ────────────────
   useEffect(() => {
     bootstrap();
   }, []);
 
   const bootstrap = async () => {
     try {
-      // ✅ Initialise RevenueCat via le service centralisé
       await SubscriptionService.configure();
-
-      // ✅ Sync statut premium avec RevenueCat (si SDK configuré)
       await SubscriptionService.syncWithRevenueCat();
     } catch (e) {
-      console.error("[bootstrap] Erreur init:", e);
+      console.error("[bootstrap]", e);
     } finally {
+      // Vérifier onboarding
+      const done = await isOnboardingDone();
+      setOnboardingDone(done);
       setReady(true);
     }
   };
 
+  // ── Étape 2 : une fois prêt, actions post-boot ───────────────────────────
   useEffect(() => {
-    if (!ready) return;
-    checkAuthAndFocus();
-  }, [ready]);
+    if (!ready || onboardingDone === null) return;
 
-  const checkAuthAndFocus = async () => {
+    if (onboardingDone) {
+      postBootActions();
+    } else {
+      // Rediriger vers l'onboarding
+      router.replace("/onboarding");
+    }
+  }, [ready, onboardingDone]);
+
+  const postBootActions = async () => {
     try {
+      // Auth
       const config = await StorageService.getAuthConfig();
       if (config.isPinEnabled || config.isBiometricEnabled) {
         router.replace("/auth");
       }
+
+      // Watchdog — s'assure que le VPN est surveillé
+      await WatchdogService.start();
+
+      // Rapport hebdomadaire — uniquement le lundi et si 7 jours écoulés
+      const shouldShow = await WeeklyReportService.shouldShowReport();
+      if (shouldShow) setShowWeeklyReport(true);
     } catch (e) {
-      console.error("Erreur auth:", e);
+      console.error("[postBootActions]", e);
     }
   };
+
+  // ── Splash le temps de l'init ────────────────────────────────────────────
+  if (!ready || onboardingDone === null) return null;
 
   return (
     <NetOffThemeProvider>
@@ -79,6 +111,10 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="auth" options={{ headerShown: false }} />
             <Stack.Screen
+              name="onboarding"
+              options={{ headerShown: false, gestureEnabled: false }}
+            />
+            <Stack.Screen
               name="profile-rules"
               options={{ headerShown: false }}
             />
@@ -92,9 +128,16 @@ export default function RootLayout() {
             />
             <Stack.Screen name="settings" options={{ headerShown: false }} />
           </Stack>
+
           <StatusBar style="light" />
         </ThemeProvider>
       </PaperProvider>
+
+      {/* Rapport hebdomadaire — rendu hors du Stack pour éviter les conflits de navigation */}
+      <WeeklyReportModal
+        visible={showWeeklyReport}
+        onClose={() => setShowWeeklyReport(false)}
+      />
     </NetOffThemeProvider>
   );
 }
