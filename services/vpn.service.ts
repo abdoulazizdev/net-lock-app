@@ -1,22 +1,11 @@
-import {
-  Alert,
-  NativeEventEmitter,
-  NativeModules,
-  Platform,
-} from "react-native";
+import { Alert, NativeModules, Platform } from "react-native";
 import StorageService from "./storage.service";
 
 const { VpnModule, AppBlockModule, WidgetSyncModule } = NativeModules;
 
-// Écouter l'événement de permission requis
-if (VpnModule) {
-  const emitter = new NativeEventEmitter(VpnModule);
-  emitter.addListener("VPN_PERMISSION_DENIED", () => {
-    Alert.alert(
-      "Permission VPN refusée",
-      "NetOff a besoin de la permission VPN pour bloquer les applications. Veuillez l'accepter.",
-    );
-  });
+export interface BlockabilityResult {
+  canBlock: boolean;
+  reason: "work_profile" | "system_app" | "";
 }
 
 class VpnService {
@@ -26,14 +15,10 @@ class VpnService {
         console.warn("VpnModule non disponible");
         return false;
       }
-      // startVpn gère la permission Android en interne
-      // Si permission requise → dialog Android → onActivityResult → résolution
-      const result = await VpnModule.startVpn();
-      if (result) {
-        await this.syncRules();
-        WidgetSyncModule?.updateVpnState(true);
-      }
-      return result;
+      await VpnModule.startVpn();
+      await this.syncRules();
+      WidgetSyncModule?.updateVpnState(true);
+      return true;
     } catch (error: any) {
       if (error?.code === "PERMISSION_DENIED") {
         Alert.alert(
@@ -52,8 +37,15 @@ class VpnService {
       if (!VpnModule) return;
       await VpnModule.stopVpn();
       WidgetSyncModule?.updateVpnState(false);
-    } catch (error) {
-      console.error("Erreur stopVpn:", error);
+    } catch (error: any) {
+      if (error?.code === "FOCUS_ACTIVE") {
+        Alert.alert(
+          "Session Focus active",
+          "Arrêtez la session Focus avant de désactiver le VPN.",
+        );
+      } else {
+        console.error("Erreur stopVpn:", error);
+      }
     }
   }
 
@@ -68,8 +60,11 @@ class VpnService {
 
   async setRule(packageName: string, isBlocked: boolean): Promise<void> {
     try {
+      // Nettoyer le packageName avant de sauvegarder
+      const cleanPkg = packageName.split("@")[0].trim();
+
       await StorageService.saveRule({
-        packageName,
+        packageName: cleanPkg,
         isBlocked,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -80,22 +75,35 @@ class VpnService {
       const count = rules.filter((r) => r.isBlocked).length;
       WidgetSyncModule?.updateBlockedCount(count);
 
-      if (isBlocked && AppBlockModule) {
-        Alert.alert(
-          "Bloquer les notifications ?",
-          "Pour bloquer aussi les notifications (ex: WhatsApp), désactivez-les dans les paramètres Android.",
-          [
-            { text: "Ignorer", style: "cancel" },
-            {
-              text: "Désactiver",
-              onPress: () =>
-                AppBlockModule.disableAppNotifications(packageName),
-            },
-          ],
-        );
-      }
+      // if (isBlocked && AppBlockModule) {
+      //   Alert.alert(
+      //     "Bloquer les notifications ?",
+      //     "Pour bloquer aussi les notifications (ex: WhatsApp), désactivez-les dans les paramètres Android.",
+      //     [
+      //       { text: "Ignorer", style: "cancel" },
+      //       {
+      //         text: "Désactiver",
+      //         onPress: () => AppBlockModule.disableAppNotifications(cleanPkg),
+      //       },
+      //     ],
+      //   );
+      // }
     } catch (error) {
       console.error("Erreur setRule:", error);
+    }
+  }
+
+  /**
+   * Vérifie si une app peut être bloquée efficacement.
+   * Les apps dans un profil clone/travail ne peuvent pas être bloquées
+   * via VPN depuis le profil principal sans root.
+   */
+  async canBlockPackage(packageName: string): Promise<BlockabilityResult> {
+    try {
+      if (!VpnModule?.canBlockPackage) return { canBlock: true, reason: "" };
+      return await VpnModule.canBlockPackage(packageName);
+    } catch {
+      return { canBlock: true, reason: "" };
     }
   }
 
@@ -106,7 +114,10 @@ class VpnService {
   async syncRules(): Promise<void> {
     if (!VpnModule) return;
     const rules = await StorageService.getRules();
-    const blocked = rules.filter((r) => r.isBlocked).map((r) => r.packageName);
+    const blocked = rules
+      .filter((r) => r.isBlocked)
+      .map((r) => r.packageName.split("@")[0].trim()) // nettoyer au cas où
+      .filter((p) => p.length > 0);
     await VpnModule.setBlockedApps(blocked);
   }
 
@@ -114,7 +125,7 @@ class VpnService {
     packageName: string,
   ): Promise<"blocked" | "allowed"> {
     const rules = await StorageService.getRules();
-    const rule = rules.find((r) => r.packageName === packageName);
+    const rule = rules.find((r) => r.packageName === packageName.split("@")[0]);
     return rule?.isBlocked ? "blocked" : "allowed";
   }
 }

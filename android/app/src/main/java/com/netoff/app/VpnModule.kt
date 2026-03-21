@@ -3,6 +3,7 @@ package com.netoff.app
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import com.facebook.react.bridge.*
@@ -37,7 +38,6 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun stopVpn(promise: Promise) {
-        // PROTECTION FOCUS : refuser l'arrêt si session en cours
         if (NetLockVpnService.isFocusActive(reactContext)) {
             promise.reject("FOCUS_ACTIVE", "Impossible d'arrêter le VPN pendant une session Focus")
             return
@@ -65,7 +65,12 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
     fun setBlockedApps(packages: ReadableArray, promise: Promise) {
         try {
             val newSet = HashSet<String>()
-            for (i in 0 until packages.size()) packages.getString(i)?.let { newSet.add(it) }
+            for (i in 0 until packages.size()) {
+                val pkg = packages.getString(i) ?: continue
+                // Nettoyer le packageName côté module aussi
+                val clean = pkg.substringBefore("@").trim()
+                if (clean.isNotEmpty()) newSet.add(clean)
+            }
 
             val newlyBlocked = newSet - NetLockVpnService.blockedPackages
             val newlyAllowed = NetLockVpnService.blockedPackages - newSet
@@ -75,7 +80,6 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
             NetLockVpnService.blockedPackages = newSet
 
             if (NetLockVpnService.isVpnEstablished) {
-                // Pendant un Focus actif → UPDATE_RULES_FORCE, sinon UPDATE_RULES normal
                 val action = if (NetLockVpnService.isFocusActive(reactContext))
                     "UPDATE_RULES_FORCE" else "UPDATE_RULES"
                 reactContext.startService(
@@ -84,6 +88,36 @@ class VpnModule(private val reactContext: ReactApplicationContext) :
             }
             promise.resolve(true)
         } catch (e: Exception) { promise.reject("VPN_ERROR", e.message, e) }
+    }
+
+    /**
+     * Vérifie si une app peut réellement être bloquée par le VPN.
+     * Les apps clonées (userId > 0) et certaines apps système ne peuvent pas
+     * être bloquées via addAllowedApplication depuis le profil principal.
+     */
+    @ReactMethod
+    fun canBlockPackage(packageName: String, promise: Promise) {
+        try {
+            val cleanPkg = packageName.substringBefore("@").trim()
+            // Vérifier existence dans le profil principal
+            reactContext.packageManager.getApplicationInfo(cleanPkg, 0)
+            val result = Arguments.createMap().apply {
+                putBoolean("canBlock", true)
+                putString("reason",   "")
+            }
+            promise.resolve(result)
+        } catch (e: PackageManager.NameNotFoundException) {
+            val result = Arguments.createMap().apply {
+                putBoolean("canBlock", false)
+                putString("reason",   "work_profile") // app clonée/profil secondaire
+            }
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.resolve(Arguments.createMap().apply {
+                putBoolean("canBlock", true)
+                putString("reason",   "")
+            })
+        }
     }
 
     @ReactMethod

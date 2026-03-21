@@ -28,6 +28,7 @@ class MainApplication : Application(), ReactApplication {
               add(FocusPackage())
               add(WidgetSyncPackage())
               add(ConnectionLogPackage())
+              add(AppInfoPackage())
             }
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
           override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG

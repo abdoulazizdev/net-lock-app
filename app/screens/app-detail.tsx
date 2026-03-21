@@ -1,4 +1,4 @@
-import AppDetailSkeleton from "@/components/AppDetailSkeleton"; // ✅ import skeleton
+import AppDetailSkeleton from "@/components/AppDetailSkeleton";
 import PaywallModal from "@/components/PaywallModal";
 import { usePremium } from "@/hooks/usePremium";
 import AppListService from "@/services/app-list.service";
@@ -16,7 +16,9 @@ import {
   Animated,
   Easing,
   Image,
+  Linking,
   Modal,
+  NativeModules,
   Platform,
   ScrollView,
   StatusBar,
@@ -27,8 +29,42 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+const { AppInfoModule } = NativeModules;
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
+// ─── Interfaces ───────────────────────────────────────────────────────────────
+interface AppDetails {
+  packageName: string;
+  appName: string;
+  versionName: string;
+  versionCode: number;
+  isSystemApp: boolean;
+  isEnabled: boolean;
+  isLaunchable: boolean;
+  notificationsEnabled: boolean;
+  firstInstallTime: number;
+  lastUpdateTime: number;
+  apkSizeBytes: number;
+  permissions: string[];
+  sourceDir: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function formatSize(bytes: number): string {
+  if (bytes <= 0) return "—";
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+function formatDate(ts: number): string {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// ─── ProgressBar ──────────────────────────────────────────────────────────────
 function ProgressBar({
   pct,
   color,
@@ -72,6 +108,7 @@ function ProgressBar({
   );
 }
 
+// ─── Toggle ───────────────────────────────────────────────────────────────────
 function Toggle({
   value,
   onPress,
@@ -139,6 +176,117 @@ function Toggle({
   );
 }
 
+// ─── ActionRow — ligne d'action avec icône ────────────────────────────────────
+function ActionRow({
+  icon,
+  label,
+  sub,
+  onPress,
+  danger = false,
+  right,
+}: {
+  icon: string;
+  label: string;
+  sub?: string;
+  onPress: () => void;
+  danger?: boolean;
+  right?: React.ReactNode;
+}) {
+  const { t } = useTheme();
+  return (
+    <TouchableOpacity
+      style={[
+        st.actionRow,
+        { backgroundColor: t.bg.card, borderColor: t.border.light },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
+      <View
+        style={[
+          st.actionRowIcon,
+          {
+            backgroundColor: danger ? t.danger.bg : t.bg.accent,
+            borderColor: danger ? t.danger.border : t.border.light,
+          },
+        ]}
+      >
+        <Text style={{ fontSize: 16 }}>{icon}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text
+          style={[
+            st.actionRowLabel,
+            { color: danger ? t.danger.text : t.text.primary },
+          ]}
+        >
+          {label}
+        </Text>
+        {sub && (
+          <Text style={[st.actionRowSub, { color: t.text.muted }]}>{sub}</Text>
+        )}
+      </View>
+      {right ?? (
+        <Text style={[st.actionRowChevron, { color: t.text.muted }]}>›</Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ─── InfoRow — ligne d'information ────────────────────────────────────────────
+function InfoRow({ label, value }: { label: string; value: string }) {
+  const { t } = useTheme();
+  return (
+    <View style={[st.infoRow, { borderBottomColor: t.border.light }]}>
+      <Text style={[st.infoLabel, { color: t.text.muted }]}>{label}</Text>
+      <Text
+        style={[st.infoValue, { color: t.text.primary }]}
+        selectable
+        numberOfLines={2}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+// ─── PermissionBadge ──────────────────────────────────────────────────────────
+function PermissionBadge({ perm }: { perm: string }) {
+  const { t } = useTheme();
+  const short = perm.split(".").pop() ?? perm;
+  const isDangerous = [
+    "CAMERA",
+    "RECORD_AUDIO",
+    "READ_CONTACTS",
+    "ACCESS_FINE_LOCATION",
+    "READ_CALL_LOG",
+    "READ_SMS",
+    "PROCESS_OUTGOING_CALLS",
+  ].some((d) => short.includes(d));
+  return (
+    <View
+      style={[
+        st.permBadge,
+        {
+          backgroundColor: isDangerous ? t.danger.bg : t.bg.cardAlt,
+          borderColor: isDangerous ? t.danger.border : t.border.light,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          st.permBadgeText,
+          { color: isDangerous ? t.danger.text : t.text.secondary },
+        ]}
+      >
+        {isDangerous ? "⚠ " : ""}
+        {short.toLowerCase().replace(/_/g, " ")}
+      </Text>
+    </View>
+  );
+}
+
+// ─── ScheduleCard ─────────────────────────────────────────────────────────────
 function ScheduleCard({
   schedule,
   onEdit,
@@ -257,18 +405,26 @@ function ScheduleCard({
   );
 }
 
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function AppDetailScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
   const { packageName } = useLocalSearchParams<{ packageName: string }>();
   const { isPremium } = usePremium();
+
   const [app, setApp] = useState<InstalledApp | null>(null);
+  const [details, setDetails] = useState<AppDetails | null>(null);
   const [rule, setRule] = useState<AppRule | null>(null);
   const [stats, setStats] = useState({ blocked: 0, allowed: 0 });
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [loading, setLoading] = useState(true); // ✅ démarre à true
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"control" | "info" | "schedule">(
+    "control",
+  );
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [showPerms, setShowPerms] = useState(false);
 
+  // Formulaire planification
   const [showModal, setShowModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [formLabel, setFormLabel] = useState("");
@@ -287,6 +443,7 @@ export default function AppDetailScreen() {
   const slideAnim = useRef(new Animated.Value(16)).current;
   const modalSlide = useRef(new Animated.Value(400)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
+  const tabAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadAll();
@@ -294,6 +451,8 @@ export default function AppDetailScreen() {
 
   useEffect(() => {
     if (!loading) {
+      fadeAnim.setValue(0);
+      slideAnim.setValue(16);
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -307,10 +466,6 @@ export default function AppDetailScreen() {
           useNativeDriver: true,
         }),
       ]).start();
-    } else {
-      // ✅ Reset les anims quand on recharge
-      fadeAnim.setValue(0);
-      slideAnim.setValue(16);
     }
   }, [loading]);
 
@@ -336,33 +491,59 @@ export default function AppDetailScreen() {
   }, [showModal]);
 
   const loadAll = async () => {
+    setLoading(true);
     try {
-      setLoading(true); // ✅ skeleton visible dès le début
-      const appData = await AppListService.getAppByPackage(packageName);
+      const [appData, existingRule, allStats, sched] = await Promise.all([
+        AppListService.getAppByPackage(packageName),
+        StorageService.getRuleByPackage(packageName),
+        StorageService.getStats(),
+        ScheduleService.getSchedules(packageName),
+      ]);
       setApp(appData);
-      const existingRule = await StorageService.getRuleByPackage(packageName);
       setRule(existingRule);
-      const allStats = await StorageService.getStats();
       const appStats = allStats.find((s) => s.packageName === packageName);
       if (appStats)
         setStats({
           blocked: appStats.blockedAttempts,
           allowed: appStats.allowedAttempts,
         });
-      setSchedules(await ScheduleService.getSchedules(packageName));
+      setSchedules(sched);
+
+      // Détails enrichis via module natif
+      if (AppInfoModule) {
+        try {
+          const det = await AppInfoModule.getAppDetails(packageName);
+          setDetails(det);
+        } catch (e) {
+          console.warn("AppInfoModule.getAppDetails:", e);
+        }
+      }
     } catch (e) {
       console.error("Erreur chargement:", e);
     } finally {
-      setLoading(false); // ✅ skeleton disparaît, contenu fade-in
+      setLoading(false);
     }
   };
 
+  const switchTab = (tab: "control" | "info" | "schedule") => {
+    setActiveTab(tab);
+    const idx = { control: 0, info: 1, schedule: 2 }[tab];
+    Animated.timing(tabAnim, {
+      toValue: idx,
+      duration: 220,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+  };
+
+  // ── Actions ─────────────────────────────────────────────────────────────────
   const toggleBlock = async () => {
     const newBlocked = !rule?.isBlocked;
     if (newBlocked && !isPremium) {
       const rules = await StorageService.getRules();
-      const blockedCount = rules.filter((r) => r.isBlocked).length;
-      if (blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS) {
+      if (
+        rules.filter((r) => r.isBlocked).length >= FREE_LIMITS.MAX_BLOCKED_APPS
+      ) {
         setPaywallVisible(true);
         return;
       }
@@ -377,14 +558,84 @@ export default function AppDetailScreen() {
     }));
   };
 
+  const handleOpenSettings = async () => {
+    if (AppInfoModule) {
+      try {
+        await AppInfoModule.openAppSettings(packageName);
+        return;
+      } catch {}
+    }
+    Linking.openURL(`package:${packageName}`).catch(() =>
+      Alert.alert("Impossible d'ouvrir les paramètres système de cette app."),
+    );
+  };
+
+  const handleOpenNotifSettings = async () => {
+    if (AppInfoModule) {
+      try {
+        await AppInfoModule.openNotificationSettings(packageName);
+        return;
+      } catch {}
+    }
+    handleOpenSettings();
+  };
+
+  const handleLaunchApp = async () => {
+    if (AppInfoModule && details?.isLaunchable) {
+      try {
+        await AppInfoModule.launchApp(packageName);
+        return;
+      } catch {}
+    }
+    Alert.alert("Cette application ne peut pas être lancée directement.");
+  };
+
+  const handleUninstall = () => {
+    if (details?.isSystemApp) {
+      Alert.alert(
+        "App système",
+        "Les applications système ne peuvent pas être désinstallées sans root.",
+      );
+      return;
+    }
+    Alert.alert(
+      "Désinstaller",
+      `Voulez-vous désinstaller "${details?.appName ?? packageName}" ?`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Désinstaller",
+          style: "destructive",
+          onPress: async () => {
+            if (AppInfoModule) {
+              try {
+                await AppInfoModule.uninstallApp(packageName);
+              } catch {}
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleOpenStorage = async () => {
+    if (AppInfoModule) {
+      try {
+        await AppInfoModule.openStorageSettings(packageName);
+        return;
+      } catch {}
+    }
+    handleOpenSettings();
+  };
+
   const simulateAttempt = async () => {
     const result = await VpnService.simulateConnectionAttempt(packageName);
-    await loadAll();
     Alert.alert(
       result === "blocked" ? "◈ Connexion bloquée" : "◎ Connexion autorisée",
     );
   };
 
+  // ── Planifications ──────────────────────────────────────────────────────────
   const openAddModal = () => {
     setEditingSchedule(null);
     setFormLabel("");
@@ -465,7 +716,17 @@ export default function AppDetailScreen() {
   const blockedPct = total > 0 ? stats.blocked / total : 0;
   const blockedPct100 = Math.round(blockedPct * 100);
 
-  // ✅ Skeleton pendant le chargement initial
+  const TABS = [
+    { key: "control", label: "Contrôle", icon: "◈" },
+    { key: "info", label: "Infos", icon: "ℹ" },
+    { key: "schedule", label: "Plages", icon: "◷" },
+  ] as const;
+
+  const tabIndicatorLeft = tabAnim.interpolate({
+    inputRange: [0, 1, 2],
+    outputRange: ["0%", "33.33%", "66.66%"],
+  });
+
   if (loading) return <AppDetailSkeleton />;
 
   return (
@@ -475,15 +736,11 @@ export default function AppDetailScreen() {
         backgroundColor={Semantic.bg.header}
       />
 
-      {/* Header */}
+      {/* ── Header ── */}
       <View
         style={[
           st.header,
-          {
-            paddingTop: insets.top + 12,
-            backgroundColor: Semantic.bg.header,
-            borderBottomColor: "rgba(255,255,255,.1)",
-          },
+          { paddingTop: insets.top + 12, backgroundColor: Semantic.bg.header },
         ]}
       >
         <TouchableOpacity
@@ -514,263 +771,576 @@ export default function AppDetailScreen() {
           )}
           <Text style={st.heroName}>{app?.appName}</Text>
           <Text style={[st.heroPackage, { color: Colors.blue[200] }]}>
-            {app?.packageName}
+            {packageName}
           </Text>
-          {app?.isSystemApp && (
-            <View
-              style={[
-                st.sysBadge,
-                {
-                  backgroundColor: "rgba(255,255,255,.1)",
-                  borderColor: "rgba(255,255,255,.2)",
-                },
-              ]}
+          <View style={st.heroBadges}>
+            {app?.isSystemApp && (
+              <View
+                style={[
+                  st.heroBadge,
+                  {
+                    backgroundColor: "rgba(255,255,255,.12)",
+                    borderColor: "rgba(255,255,255,.2)",
+                  },
+                ]}
+              >
+                <Text style={[st.heroBadgeText, { color: Colors.blue[100] }]}>
+                  Système
+                </Text>
+              </View>
+            )}
+            {details && (
+              <View
+                style={[
+                  st.heroBadge,
+                  {
+                    backgroundColor: "rgba(255,255,255,.12)",
+                    borderColor: "rgba(255,255,255,.2)",
+                  },
+                ]}
+              >
+                <Text style={[st.heroBadgeText, { color: Colors.blue[100] }]}>
+                  v{details.versionName}
+                </Text>
+              </View>
+            )}
+            {isBlocked && (
+              <View
+                style={[
+                  st.heroBadge,
+                  {
+                    backgroundColor: t.blocked.bg + "CC",
+                    borderColor: t.blocked.border,
+                  },
+                ]}
+              >
+                <Text style={[st.heroBadgeText, { color: t.blocked.accent }]}>
+                  Bloqué
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Onglets */}
+        <View style={st.tabBar}>
+          <Animated.View
+            style={[
+              st.tabIndicator,
+              { left: tabIndicatorLeft, width: "33.33%" },
+            ]}
+          />
+          {TABS.map((tab) => (
+            <TouchableOpacity
+              key={tab.key}
+              style={st.tab}
+              onPress={() => switchTab(tab.key)}
+              activeOpacity={0.75}
             >
-              <Text style={[st.sysBadgeText, { color: Colors.blue[100] }]}>
-                Système
+              <Text
+                style={[st.tabText, activeTab === tab.key && st.tabTextActive]}
+              >
+                {tab.icon} {tab.label}
               </Text>
-            </View>
-          )}
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
 
+      {/* ── Contenu ── */}
       <Animated.ScrollView
         style={{ opacity: fadeAnim }}
         contentContainerStyle={[
           st.scroll,
-          { paddingBottom: insets.bottom + 32 },
+          { paddingBottom: insets.bottom + 40 },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Contrôle */}
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          <Text style={[st.sectionLabel, { color: t.text.muted }]}>
-            CONTRÔLE D'ACCÈS
-          </Text>
-          <View
-            style={[
-              st.controlCard,
-              {
-                backgroundColor: isBlocked ? t.blocked.bg : t.allowed.bg,
-                borderColor: isBlocked ? t.blocked.border : t.allowed.border,
-              },
-            ]}
-          >
-            <View
-              style={[
-                st.controlAccent,
-                {
-                  backgroundColor: isBlocked
-                    ? t.blocked.accent
-                    : t.allowed.accent,
-                },
-              ]}
-            />
-            <View
-              style={[
-                st.controlIconWrap,
-                {
-                  backgroundColor: isBlocked ? t.blocked.bg : t.allowed.bg,
-                  borderWidth: 1,
-                  borderColor: isBlocked ? t.blocked.border : t.allowed.border,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  st.controlIcon,
-                  { color: isBlocked ? t.blocked.accent : t.allowed.accent },
-                ]}
-              >
-                {isBlocked ? "◈" : "◎"}
+          {/* ════════════════════ ONGLET CONTRÔLE ════════════════════ */}
+          {activeTab === "control" && (
+            <>
+              {/* Blocage réseau */}
+              <Text style={[st.sectionLabel, { color: t.text.muted }]}>
+                ACCÈS RÉSEAU
               </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={[
-                  st.controlTitle,
-                  { color: isBlocked ? t.blocked.text : t.allowed.text },
-                ]}
-              >
-                {isBlocked ? "Internet bloqué" : "Internet autorisé"}
-              </Text>
-              <Text style={[st.controlSub, { color: t.text.muted }]}>
-                {isBlocked
-                  ? "Toutes les connexions sont bloquées"
-                  : "Accès réseau normal"}
-              </Text>
-            </View>
-            <Toggle value={isBlocked} onPress={toggleBlock} />
-          </View>
-        </Animated.View>
-
-        {/* Stats */}
-        <Animated.View
-          style={[st.section, { transform: [{ translateY: slideAnim }] }]}
-        >
-          <Text style={[st.sectionLabel, { color: t.text.muted }]}>
-            STATISTIQUES
-          </Text>
-          <View style={st.statsRow}>
-            {[
-              {
-                num: stats.blocked,
-                label: "Bloquées",
-                color: t.blocked.accent,
-                bg: t.blocked.bg,
-                border: t.blocked.border,
-              },
-              {
-                num: stats.allowed,
-                label: "Autorisées",
-                color: t.allowed.accent,
-                bg: t.allowed.bg,
-                border: t.allowed.border,
-              },
-              {
-                num: blockedPct100,
-                label: "%",
-                color: t.focus.accent,
-                bg: t.focus.bg,
-                border: t.focus.border,
-                suffix: "%",
-              },
-            ].map((item) => (
               <View
-                key={item.label}
                 style={[
-                  st.statCard,
-                  { backgroundColor: item.bg, borderColor: item.border },
+                  st.controlCard,
+                  {
+                    backgroundColor: isBlocked ? t.blocked.bg : t.allowed.bg,
+                    borderColor: isBlocked
+                      ? t.blocked.border
+                      : t.allowed.border,
+                  },
                 ]}
               >
-                <Text style={[st.statNum, { color: item.color }]}>
-                  {item.num}
-                  {item.suffix ?? ""}
+                <View
+                  style={[
+                    st.controlAccent,
+                    {
+                      backgroundColor: isBlocked
+                        ? t.blocked.accent
+                        : t.allowed.accent,
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    st.controlIconWrap,
+                    {
+                      backgroundColor: isBlocked ? t.blocked.bg : t.allowed.bg,
+                      borderColor: isBlocked
+                        ? t.blocked.border
+                        : t.allowed.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      st.controlIcon,
+                      {
+                        color: isBlocked ? t.blocked.accent : t.allowed.accent,
+                      },
+                    ]}
+                  >
+                    {isBlocked ? "◈" : "◎"}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      st.controlTitle,
+                      { color: isBlocked ? t.blocked.text : t.allowed.text },
+                    ]}
+                  >
+                    {isBlocked ? "Internet bloqué" : "Internet autorisé"}
+                  </Text>
+                  <Text style={[st.controlSub, { color: t.text.muted }]}>
+                    {isBlocked
+                      ? "Toutes les connexions sont interceptées"
+                      : "Accès réseau normal"}
+                  </Text>
+                </View>
+                <Toggle value={isBlocked} onPress={toggleBlock} />
+              </View>
+
+              {/* Statistiques */}
+              <Text
+                style={[
+                  st.sectionLabel,
+                  { color: t.text.muted, marginTop: 20 },
+                ]}
+              >
+                STATISTIQUES
+              </Text>
+              <View style={st.statsRow}>
+                {[
+                  {
+                    num: stats.blocked,
+                    label: "Bloquées",
+                    color: t.blocked.accent,
+                    bg: t.blocked.bg,
+                    border: t.blocked.border,
+                  },
+                  {
+                    num: stats.allowed,
+                    label: "Autorisées",
+                    color: t.allowed.accent,
+                    bg: t.allowed.bg,
+                    border: t.allowed.border,
+                  },
+                  {
+                    num: blockedPct100,
+                    label: "% bloqué",
+                    color: t.focus.accent,
+                    bg: t.focus.bg,
+                    border: t.focus.border,
+                    suffix: "%",
+                  },
+                ].map((item) => (
+                  <View
+                    key={item.label}
+                    style={[
+                      st.statCard,
+                      { backgroundColor: item.bg, borderColor: item.border },
+                    ]}
+                  >
+                    <Text style={[st.statNum, { color: item.color }]}>
+                      {item.num}
+                      {(item as any).suffix ?? ""}
+                    </Text>
+                    <View style={st.statLabelRow}>
+                      <View
+                        style={[st.statDot, { backgroundColor: item.color }]}
+                      />
+                      <Text style={[st.statLabel, { color: t.text.muted }]}>
+                        {item.label}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+              {total > 0 && (
+                <View style={{ marginTop: 10, marginBottom: 14 }}>
+                  <ProgressBar
+                    pct={blockedPct}
+                    color={t.blocked.accent}
+                    track={t.border.light}
+                  />
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  st.simulateBtn,
+                  {
+                    backgroundColor: t.bg.cardAlt,
+                    borderColor: t.border.light,
+                  },
+                ]}
+                onPress={simulateAttempt}
+                activeOpacity={0.8}
+              >
+                <Text style={[st.simulateBtnIcon, { color: t.text.muted }]}>
+                  ◎
                 </Text>
-                <View style={st.statLabelRow}>
-                  <View style={[st.statDot, { backgroundColor: item.color }]} />
-                  <Text style={[st.statLabel, { color: t.text.muted }]}>
-                    {item.label}
+                <Text style={[st.simulateBtnText, { color: t.text.secondary }]}>
+                  Simuler une connexion
+                </Text>
+              </TouchableOpacity>
+
+              {/* Actions rapides */}
+              <Text
+                style={[
+                  st.sectionLabel,
+                  { color: t.text.muted, marginTop: 20 },
+                ]}
+              >
+                ACTIONS RAPIDES
+              </Text>
+              <View
+                style={[
+                  st.actionsCard,
+                  { backgroundColor: t.bg.card, borderColor: t.border.light },
+                ]}
+              >
+                {details?.isLaunchable && (
+                  <ActionRow
+                    icon="▶"
+                    label="Ouvrir l'application"
+                    onPress={handleLaunchApp}
+                  />
+                )}
+                <ActionRow
+                  icon="🔔"
+                  label="Paramètres de notifications"
+                  sub={
+                    details
+                      ? details.notificationsEnabled
+                        ? "Activées"
+                        : "Désactivées"
+                      : undefined
+                  }
+                  onPress={handleOpenNotifSettings}
+                  right={
+                    details ? (
+                      <View
+                        style={[
+                          st.notifBadge,
+                          {
+                            backgroundColor: details.notificationsEnabled
+                              ? t.allowed.bg
+                              : t.blocked.bg,
+                            borderColor: details.notificationsEnabled
+                              ? t.allowed.border
+                              : t.blocked.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            fontWeight: "700",
+                            color: details.notificationsEnabled
+                              ? t.allowed.text
+                              : t.blocked.text,
+                          }}
+                        >
+                          {details.notificationsEnabled ? "ON" : "OFF"}
+                        </Text>
+                      </View>
+                    ) : undefined
+                  }
+                />
+                <ActionRow
+                  icon="🗄"
+                  label="Stockage et cache"
+                  sub="Vider le cache ou les données"
+                  onPress={handleOpenStorage}
+                />
+                <ActionRow
+                  icon="⚙"
+                  label="Paramètres Android"
+                  sub="Page système de l'app"
+                  onPress={handleOpenSettings}
+                />
+                {!details?.isSystemApp && (
+                  <ActionRow
+                    icon="🗑"
+                    label="Désinstaller"
+                    onPress={handleUninstall}
+                    danger
+                  />
+                )}
+              </View>
+            </>
+          )}
+
+          {/* ════════════════════ ONGLET INFOS ════════════════════ */}
+          {activeTab === "info" && details && (
+            <>
+              <Text style={[st.sectionLabel, { color: t.text.muted }]}>
+                INFORMATIONS
+              </Text>
+              <View
+                style={[
+                  st.infoCard,
+                  { backgroundColor: t.bg.card, borderColor: t.border.light },
+                ]}
+              >
+                <InfoRow label="Nom" value={details.appName} />
+                <InfoRow label="Package" value={details.packageName} />
+                <InfoRow
+                  label="Version"
+                  value={`${details.versionName} (${details.versionCode})`}
+                />
+                <InfoRow
+                  label="Taille APK"
+                  value={formatSize(details.apkSizeBytes)}
+                />
+                <InfoRow
+                  label="Installée le"
+                  value={formatDate(details.firstInstallTime)}
+                />
+                <InfoRow
+                  label="Mise à jour"
+                  value={formatDate(details.lastUpdateTime)}
+                />
+                <InfoRow
+                  label="Type"
+                  value={
+                    details.isSystemApp
+                      ? "Application système"
+                      : "Application utilisateur"
+                  }
+                />
+                <InfoRow
+                  label="État"
+                  value={details.isEnabled ? "Activée" : "Désactivée"}
+                />
+                <InfoRow
+                  label="Notifications"
+                  value={
+                    details.notificationsEnabled ? "Autorisées" : "Bloquées"
+                  }
+                />
+                <View
+                  style={[st.infoRow, { borderBottomColor: "transparent" }]}
+                >
+                  <Text style={[st.infoLabel, { color: t.text.muted }]}>
+                    Chemin
+                  </Text>
+                  <Text
+                    style={[
+                      st.infoValue,
+                      {
+                        color: t.text.primary,
+                        fontSize: 10,
+                        fontFamily: "monospace",
+                      },
+                    ]}
+                    selectable
+                    numberOfLines={3}
+                  >
+                    {details.sourceDir || "—"}
                   </Text>
                 </View>
               </View>
-            ))}
-          </View>
-          {total > 0 && (
-            <View style={{ marginTop: 12, marginBottom: 14 }}>
-              <ProgressBar
-                pct={blockedPct}
-                color={t.blocked.accent}
-                track={t.border.light}
-              />
-            </View>
-          )}
-          <TouchableOpacity
-            style={[
-              st.simulateBtn,
-              { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
-            ]}
-            onPress={simulateAttempt}
-            activeOpacity={0.8}
-          >
-            <Text style={[st.simulateBtnIcon, { color: t.text.muted }]}>◎</Text>
-            <Text style={[st.simulateBtnText, { color: t.text.secondary }]}>
-              Simuler une connexion
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
 
-        {/* Planification */}
-        <Animated.View
-          style={[st.section, { transform: [{ translateY: slideAnim }] }]}
-        >
-          <View style={st.sectionHeaderRow}>
-            <Text style={[st.sectionLabel, { color: t.text.muted }]}>
-              PLANIFICATION
-            </Text>
-            <TouchableOpacity
-              style={[
-                st.addBtn,
-                { backgroundColor: t.bg.accent, borderColor: t.border.strong },
-                scheduleLimitReached && {
-                  backgroundColor: t.bg.cardAlt,
-                  borderColor: t.border.light,
-                },
-              ]}
-              onPress={() => {
-                if (!scheduleLimitReached) openAddModal();
-                else setPaywallVisible(true);
-              }}
-              activeOpacity={0.8}
-            >
+              {/* Permissions */}
+              {details.permissions.length > 0 && (
+                <>
+                  <View style={st.permHeader}>
+                    <Text style={[st.sectionLabel, { color: t.text.muted }]}>
+                      PERMISSIONS ({details.permissions.length})
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => setShowPerms((v) => !v)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[st.permToggle, { color: t.text.link }]}>
+                        {showPerms ? "Réduire ▲" : "Afficher ▼"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {showPerms && (
+                    <View style={st.permWrap}>
+                      {details.permissions.map((p) => (
+                        <PermissionBadge key={p} perm={p} />
+                      ))}
+                    </View>
+                  )}
+                  {!showPerms && (
+                    <View style={st.permWrapCollapsed}>
+                      {details.permissions.slice(0, 6).map((p) => (
+                        <PermissionBadge key={p} perm={p} />
+                      ))}
+                      {details.permissions.length > 6 && (
+                        <TouchableOpacity
+                          onPress={() => setShowPerms(true)}
+                          activeOpacity={0.75}
+                        >
+                          <View
+                            style={[
+                              st.permMoreBtn,
+                              {
+                                backgroundColor: t.bg.cardAlt,
+                                borderColor: t.border.light,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[st.permMoreText, { color: t.text.link }]}
+                            >
+                              +{details.permissions.length - 6} de plus
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {activeTab === "info" && !details && (
+            <View style={st.noDetails}>
+              <Text style={{ fontSize: 28, marginBottom: 12 }}>ℹ</Text>
               <Text
                 style={[
-                  st.addBtnText,
-                  { color: scheduleLimitReached ? t.text.muted : t.text.link },
-                ]}
-              >
-                {scheduleLimitReached ? "🔒 Premium" : "+ Ajouter"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-          {schedules.length === 0 ? (
-            <View
-              style={[
-                st.emptySchedule,
-                { backgroundColor: t.bg.card, borderColor: t.border.light },
-              ]}
-            >
-              <View
-                style={[
-                  st.emptyIconWrap,
                   {
-                    backgroundColor: t.bg.accent,
-                    borderColor: t.border.strong,
+                    fontSize: 14,
+                    color: t.text.secondary,
+                    textAlign: "center",
                   },
                 ]}
               >
-                <Text style={[st.emptyIconText, { color: t.text.link }]}>
-                  ◷
-                </Text>
-              </View>
-              <Text style={[st.emptyTitle, { color: t.text.secondary }]}>
-                Aucune planification
+                Informations détaillées non disponibles.{"\n"}Module natif
+                requis.
               </Text>
-              <Text style={[st.emptySubtitle, { color: t.text.muted }]}>
-                Définissez des plages horaires pour bloquer ou autoriser
-                automatiquement Internet.
-              </Text>
-              <TouchableOpacity
-                style={[
-                  st.emptyBtn,
-                  {
-                    backgroundColor: t.bg.accent,
-                    borderColor: t.border.strong,
-                  },
-                ]}
-                onPress={openAddModal}
-                activeOpacity={0.8}
-              >
-                <Text style={[st.emptyBtnText, { color: t.text.link }]}>
-                  Créer une planification
-                </Text>
-              </TouchableOpacity>
             </View>
-          ) : (
-            schedules.map((sc) => (
-              <ScheduleCard
-                key={sc.id}
-                schedule={sc}
-                onEdit={() => openEditModal(sc)}
-                onToggle={() => toggleSchedule(sc.id)}
-                onDelete={() => deleteSchedule(sc.id)}
-              />
-            ))
+          )}
+
+          {/* ════════════════════ ONGLET PLAGES ════════════════════ */}
+          {activeTab === "schedule" && (
+            <>
+              <View style={st.sectionHeaderRow}>
+                <Text style={[st.sectionLabel, { color: t.text.muted }]}>
+                  PLANIFICATIONS
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    st.addBtn,
+                    {
+                      backgroundColor: t.bg.accent,
+                      borderColor: t.border.strong,
+                    },
+                    scheduleLimitReached && {
+                      backgroundColor: t.bg.cardAlt,
+                      borderColor: t.border.light,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (!scheduleLimitReached) openAddModal();
+                    else setPaywallVisible(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      st.addBtnText,
+                      {
+                        color: scheduleLimitReached
+                          ? t.text.muted
+                          : t.text.link,
+                      },
+                    ]}
+                  >
+                    {scheduleLimitReached ? "🔒 Premium" : "+ Ajouter"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {schedules.length === 0 ? (
+                <View
+                  style={[
+                    st.emptySchedule,
+                    { backgroundColor: t.bg.card, borderColor: t.border.light },
+                  ]}
+                >
+                  <View
+                    style={[
+                      st.emptyIconWrap,
+                      {
+                        backgroundColor: t.bg.accent,
+                        borderColor: t.border.strong,
+                      },
+                    ]}
+                  >
+                    <Text style={[st.emptyIconText, { color: t.text.link }]}>
+                      ◷
+                    </Text>
+                  </View>
+                  <Text style={[st.emptyTitle, { color: t.text.secondary }]}>
+                    Aucune planification
+                  </Text>
+                  <Text style={[st.emptySubtitle, { color: t.text.muted }]}>
+                    Définissez des plages horaires pour bloquer ou autoriser
+                    automatiquement Internet.
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      st.emptyBtn,
+                      {
+                        backgroundColor: t.bg.accent,
+                        borderColor: t.border.strong,
+                      },
+                    ]}
+                    onPress={openAddModal}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[st.emptyBtnText, { color: t.text.link }]}>
+                      Créer une planification
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                schedules.map((sc) => (
+                  <ScheduleCard
+                    key={sc.id}
+                    schedule={sc}
+                    onEdit={() => openEditModal(sc)}
+                    onToggle={() => toggleSchedule(sc.id)}
+                    onDelete={() => deleteSchedule(sc.id)}
+                  />
+                ))
+              )}
+            </>
           )}
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* Modal planification */}
+      {/* ── Modal planification ── */}
       <Modal
         visible={showModal}
         transparent
@@ -1067,66 +1637,96 @@ export default function AppDetailScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const st = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 22, paddingBottom: 24, borderBottomWidth: 1 },
+  header: { paddingHorizontal: 20, paddingBottom: 0, borderBottomWidth: 0 },
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 22,
+    marginBottom: 16,
   },
   backArrow: { fontSize: 18, color: Colors.gray[0], lineHeight: 20 },
   backText: { fontSize: 14, color: Colors.gray[0], fontWeight: "600" },
-  heroSection: { alignItems: "center" },
-  heroIcon: { width: 80, height: 80, borderRadius: 22, marginBottom: 14 },
+  heroSection: { alignItems: "center", marginBottom: 20 },
+  heroIcon: { width: 72, height: 72, borderRadius: 20, marginBottom: 12 },
   heroIconPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 22,
+    width: 72,
+    height: 72,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
   },
-  heroIconLetter: { fontSize: 32, fontWeight: "800" },
+  heroIconLetter: { fontSize: 28, fontWeight: "800" },
   heroName: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "800",
     color: Colors.gray[0],
     letterSpacing: -0.5,
-    marginBottom: 5,
+    marginBottom: 4,
   },
-  heroPackage: { fontSize: 11, fontFamily: "monospace", marginBottom: 10 },
-  sysBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+  heroPackage: { fontSize: 10, fontFamily: "monospace", marginBottom: 8 },
+  heroBadges: {
+    flexDirection: "row",
+    gap: 6,
+    flexWrap: "wrap",
+    justifyContent: "center",
+  },
+  heroBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     borderWidth: 1,
   },
-  sysBadgeText: { fontSize: 10, fontWeight: "600" },
-  scroll: { paddingHorizontal: 20, paddingTop: 22 },
-  section: { marginBottom: 28 },
+  heroBadgeText: { fontSize: 10, fontWeight: "600" },
+
+  // Tab bar
+  tabBar: {
+    flexDirection: "row",
+    position: "relative",
+    backgroundColor: "rgba(255,255,255,.12)",
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 0,
+    marginTop: 4,
+  },
+  tabIndicator: {
+    position: "absolute",
+    height: "100%",
+    backgroundColor: "rgba(255,255,255,.2)",
+    borderRadius: 12,
+  },
+  tab: { flex: 1, paddingVertical: 10, alignItems: "center" },
+  tabText: { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,.55)" },
+  tabTextActive: { color: Colors.gray[0], fontWeight: "800" },
+
+  scroll: { paddingHorizontal: 18, paddingTop: 20 },
   sectionLabel: {
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 2.5,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   sectionHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 10,
   },
+
+  // Control
   controlCard: {
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 18,
-    padding: 18,
+    padding: 16,
     borderWidth: 1,
     overflow: "hidden",
-    gap: 14,
+    gap: 12,
+    marginBottom: 4,
   },
   controlAccent: {
     position: "absolute",
@@ -1137,44 +1737,129 @@ const st = StyleSheet.create({
     borderRadius: 2,
   },
   controlIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
   },
-  controlIcon: { fontSize: 18 },
+  controlIcon: { fontSize: 16 },
   controlTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "800",
-    marginBottom: 3,
+    marginBottom: 2,
     letterSpacing: -0.3,
   },
   controlSub: { fontSize: 11 },
+
   statsRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
   statCard: {
     flex: 1,
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 14,
+    padding: 12,
     borderWidth: 1,
     alignItems: "center",
-    gap: 6,
+    gap: 5,
   },
-  statNum: { fontSize: 24, fontWeight: "800", letterSpacing: -0.5 },
+  statNum: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   statLabelRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   statDot: { width: 5, height: 5, borderRadius: 3 },
   statLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1 },
+
   simulateBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     borderRadius: 14,
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderWidth: 1,
   },
   simulateBtnIcon: { fontSize: 13 },
   simulateBtnText: { fontSize: 13, fontWeight: "600" },
+
+  // Actions
+  actionsCard: { borderRadius: 18, borderWidth: 1, overflow: "hidden" },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  actionRowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  actionRowLabel: { fontSize: 13, fontWeight: "600", marginBottom: 2 },
+  actionRowSub: { fontSize: 11 },
+  actionRowChevron: { fontSize: 20, fontWeight: "300" },
+  notifBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+
+  // Info
+  infoCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 16,
+  },
+  infoLabel: { fontSize: 12, fontWeight: "600", flexShrink: 0, width: 100 },
+  infoValue: { fontSize: 12, flex: 1, textAlign: "right" },
+  noDetails: { alignItems: "center", paddingTop: 60 },
+  permHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  permToggle: { fontSize: 12, fontWeight: "600" },
+  permWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 20,
+  },
+  permWrapCollapsed: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 20,
+  },
+  permBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  permBadgeText: { fontSize: 10, fontWeight: "600" },
+  permMoreBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  permMoreText: { fontSize: 10, fontWeight: "700" },
+
+  // Schedule
   addBtn: {
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -1259,26 +1944,26 @@ const st = StyleSheet.create({
     alignItems: "center",
   },
   emptyIconWrap: {
-    width: 60,
-    height: 60,
+    width: 56,
+    height: 56,
     borderRadius: 18,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  emptyIconText: { fontSize: 26 },
-  emptyTitle: { fontSize: 15, fontWeight: "700", marginBottom: 8 },
+  emptyIconText: { fontSize: 24 },
+  emptyTitle: { fontSize: 14, fontWeight: "700", marginBottom: 6 },
   emptySubtitle: {
     fontSize: 12,
     textAlign: "center",
     lineHeight: 19,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   emptyBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 11,
     borderWidth: 1,
   },
   emptyBtnText: { fontSize: 13, fontWeight: "700" },
