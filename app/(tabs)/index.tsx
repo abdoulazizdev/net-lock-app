@@ -41,38 +41,42 @@ import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type AppItem = InstalledApp & { rule?: AppRule };
-const CARD_H = 64;
+const CARD_H = 72;
+
+function pkgHue(pkg: string) {
+  return pkg.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+}
 
 // ─── PulseDot ─────────────────────────────────────────────────────────────────
 const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
-  const s = useRef(new Animated.Value(1)).current;
-  const o = useRef(new Animated.Value(0.6)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(0.7)).current;
   useEffect(() => {
     Animated.loop(
       Animated.parallel([
         Animated.sequence([
-          Animated.timing(s, {
-            toValue: 2.0,
-            duration: 900,
+          Animated.timing(scale, {
+            toValue: 1.9,
+            duration: 850,
             easing: Easing.out(Easing.ease),
             useNativeDriver: true,
           }),
-          Animated.timing(s, {
+          Animated.timing(scale, {
             toValue: 1,
-            duration: 900,
+            duration: 850,
             easing: Easing.in(Easing.ease),
             useNativeDriver: true,
           }),
         ]),
         Animated.sequence([
-          Animated.timing(o, {
+          Animated.timing(opacity, {
             toValue: 0,
-            duration: 900,
+            duration: 850,
             useNativeDriver: true,
           }),
-          Animated.timing(o, {
-            toValue: 0.6,
-            duration: 900,
+          Animated.timing(opacity, {
+            toValue: 0.7,
+            duration: 850,
             useNativeDriver: true,
           }),
         ]),
@@ -84,11 +88,7 @@ const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
       <Animated.View
         style={[
           g.dotRing,
-          {
-            transform: [{ scale: s }],
-            opacity: o,
-            backgroundColor: color + "40",
-          },
+          { transform: [{ scale }], opacity, backgroundColor: color + "50" },
         ]}
       />
       <View style={[g.dotCore, { backgroundColor: color }]} />
@@ -96,7 +96,7 @@ const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
   );
 });
 
-// ─── VPN toggle ───────────────────────────────────────────────────────────────
+// ─── VPN pill ─────────────────────────────────────────────────────────────────
 const VpnToggle = React.memo(function VpnToggle({
   active,
   locked,
@@ -106,63 +106,61 @@ const VpnToggle = React.memo(function VpnToggle({
   locked: boolean;
   onPress: () => void;
 }) {
-  const { t } = useTheme();
   const anim = useRef(new Animated.Value(active ? 1 : 0)).current;
-
   useEffect(() => {
     Animated.timing(anim, {
       toValue: active ? 1 : 0,
-      duration: 300,
+      duration: 280,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
   }, [active]);
-
   const bg = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [t.vpnOff.bg, t.vpnOn.bg],
+    outputRange: ["rgba(255,255,255,0.07)", "rgba(52,211,153,0.16)"],
   });
   const border = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [t.vpnOff.border, t.vpnOn.border],
+    outputRange: ["rgba(255,255,255,0.14)", "rgba(52,211,153,0.42)"],
   });
   const dotColor = locked
-    ? t.border.normal
+    ? "rgba(255,255,255,0.2)"
     : active
-      ? t.vpnOn.dot
-      : t.vpnOff.dot;
+      ? "#34d399"
+      : "rgba(255,255,255,0.28)";
   const textColor = locked
-    ? t.text.muted
+    ? "rgba(255,255,255,0.28)"
     : active
-      ? t.vpnOn.text
-      : t.vpnOff.text;
-
+      ? "#34d399"
+      : "rgba(255,255,255,0.5)";
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={locked ? 1 : 0.7}>
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={locked ? 1 : 0.75}
+      disabled={locked}
+    >
       <Animated.View
         style={[
-          g.vpnPill,
+          g.controlPill,
           { backgroundColor: bg, borderColor: border },
-          locked && { opacity: 0.4 },
+          locked && { opacity: 0.45 },
         ]}
       >
-        <View style={[g.vpnDot, { backgroundColor: dotColor }]} />
-        <Text style={[g.vpnLabel, { color: textColor }]}>
-          VPN {active ? "ON" : "OFF"}
-        </Text>
-        {locked && (
-          <Text
-            style={[{ fontSize: 9, marginLeft: 2 }, { color: t.text.muted }]}
-          >
-            ◈
-          </Text>
+        {active && !locked ? (
+          <PulseDot color="#34d399" />
+        ) : (
+          <View style={[g.pillDot, { backgroundColor: dotColor }]} />
         )}
+        <Text style={[g.pillLabel, { color: textColor }]}>VPN</Text>
+        <Text style={[g.pillState, { color: textColor }]}>
+          {active ? "ON" : "OFF"}
+        </Text>
       </Animated.View>
     </TouchableOpacity>
   );
 });
 
-// ─── Focus toggle pill ────────────────────────────────────────────────────────
+// ─── Focus pill ───────────────────────────────────────────────────────────────
 const FocusToggle = React.memo(function FocusToggle({
   active,
   onPress,
@@ -170,48 +168,38 @@ const FocusToggle = React.memo(function FocusToggle({
   active: boolean;
   onPress: () => void;
 }) {
-  const { t } = useTheme();
   const anim = useRef(new Animated.Value(active ? 1 : 0)).current;
-
   useEffect(() => {
     Animated.timing(anim, {
       toValue: active ? 1 : 0,
-      duration: 300,
+      duration: 280,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
   }, [active]);
-
   const bg = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.06)", "rgba(167,139,250,0.15)"],
+    outputRange: ["rgba(255,255,255,0.07)", "rgba(167,139,250,0.18)"],
   });
   const border = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.12)", "rgba(167,139,250,0.4)"],
+    outputRange: ["rgba(255,255,255,0.14)", "rgba(167,139,250,0.45)"],
   });
-
+  const dotColor = active ? Colors.purple[200] : "rgba(255,255,255,0.28)";
+  const textColor = active ? Colors.purple[200] : "rgba(255,255,255,0.5)";
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.75}>
       <Animated.View
-        style={[g.focusPill, { backgroundColor: bg, borderColor: border }]}
+        style={[g.controlPill, { backgroundColor: bg, borderColor: border }]}
       >
         {active ? (
-          <PulseDot color={Colors.purple[200]} />
+          <PulseDot color={Colors.purple[300]} />
         ) : (
-          <View style={g.focusCircle} />
+          <View style={[g.pillDot, { backgroundColor: dotColor }]} />
         )}
-        <Text
-          style={[
-            g.focusLabel,
-            {
-              color: active
-                ? "rgba(167,139,250,0.9)"
-                : "rgba(255,255,255,0.45)",
-            },
-          ]}
-        >
-          Focus {active ? "ON" : "OFF"}
+        <Text style={[g.pillLabel, { color: textColor }]}>Focus</Text>
+        <Text style={[g.pillState, { color: textColor }]}>
+          {active ? "ON" : "OFF"}
         </Text>
       </Animated.View>
     </TouchableOpacity>
@@ -231,53 +219,100 @@ const MoreMenu = React.memo(function MoreMenu({
   onTimer: () => void;
 }) {
   const { t } = useTheme();
+  const slideAnim = useRef(new Animated.Value(-10)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (visible) {
+      slideAnim.setValue(-10);
+      opacityAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 170,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
   if (!visible) return null;
+  const items = [
+    {
+      icon: "⚙",
+      label: "Paramètres",
+      sub: "Config & sécurité",
+      onPress: onSettings,
+    },
+    {
+      icon: "⏱",
+      label: "Minuterie",
+      sub: "Session focus rapide",
+      onPress: onTimer,
+    },
+  ];
   return (
     <Modal transparent animationType="none" onRequestClose={onClose}>
       <TouchableWithoutFeedback onPress={onClose}>
-        <View style={g.menuOverlay}>
+        <View style={StyleSheet.absoluteFill}>
           <TouchableWithoutFeedback>
-            <View
+            <Animated.View
               style={[
                 g.menuCard,
                 { backgroundColor: t.bg.card, borderColor: t.border.light },
+                {
+                  opacity: opacityAnim,
+                  transform: [{ translateY: slideAnim }],
+                },
               ]}
             >
-              <TouchableOpacity
-                style={[g.menuItem, { borderBottomColor: t.border.light }]}
-                onPress={() => {
-                  onClose();
-                  onSettings();
-                }}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[g.menuIconWrap, { backgroundColor: t.bg.accent }]}
+              {items.map((item, i) => (
+                <TouchableOpacity
+                  key={item.label}
+                  style={[
+                    g.menuItem,
+                    i < items.length - 1 && {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: t.border.light,
+                    },
+                  ]}
+                  onPress={() => {
+                    onClose();
+                    item.onPress();
+                  }}
+                  activeOpacity={0.7}
                 >
-                  <Text style={[g.menuIcon, { color: t.text.link }]}>⚙</Text>
-                </View>
-                <Text style={[g.menuLabel, { color: t.text.primary }]}>
-                  Paramètres
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={g.menuItem}
-                onPress={() => {
-                  onClose();
-                  onTimer();
-                }}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[g.menuIconWrap, { backgroundColor: t.bg.accent }]}
-                >
-                  <Text style={[g.menuIcon, { color: t.text.link }]}>⏱</Text>
-                </View>
-                <Text style={[g.menuLabel, { color: t.text.primary }]}>
-                  Minuterie
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <View
+                    style={[
+                      g.menuIconWrap,
+                      {
+                        backgroundColor: t.bg.accent,
+                        borderColor: t.border.strong,
+                      },
+                    ]}
+                  >
+                    <Text style={[g.menuIcon, { color: t.text.link }]}>
+                      {item.icon}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[g.menuLabel, { color: t.text.primary }]}>
+                      {item.label}
+                    </Text>
+                    <Text style={[g.menuSub, { color: t.text.muted }]}>
+                      {item.sub}
+                    </Text>
+                  </View>
+                  <Text style={[g.menuChevron, { color: t.border.normal }]}>
+                    ›
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </Animated.View>
           </TouchableWithoutFeedback>
         </View>
       </TouchableWithoutFeedback>
@@ -285,7 +320,7 @@ const MoreMenu = React.memo(function MoreMenu({
   );
 });
 
-// ─── App row toggle ────────────────────────────────────────────────────────────
+// ─── App switch ───────────────────────────────────────────────────────────────
 const AppToggle = React.memo(function AppToggle({
   blocked,
   locked,
@@ -299,17 +334,18 @@ const AppToggle = React.memo(function AppToggle({
 }) {
   const { t } = useTheme();
   const x = useRef(new Animated.Value(blocked ? 1 : 0)).current;
-
   useEffect(() => {
     Animated.spring(x, {
       toValue: blocked ? 1 : 0,
-      tension: 320,
-      friction: 24,
+      tension: 360,
+      friction: 26,
       useNativeDriver: false,
     }).start();
   }, [blocked]);
-
-  const left = x.interpolate({ inputRange: [0, 1], outputRange: [3, 22] });
+  const translateX = x.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, 21],
+  });
 
   if (locked)
     return (
@@ -320,11 +356,10 @@ const AppToggle = React.memo(function AppToggle({
         ]}
       >
         <View
-          style={[sw.thumb, { left: 3, backgroundColor: t.border.normal }]}
+          style={[sw.thumb, { left: 2, backgroundColor: t.border.normal }]}
         />
       </View>
     );
-
   if (cannotBlock)
     return (
       <TouchableOpacity
@@ -343,11 +378,10 @@ const AppToggle = React.memo(function AppToggle({
             },
           ]}
         >
-          <Text style={{ fontSize: 10 }}>🔒</Text>
+          <Text style={{ fontSize: 11 }}>🔒</Text>
         </View>
       </TouchableOpacity>
     );
-
   return (
     <TouchableOpacity
       onPress={onToggle}
@@ -367,7 +401,7 @@ const AppToggle = React.memo(function AppToggle({
           style={[
             sw.thumb,
             {
-              left,
+              transform: [{ translateX }],
               backgroundColor: blocked ? t.blocked.accent : t.allowed.accent,
             },
           ]}
@@ -378,18 +412,18 @@ const AppToggle = React.memo(function AppToggle({
 });
 
 const sw = StyleSheet.create({
-  track: { width: 46, height: 25, borderRadius: 13, borderWidth: 1 },
+  track: { width: 48, height: 26, borderRadius: 13, borderWidth: 1 },
   thumb: {
     position: "absolute",
     top: 3,
-    width: 17,
-    height: 17,
+    width: 18,
+    height: 18,
     borderRadius: 9,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.18,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 3,
+    elevation: 3,
   },
 });
 
@@ -411,93 +445,151 @@ const AppCard = React.memo(
     const { t } = useTheme();
     const blocked = item.rule?.isBlocked ?? false;
     const cannotBlock = !blocked && limitReached && !locked;
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+    const hue = pkgHue(item.packageName);
+    const iconColor = `hsl(${hue}, 60%, 62%)`;
+
+    const pressIn = () =>
+      Animated.spring(scaleAnim, {
+        toValue: 0.972,
+        tension: 400,
+        friction: 18,
+        useNativeDriver: true,
+      }).start();
+    const pressOut = () =>
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 400,
+        friction: 18,
+        useNativeDriver: true,
+      }).start();
 
     return (
-      <TouchableOpacity
-        style={[
-          g.card,
-          {
-            backgroundColor: t.bg.card,
-            borderColor: t.border.light,
-            shadowColor: t.shadowColor,
-            shadowOpacity: t.shadowOpacity,
-          },
-          blocked && {
-            backgroundColor: t.blocked.bg,
-            borderColor: t.blocked.border,
-          },
-          locked && { opacity: 0.52 },
-        ]}
-        onPress={() => onPress(item.packageName)}
-        activeOpacity={0.72}
+      <Animated.View
+        style={[{ transform: [{ scale: scaleAnim }] }, { marginBottom: 5 }]}
       >
-        {blocked && (
-          <View style={[g.accentBar, { backgroundColor: t.blocked.accent }]} />
-        )}
-
-        <View style={g.iconBox}>
-          {item.icon ? (
-            <Image
-              source={{ uri: `data:image/png;base64,${item.icon}` }}
-              style={g.iconImg}
-              resizeMode="contain"
-            />
-          ) : (
+        <TouchableOpacity
+          style={[
+            g.card,
+            {
+              backgroundColor: t.bg.card,
+              borderColor: t.border.light,
+              shadowColor: t.shadowColor,
+              shadowOpacity: t.shadowOpacity,
+            },
+            blocked && {
+              backgroundColor: t.blocked.bg,
+              borderColor: t.blocked.border,
+            },
+            locked && { opacity: 0.46 },
+          ]}
+          onPress={() => onPress(item.packageName)}
+          onPressIn={pressIn}
+          onPressOut={pressOut}
+          activeOpacity={1}
+        >
+          {blocked && (
             <View
-              style={[
-                g.iconFallback,
-                { backgroundColor: blocked ? t.blocked.bg : t.bg.accent },
-              ]}
-            >
-              <Text
+              style={[g.cardAccentBar, { backgroundColor: t.blocked.accent }]}
+            />
+          )}
+
+          {/* ── Icône ── */}
+          <View style={g.iconWrap}>
+            {item.icon ? (
+              <Image
+                source={{ uri: `data:image/png;base64,${item.icon}` }}
+                style={g.iconImg}
+                resizeMode="contain"
+              />
+            ) : (
+              <View
                 style={[
-                  g.iconLetter,
-                  { color: blocked ? t.blocked.accent : t.text.link },
+                  g.iconFallback,
+                  {
+                    backgroundColor: iconColor + "1A",
+                    borderColor: iconColor + "38",
+                  },
                 ]}
               >
-                {item.appName.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-        </View>
+                <Text style={[g.iconLetter, { color: iconColor }]}>
+                  {item.appName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            {item.isSystemApp && (
+              <View
+                style={[
+                  g.sysBadge,
+                  {
+                    backgroundColor: t.bg.accent,
+                    borderColor: t.border.strong,
+                  },
+                ]}
+              >
+                <Text style={[g.sysBadgeText, { color: t.text.muted }]}>
+                  SYS
+                </Text>
+              </View>
+            )}
+          </View>
 
-        <View style={g.appInfo}>
-          <Text
-            style={[
-              g.appName,
-              { color: t.text.primary },
-              blocked && {
-                color: t.text.secondary,
-                textDecorationLine: "line-through",
-              },
-            ]}
-            numberOfLines={1}
-          >
-            {item.appName}
-          </Text>
-          <Text style={[g.appPkg, { color: t.text.muted }]} numberOfLines={1}>
-            {item.packageName}
-          </Text>
-        </View>
+          <View style={g.cardInfo}>
+            <Text
+              style={[
+                g.appName,
+                { color: t.text.primary },
+                blocked && {
+                  color: t.text.secondary,
+                  textDecorationLine: "line-through",
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {item.appName}
+            </Text>
+            <Text style={[g.appPkg, { color: t.text.muted }]} numberOfLines={1}>
+              {item.packageName}
+            </Text>
+            {blocked && (
+              <View
+                style={[
+                  g.blockedTag,
+                  {
+                    backgroundColor: t.blocked.bg,
+                    borderColor: t.blocked.border,
+                  },
+                ]}
+              >
+                <Text style={[g.blockedTagText, { color: t.blocked.accent }]}>
+                  ● Bloquée
+                </Text>
+              </View>
+            )}
+          </View>
 
-        <AppToggle
-          blocked={blocked}
-          locked={locked}
-          cannotBlock={cannotBlock}
-          onToggle={() => !locked && onToggle(item)}
-        />
-      </TouchableOpacity>
+          <View style={g.cardActions}>
+            <AppToggle
+              blocked={blocked}
+              locked={locked}
+              cannotBlock={cannotBlock}
+              onToggle={() => !locked && onToggle(item)}
+            />
+            <Text style={[g.cardChevron, { color: t.border.light }]}>›</Text>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
     );
   },
   (p, n) =>
     p.item.packageName === n.item.packageName &&
     p.item.rule?.isBlocked === n.item.rule?.isBlocked &&
-    p.item.icon === n.item.icon &&
+    p.item.icon === n.item.icon && // ← préserve le re-render quand l'icône arrive
     p.locked === n.locked &&
     p.limitReached === n.limitReached,
 );
 
-// ─── Main ──────────────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { isPremium, refresh: refreshPremium } = usePremium();
@@ -525,20 +617,19 @@ export default function HomeScreen() {
   const limitReached =
     !isPremium && blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS;
 
-  // Mount animation
   const mountFade = useRef(new Animated.Value(0)).current;
-  const mountSlide = useRef(new Animated.Value(10)).current;
+  const mountSlide = useRef(new Animated.Value(18)).current;
   useEffect(() => {
     Animated.parallel([
       Animated.timing(mountFade, {
         toValue: 1,
-        duration: 480,
+        duration: 520,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(mountSlide, {
         toValue: 0,
-        duration: 480,
+        duration: 520,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -568,29 +659,28 @@ export default function HomeScreen() {
       loadSysIfNeeded();
   }, [filters.scope]);
 
-  const merge = useCallback(
-    (list: InstalledApp[], rules: AppRule[]): AppItem[] => {
-      const map = new Map(rules.map((r) => [r.packageName, r]));
-      return list.map((a) => ({ ...a, rule: map.get(a.packageName) }));
+  // ── merge avec préservation des icônes ───────────────────────────────────
+  // existing = état actuel pour récupérer les icônes déjà chargées
+  const mergeAppsRules = useCallback(
+    (
+      incoming: InstalledApp[],
+      rules: AppRule[],
+      existing?: AppItem[],
+    ): AppItem[] => {
+      const ruleMap = new Map(rules.map((r) => [r.packageName, r]));
+      // Map d'icônes depuis l'état existant pour ne pas les perdre lors d'un refresh
+      const iconMap = new Map(
+        (existing ?? []).map((a) => [a.packageName, a.icon]),
+      );
+      return incoming.map((a) => ({
+        ...a,
+        // Priorité : icône de l'app entrante → icône conservée → null
+        icon: a.icon ?? iconMap.get(a.packageName) ?? null,
+        rule: ruleMap.get(a.packageName),
+      }));
     },
     [],
   );
-
-  const loadSysIfNeeded = async () => {
-    if (sysLoaded || sysLoading) return;
-    setSysLoading(true);
-    try {
-      const [all, rules] = await Promise.all([
-        AppListService.getInstalledApps(),
-        StorageService.getRules(),
-      ]);
-      setApps(merge(all, rules));
-      setSysLoaded(true);
-    } catch {
-    } finally {
-      setSysLoading(false);
-    }
-  };
 
   const checkFocus = async () => {
     try {
@@ -601,6 +691,30 @@ export default function HomeScreen() {
     }
   };
 
+  const loadSysIfNeeded = async () => {
+    if (sysLoaded || sysLoading) return;
+    setSysLoading(true);
+    try {
+      const rules = await StorageService.getRules();
+      // Phase légère sans icônes
+      const all = await AppListService.getAllApps();
+      setApps((prev) => mergeAppsRules(all, rules, prev));
+      setSysLoaded(true);
+      // Phase enrichissement avec icônes en arrière-plan
+      AppListService.getAllAppsWithIcons()
+        .then((full) => {
+          StorageService.getRules()
+            .then((r) => setApps((prev) => mergeAppsRules(full, r, prev)))
+            .catch(() => {});
+        })
+        .catch(() => {});
+    } catch {
+    } finally {
+      setSysLoading(false);
+    }
+  };
+
+  // ── Chargement en 3 phases pour afficher quelque chose immédiatement ──────
   const loadInitial = async () => {
     setLoading(true);
     try {
@@ -610,25 +724,40 @@ export default function HomeScreen() {
       ]);
       setVpnActive(isVpn);
       setBlockedCount(rules.filter((r) => r.isBlocked).length);
-      const user = await AppListService.getNonSystemApps();
-      setApps(merge(user, rules));
-    } finally {
+
+      // Phase 1 — apps utilisateur SANS icônes → affichage immédiat
+      const light = await AppListService.getNonSystemApps();
+      setApps((prev) => mergeAppsRules(light, rules, prev));
+      setLoading(false);
+
+      // Phase 2 — apps utilisateur AVEC icônes → enrichissement silencieux
+      AppListService.getNonSystemAppsWithIcons()
+        .then((full) => {
+          StorageService.getRules()
+            .then((r) => setApps((prev) => mergeAppsRules(full, r, prev)))
+            .catch(() => {});
+        })
+        .catch(() => {});
+    } catch {
       setLoading(false);
     }
+
+    // Phase 3 — TOUTES les apps avec icônes en arrière-plan
     setSysLoading(true);
-    try {
-      const [all, rules] = await Promise.all([
-        AppListService.getInstalledApps(),
-        StorageService.getRules(),
-      ]);
-      setApps(merge(all, rules));
-      setSysLoaded(true);
-    } catch {
-    } finally {
-      setSysLoading(false);
-    }
+    AppListService.getAllAppsWithIcons()
+      .then((all) =>
+        StorageService.getRules()
+          .then((rules) => {
+            setApps((prev) => mergeAppsRules(all, rules, prev));
+            setSysLoaded(true);
+          })
+          .catch(() => {}),
+      )
+      .catch(() => {})
+      .finally(() => setSysLoading(false));
   };
 
+  // ── refreshRules préserve les icônes ──────────────────────────────────────
   const refreshRules = useCallback(async () => {
     const [rules, isVpn] = await Promise.all([
       StorageService.getRules(),
@@ -636,14 +765,16 @@ export default function HomeScreen() {
     ]);
     setVpnActive(isVpn);
     setBlockedCount(rules.filter((r) => r.isBlocked).length);
-    setApps((prev) => merge(prev, rules));
-  }, [merge]);
+    // On passe prev comme existing pour préserver les icônes déjà chargées
+    setApps((prev) => mergeAppsRules(prev, rules, prev));
+  }, [mergeAppsRules]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refreshRules(), checkFocus()]);
+    AppListService.invalidateCache();
+    await Promise.all([loadInitial(), checkFocus()]);
     setRefreshing(false);
-  }, [refreshRules]);
+  }, []);
 
   const filteredApps = useMemo(() => {
     let list = [...apps];
@@ -732,8 +863,8 @@ export default function HomeScreen() {
   const keyExtractor = useCallback((i: AppItem) => i.packageName, []);
   const getItemLayout = useCallback(
     (_: unknown, i: number) => ({
-      length: CARD_H,
-      offset: CARD_H * i,
+      length: CARD_H + 5,
+      offset: (CARD_H + 5) * i,
       index: i,
     }),
     [],
@@ -753,10 +884,17 @@ export default function HomeScreen() {
 
   if (loading) return <HomeScreenSkeleton />;
 
+  const allowedCount = filteredApps.filter((a) => !a.rule?.isBlocked).length;
+  const blockedInList = filteredApps.filter((a) => a.rule?.isBlocked).length;
+  const blockedPct =
+    filteredApps.length > 0
+      ? Math.round((blockedInList / filteredApps.length) * 100)
+      : 0;
+
   return (
     <View style={[g.root, { backgroundColor: t.bg.page }]}>
       <StatusBar
-        barStyle={t.statusBar}
+        barStyle="light-content"
         backgroundColor="transparent"
         translucent
       />
@@ -769,97 +907,116 @@ export default function HomeScreen() {
           { opacity: mountFade, transform: [{ translateY: mountSlide }] },
         ]}
       >
-        {/* Gauche — logo + titre */}
-        <View style={g.headerLeft}>
+        {/* Ligne 1 : brand + badge + ··· */}
+        <View style={g.headerTopRow}>
+          <View style={g.brandBlock}>
+            <View style={g.logoMark}>
+              <Text style={g.logoMarkText}>N</Text>
+            </View>
+            <View>
+              <Text style={g.brandName}>NetOff</Text>
+              <Text style={g.brandTagline}>contrôle réseau · local</Text>
+            </View>
+          </View>
+          <View style={g.headerActions}>
+            {isPremium ? (
+              <View style={g.proBadge}>
+                <Text style={g.proBadgeText}>PRO</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={g.freeBadge}
+                onPress={() => showPaywall("general")}
+                activeOpacity={0.75}
+              >
+                <Text style={g.freeBadgeText}>FREE</Text>
+              </TouchableOpacity>
+            )}
+            <View style={g.actionSep} />
+            <TouchableOpacity
+              style={[g.moreBtn, menuVisible && g.moreBtnActive]}
+              onPress={() => setMenuVisible((v) => !v)}
+              activeOpacity={0.75}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <View style={g.moreDot} />
+              <View style={g.moreDot} />
+              <View style={g.moreDot} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Ligne 2 : stats + contrôles */}
+        <View style={g.headerBottomRow}>
           <View
             style={[
-              g.logoPill,
+              g.statsBand,
               {
-                backgroundColor: t.headerBtnBg,
-                borderColor: t.headerBtnBorder,
+                backgroundColor: "rgba(255,255,255,0.06)",
+                borderColor: "rgba(255,255,255,0.1)",
               },
             ]}
           >
-            <Text style={g.logoText}>N</Text>
-          </View>
-          <Text style={g.title}>NetOff</Text>
-        </View>
-
-        {/* Centre — VPN + séparateur + Focus */}
-        <View style={g.headerCenter}>
-          <VpnToggle
-            active={vpnActive}
-            locked={focusActive}
-            onPress={toggleVpn}
-          />
-          <View style={g.centerSep} />
-          <FocusToggle active={focusActive} onPress={handleFocusPress} />
-        </View>
-
-        {/* Droite — badge FREE/PRO + séparateur + bouton ··· */}
-        <View style={g.headerRight}>
-          {isPremium ? (
-            <View
-              style={[
-                g.proBadge,
-                {
-                  backgroundColor: Colors.purple.dark50,
-                  borderColor: Colors.purple.dark100,
-                },
-              ]}
-            >
-              <Text style={[g.proBadgeText, { color: Colors.purple[400] }]}>
-                PRO
-              </Text>
+            <View style={g.statGroup}>
+              <Text style={g.statBig}>{filteredApps.length}</Text>
+              <Text style={g.statTiny}>apps</Text>
             </View>
-          ) : (
-            <TouchableOpacity
-              style={[
-                g.freeBadge,
-                {
-                  backgroundColor: t.headerBtnBg,
-                  borderColor: t.headerBtnBorder,
-                },
-              ]}
-              onPress={() => showPaywall("general")}
-              activeOpacity={0.75}
-            >
-              <Text style={[g.freeBadgeText, { color: t.headerBtnText }]}>
-                FREE
+            <View style={g.statDivider} />
+            <View style={g.statGroup}>
+              <Text style={[g.statBig, blockedInList > 0 && g.statRed]}>
+                {blockedInList}
               </Text>
-            </TouchableOpacity>
-          )}
+              <Text style={g.statTiny}>bloquées</Text>
+            </View>
+            <View style={g.statDivider} />
+            <View style={g.statGroup}>
+              <Text style={[g.statBig, g.statGreen]}>{allowedCount}</Text>
+              <Text style={g.statTiny}>actives</Text>
+            </View>
+          </View>
+          <View style={g.headerMidSep} />
+          <View style={g.controlsBlock}>
+            <VpnToggle
+              active={vpnActive}
+              locked={focusActive}
+              onPress={toggleVpn}
+            />
+            <View style={g.pillSep} />
+            <FocusToggle active={focusActive} onPress={handleFocusPress} />
+          </View>
+        </View>
 
-          <View style={g.rightSep} />
-
-          {/* Bouton ··· */}
-          <TouchableOpacity
+        {/* Ligne 3 : barre de progression */}
+        <View
+          style={[
+            g.progressTrack,
+            { backgroundColor: "rgba(255,255,255,0.08)" },
+          ]}
+        >
+          <View
             style={[
-              g.moreBtn,
+              g.progressFill,
               {
-                backgroundColor: menuVisible ? t.bg.accent : t.headerBtnBg,
-                borderColor: menuVisible ? t.border.strong : t.headerBtnBorder,
+                width: `${blockedPct}%`,
+                backgroundColor: blockedInList > 0 ? "#f87171" : "#34d399",
               },
             ]}
-            onPress={() => setMenuVisible((v) => !v)}
-            activeOpacity={0.75}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <View style={g.moreDot} />
-            <View style={g.moreDot} />
-            <View style={g.moreDot} />
-          </TouchableOpacity>
+          />
+          <Text style={g.progressLabel}>
+            {blockedInList > 0
+              ? `${blockedPct}% du trafic filtré`
+              : "Aucune app bloquée pour l'instant"}
+          </Text>
         </View>
       </Animated.View>
 
-      {/* ══ SUBHEADER — search + chips ═══════════════════════════════════════════ */}
+      {/* ══ SUBHEADER ══════════════════════════════════════════════════════════ */}
       <View
         style={[
           g.subHeader,
           { backgroundColor: t.bg.card, borderBottomColor: t.border.light },
         ]}
       >
-        {/* Focus banner compact */}
         {focusActive && focusStatus && (
           <FocusBanner
             status={focusStatus}
@@ -872,24 +1029,25 @@ export default function HomeScreen() {
             onToggleExpand={() => setFocusExpanded((v) => !v)}
           />
         )}
-
-        {/* Limit strip */}
         {limitReached && (
           <TouchableOpacity
             style={[
-              g.limitStrip,
+              g.limitBanner,
               { backgroundColor: t.warning.bg, borderColor: t.warning.border },
             ]}
             onPress={() => showPaywall("blocked_apps")}
             activeOpacity={0.85}
           >
-            <Text style={[g.limitStripText, { color: t.warning.text }]}>
-              🔒 Limite atteinte · {blockedCount}/{FREE_LIMITS.MAX_BLOCKED_APPS}
+            <Text style={[g.limitText, { color: t.warning.text }]}>
+              🔒 Limite {blockedCount}/{FREE_LIMITS.MAX_BLOCKED_APPS} atteinte
             </Text>
-            <Text style={[g.limitStripCta, { color: t.text.link }]}>Pro →</Text>
+            <View style={[g.limitCta, { borderColor: t.text.link + "55" }]}>
+              <Text style={[g.limitCtaText, { color: t.text.link }]}>
+                Passer Pro →
+              </Text>
+            </View>
           </TouchableOpacity>
         )}
-
         <SearchAndFilters
           query={query}
           onQueryChange={setQuery}
@@ -900,7 +1058,7 @@ export default function HomeScreen() {
         />
       </View>
 
-      {/* ══ LIST ══════════════════════════════════════════════════════════════════ */}
+      {/* ══ LIST ════════════════════════════════════════════════════════════════ */}
       <FlatList
         data={filteredApps}
         keyExtractor={keyExtractor}
@@ -923,9 +1081,20 @@ export default function HomeScreen() {
           />
         }
         ListHeaderComponent={
-          <Text style={[g.listCount, { color: t.text.muted }]}>
-            {filteredApps.length} app{filteredApps.length > 1 ? "s" : ""}
-          </Text>
+          <View style={g.listHeader}>
+            <Text style={[g.listCount, { color: t.text.muted }]}>
+              {filteredApps.length} APPLICATION
+              {filteredApps.length > 1 ? "S" : ""}
+            </Text>
+            {blockedInList > 0 && (
+              <View style={g.blockedChip}>
+                <View style={g.blockedChipDot} />
+                <Text style={g.blockedChipText}>
+                  {blockedInList} bloquée{blockedInList > 1 ? "s" : ""}
+                </Text>
+              </View>
+            )}
+          </View>
         }
         ListEmptyComponent={
           <View style={g.empty}>
@@ -941,13 +1110,13 @@ export default function HomeScreen() {
               Aucune application
             </Text>
             <Text style={[g.emptySub, { color: t.text.muted }]}>
-              Changez la recherche ou les filtres
+              Modifiez la recherche ou les filtres
             </Text>
           </View>
         }
       />
 
-      {/* ══ MODALS ════════════════════════════════════════════════════════════════ */}
+      {/* ══ MODALS ══════════════════════════════════════════════════════════════ */}
       <FocusModal
         visible={focusVisible}
         onClose={() => setFocusVisible(false)}
@@ -966,16 +1135,12 @@ export default function HomeScreen() {
           setPaywallVisible(false);
         }}
       />
-
-      {/* ══ MORE MENU ═════════════════════════════════════════════════════════════ */}
       <MoreMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
         onSettings={() => router.push("/settings")}
         onTimer={() => setTimerVisible(true)}
       />
-
-      {/* ══ QUICK TIMER ══════════════════════════════════════════════════════════ */}
       <QuickTimerModal
         visible={timerVisible}
         onClose={() => setTimerVisible(false)}
@@ -984,8 +1149,6 @@ export default function HomeScreen() {
           refreshRules();
         }}
       />
-
-      {/* FocusFullScreen */}
       {focusActive && focusStatus && (
         <FocusFullScreen
           status={focusStatus}
@@ -1006,182 +1169,189 @@ export default function HomeScreen() {
 const g = StyleSheet.create({
   root: { flex: 1 },
 
-  // Header
   header: {
-    paddingHorizontal: 14,
-    paddingBottom: 11,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    gap: 10,
+    shadowColor: "#040d1e",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.38,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+
+  headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    shadowColor: "#0f2d5e",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 18,
-    elevation: 10,
   },
-
-  // Gauche
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-    flexShrink: 1,
-  },
-
-  // Centre
-  headerCenter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flex: 2,
-    justifyContent: "center",
-  },
-  centerSep: {
-    width: 1,
-    height: 16,
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-
-  // Droite
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flex: 1,
-    justifyContent: "flex-end",
-    flexShrink: 0,
-  },
-  rightSep: {
-    width: 1,
-    height: 16,
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-
-  logoPill: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+  brandBlock: { flexDirection: "row", alignItems: "center", gap: 10 },
+  logoMark: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "rgba(255,255,255,0.15)",
     borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
     justifyContent: "center",
     alignItems: "center",
   },
-  logoText: {
-    fontSize: 13,
+  logoMarkText: {
+    fontSize: 17,
     fontWeight: "900",
     color: "#fff",
-    letterSpacing: -0.3,
+    letterSpacing: -0.8,
   },
-  title: {
-    fontSize: 15,
+  brandName: {
+    fontSize: 18,
     fontWeight: "800",
     color: "#fff",
-    letterSpacing: -0.5,
+    letterSpacing: -0.9,
+    lineHeight: 21,
+  },
+  brandTagline: {
+    fontSize: 9,
+    color: "rgba(255,255,255,0.36)",
+    fontWeight: "600",
+    letterSpacing: 0.2,
   },
 
-  // VPN pill (inchangé fonctionnellement)
-  vpnPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 100,
-    borderWidth: 1,
-  },
-  vpnDot: { width: 5, height: 5, borderRadius: 3 },
-  vpnLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.4 },
-
-  // Focus pill
-  focusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 100,
-    borderWidth: 1,
-  },
-  focusCircle: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.3)",
-  },
-  focusLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.4 },
-
-  // Badges
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   proBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 7,
-    borderWidth: 1,
-  },
-  proBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1.2 },
-  freeBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 7,
-    borderWidth: 1,
-  },
-  freeBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1.2 },
-
-  // Bouton ···
-  moreBtn: {
-    width: 30,
-    height: 30,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 8,
+    backgroundColor: "rgba(167,139,250,0.18)",
     borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.35)",
+  },
+  proBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: Colors.purple[300],
+    letterSpacing: 1.4,
+  },
+  freeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  freeBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "rgba(255,255,255,0.48)",
+    letterSpacing: 1.4,
+  },
+  actionSep: {
+    width: 1,
+    height: 16,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  moreBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    borderWidth: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.15)",
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
   },
+  moreBtnActive: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderColor: "rgba(255,255,255,0.32)",
+  },
   moreDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: "rgba(255,255,255,0.55)",
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 1.75,
+    backgroundColor: "rgba(255,255,255,0.65)",
   },
 
-  // Menu ···
-  menuOverlay: {
+  headerBottomRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  statsBand: {
     flex: 1,
-    backgroundColor: "transparent",
-  },
-  menuCard: {
-    position: "absolute",
-    top: 90,
-    right: 14,
-    minWidth: 168,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  menuItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  menuIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
-    justifyContent: "center",
-    alignItems: "center",
+  statGroup: { flex: 1, alignItems: "center", gap: 1 },
+  statBig: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "rgba(255,255,255,0.82)",
+    letterSpacing: -0.8,
+    lineHeight: 23,
   },
-  menuIcon: { fontSize: 13 },
-  menuLabel: { fontSize: 13, fontWeight: "600" },
+  statRed: { color: "#f87171" },
+  statGreen: { color: "#34d399" },
+  statTiny: {
+    fontSize: 8,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.3)",
+    letterSpacing: 0.4,
+  },
+  statDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 22,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  headerMidSep: {
+    width: StyleSheet.hairlineWidth,
+    height: 30,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
 
-  // PulseDot
+  controlsBlock: { flexDirection: "row", alignItems: "center", gap: 6 },
+  controlPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 100,
+    borderWidth: 1,
+  },
+  pillDot: { width: 6, height: 6, borderRadius: 3 },
+  pillLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.1 },
+  pillState: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  pillSep: {
+    width: StyleSheet.hairlineWidth,
+    height: 14,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+
+  progressTrack: {
+    height: 22,
+    borderRadius: 8,
+    overflow: "hidden",
+    justifyContent: "center",
+    position: "relative",
+  },
+  progressFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 8,
+    opacity: 0.75,
+  },
+  progressLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.52)",
+    textAlign: "center",
+    letterSpacing: 0.4,
+    zIndex: 1,
+  },
+
   dotWrap: {
     width: 10,
     height: 10,
@@ -1191,7 +1361,40 @@ const g = StyleSheet.create({
   dotCore: { width: 6, height: 6, borderRadius: 3, position: "absolute" },
   dotRing: { width: 10, height: 10, borderRadius: 5, position: "absolute" },
 
-  // Subheader
+  menuCard: {
+    position: "absolute",
+    top: 96,
+    right: 16,
+    minWidth: 196,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.26,
+    shadowRadius: 24,
+    elevation: 18,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  menuIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  menuIcon: { fontSize: 14 },
+  menuLabel: { fontSize: 14, fontWeight: "700", marginBottom: 1 },
+  menuSub: { fontSize: 11 },
+  menuChevron: { fontSize: 18, fontWeight: "300" },
+
   subHeader: {
     paddingHorizontal: 14,
     paddingTop: 10,
@@ -1204,90 +1407,131 @@ const g = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-
-  limitStrip: {
+  limitBanner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderRadius: 9,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 9,
   },
-  limitStripText: { fontSize: 12, fontWeight: "600" },
-  limitStripCta: { fontSize: 12, fontWeight: "700" },
+  limitText: { fontSize: 12, fontWeight: "600" },
+  limitCta: {
+    borderRadius: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderWidth: 1,
+  },
+  limitCtaText: { fontSize: 11, fontWeight: "700" },
 
-  // List
-  listContent: { paddingHorizontal: 14, paddingTop: 8 },
+  listContent: { paddingHorizontal: 14, paddingTop: 10 },
+  listHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
   listCount: {
     fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
-    marginBottom: 8,
-    paddingHorizontal: 2,
-    opacity: 0.7,
+    letterSpacing: 2.2,
+    opacity: 0.55,
   },
+  blockedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    backgroundColor: "rgba(248,113,113,0.12)",
+    borderColor: "rgba(248,113,113,0.28)",
+  },
+  blockedChipDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "#f87171",
+  },
+  blockedChipText: { fontSize: 10, fontWeight: "700", color: "#f87171" },
 
-  // Card
   card: {
     flexDirection: "row",
     alignItems: "center",
-    height: CARD_H,
-    borderRadius: 13,
+    minHeight: CARD_H,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
-    paddingLeft: 14,
-    marginBottom: 6,
+    paddingLeft: 15,
+    paddingVertical: 10,
     overflow: "hidden",
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
-  accentBar: {
+  cardAccentBar: {
     position: "absolute",
     left: 0,
     top: 10,
     bottom: 10,
-    width: 2.5,
+    width: 3,
     borderRadius: 2,
   },
-  iconBox: { marginRight: 11 },
-  iconImg: { width: 40, height: 40, borderRadius: 10 },
+  iconWrap: { marginRight: 13, position: "relative" },
+  iconImg: { width: 44, height: 44, borderRadius: 12 },
   iconFallback: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
   },
-  iconLetter: { fontSize: 16, fontWeight: "800" },
-  appInfo: { flex: 1, marginRight: 10 },
-  appName: {
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 2,
-    letterSpacing: -0.1,
+  iconLetter: { fontSize: 18, fontWeight: "800" },
+  sysBadge: {
+    position: "absolute",
+    bottom: -3,
+    right: -5,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
   },
-  appPkg: { fontSize: 10, fontFamily: "monospace", opacity: 0.7 },
+  sysBadgeText: { fontSize: 6, fontWeight: "700", letterSpacing: 0.3 },
+  cardInfo: { flex: 1, gap: 2 },
+  appName: { fontSize: 13, fontWeight: "600", letterSpacing: -0.15 },
+  appPkg: { fontSize: 10, fontFamily: "monospace", opacity: 0.55 },
+  blockedTag: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 5,
+    borderWidth: 1,
+  },
+  blockedTagText: { fontSize: 9, fontWeight: "700" },
+  cardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginLeft: 8,
+  },
+  cardChevron: { fontSize: 18, fontWeight: "200" },
 
-  // Empty
-  empty: { alignItems: "center", paddingTop: 72 },
+  empty: { alignItems: "center", paddingTop: 80, gap: 8 },
   emptyIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
+    width: 66,
+    height: 66,
+    borderRadius: 22,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 8,
   },
-  emptyIcon: { fontSize: 26 },
-  emptyTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    marginBottom: 5,
-    letterSpacing: -0.2,
-  },
-  emptySub: { fontSize: 12, opacity: 0.7 },
+  emptyIcon: { fontSize: 30 },
+  emptyTitle: { fontSize: 15, fontWeight: "700", letterSpacing: -0.3 },
+  emptySub: { fontSize: 12, opacity: 0.65 },
 });
