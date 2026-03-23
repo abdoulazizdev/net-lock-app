@@ -28,13 +28,10 @@ async function isOnboardingDone(): Promise<boolean> {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-
-  // null = inconnu (splash), false = onboarding requis, true = app normale
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
   const [showWeeklyReport, setShowWeeklyReport] = useState(false);
 
-  // ── Étape 1 : init async (RevenueCat + onboarding check) ────────────────
   useEffect(() => {
     bootstrap();
   }, []);
@@ -46,37 +43,24 @@ export default function RootLayout() {
     } catch (e) {
       console.error("[bootstrap]", e);
     } finally {
-      // Vérifier onboarding
       const done = await isOnboardingDone();
       setOnboardingDone(done);
       setReady(true);
     }
   };
 
-  // ── Étape 2 : une fois prêt, actions post-boot ───────────────────────────
   useEffect(() => {
     if (!ready || onboardingDone === null) return;
-
-    if (onboardingDone) {
-      postBootActions();
-    } else {
-      // Rediriger vers l'onboarding
-      router.replace("/onboarding");
-    }
+    if (onboardingDone) postBootActions();
+    else router.replace("/onboarding");
   }, [ready, onboardingDone]);
 
   const postBootActions = async () => {
     try {
-      // Auth
       const config = await StorageService.getAuthConfig();
-      if (config.isPinEnabled || config.isBiometricEnabled) {
+      if (config.isPinEnabled || config.isBiometricEnabled)
         router.replace("/auth");
-      }
-
-      // Watchdog — s'assure que le VPN est surveillé
       await WatchdogService.start();
-
-      // Rapport hebdomadaire — uniquement le lundi et si 7 jours écoulés
       const shouldShow = await WeeklyReportService.shouldShowReport();
       if (shouldShow) setShowWeeklyReport(true);
     } catch (e) {
@@ -84,7 +68,6 @@ export default function RootLayout() {
     }
   };
 
-  // ── Splash le temps de l'init ────────────────────────────────────────────
   if (!ready || onboardingDone === null) return null;
 
   return (
@@ -123,17 +106,30 @@ export default function RootLayout() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
+              name="screens/about"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="screens/contact"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
               name="screens/profile-detail"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="screens/parental-control"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="screens/productivity"
               options={{ headerShown: false }}
             />
             <Stack.Screen name="settings" options={{ headerShown: false }} />
           </Stack>
-
           <StatusBar style="light" />
         </ThemeProvider>
       </PaperProvider>
-
-      {/* Rapport hebdomadaire — rendu hors du Stack pour éviter les conflits de navigation */}
       <WeeklyReportModal
         visible={showWeeklyReport}
         onClose={() => setShowWeeklyReport(false)}

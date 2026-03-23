@@ -2,6 +2,9 @@ import AppDetailSkeleton from "@/components/AppDetailSkeleton";
 import PaywallModal from "@/components/PaywallModal";
 import { usePremium } from "@/hooks/usePremium";
 import AppListService from "@/services/app-list.service";
+import NetworkConditionService, {
+  NetworkCondition,
+} from "@/services/network-condition.service";
 import ScheduleService from "@/services/schedule.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
@@ -32,7 +35,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const { AppInfoModule } = NativeModules;
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
-// ─── Interfaces ───────────────────────────────────────────────────────────────
 interface AppDetails {
   packageName: string;
   appName: string;
@@ -49,7 +51,6 @@ interface AppDetails {
   sourceDir: string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatSize(bytes: number): string {
   if (bytes <= 0) return "—";
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
@@ -176,7 +177,7 @@ function Toggle({
   );
 }
 
-// ─── ActionRow — ligne d'action avec icône ────────────────────────────────────
+// ─── ActionRow ────────────────────────────────────────────────────────────────
 function ActionRow({
   icon,
   label,
@@ -233,7 +234,7 @@ function ActionRow({
   );
 }
 
-// ─── InfoRow — ligne d'information ────────────────────────────────────────────
+// ─── InfoRow ──────────────────────────────────────────────────────────────────
 function InfoRow({ label, value }: { label: string; value: string }) {
   const { t } = useTheme();
   return (
@@ -282,6 +283,70 @@ function PermissionBadge({ perm }: { perm: string }) {
         {isDangerous ? "⚠ " : ""}
         {short.toLowerCase().replace(/_/g, " ")}
       </Text>
+    </View>
+  );
+}
+
+// ─── NetworkConditionPicker ───────────────────────────────────────────────────
+function NetworkConditionPicker({
+  packageName,
+  onChange,
+}: {
+  packageName: string;
+  onChange: () => void;
+}) {
+  const { t } = useTheme();
+  const [current, setCurrent] = useState<NetworkCondition>("always");
+
+  useEffect(() => {
+    NetworkConditionService.getNetworkRule(packageName).then(setCurrent);
+  }, [packageName]);
+
+  const OPTIONS: { key: NetworkCondition; label: string; icon: string }[] = [
+    { key: "always", label: "Toujours bloquer", icon: "🚫" },
+    { key: "wifi_only", label: "Sur Wi-Fi uniquement", icon: "📶" },
+    { key: "mobile_only", label: "Sur données mobiles seul.", icon: "📡" },
+  ];
+
+  const handleSelect = async (cond: NetworkCondition) => {
+    setCurrent(cond);
+    await NetworkConditionService.setNetworkRule(packageName, cond);
+    onChange();
+  };
+
+  return (
+    <View style={st.conditionWrap}>
+      <Text style={[st.sectionLabel, { color: t.text.muted, marginBottom: 8 }]}>
+        CONDITION RÉSEAU
+      </Text>
+      {OPTIONS.map((opt) => (
+        <TouchableOpacity
+          key={opt.key}
+          style={[
+            st.conditionRow,
+            {
+              backgroundColor: current === opt.key ? t.bg.accent : t.bg.cardAlt,
+              borderColor:
+                current === opt.key ? t.border.focus : t.border.light,
+            },
+          ]}
+          onPress={() => handleSelect(opt.key)}
+          activeOpacity={0.8}
+        >
+          <Text style={{ fontSize: 16 }}>{opt.icon}</Text>
+          <Text
+            style={[
+              st.conditionLabel,
+              { color: current === opt.key ? t.text.link : t.text.secondary },
+            ]}
+          >
+            {opt.label}
+          </Text>
+          {current === opt.key && (
+            <Text style={[{ fontSize: 14, color: t.text.link }]}>✓</Text>
+          )}
+        </TouchableOpacity>
+      ))}
     </View>
   );
 }
@@ -508,8 +573,6 @@ export default function AppDetailScreen() {
           allowed: appStats.allowedAttempts,
         });
       setSchedules(sched);
-
-      // Détails enrichis via module natif
       if (AppInfoModule) {
         try {
           const det = await AppInfoModule.getAppDetails(packageName);
@@ -536,7 +599,6 @@ export default function AppDetailScreen() {
     }).start();
   };
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
   const toggleBlock = async () => {
     const newBlocked = !rule?.isBlocked;
     if (newBlocked && !isPremium) {
@@ -569,7 +631,6 @@ export default function AppDetailScreen() {
       Alert.alert("Impossible d'ouvrir les paramètres système de cette app."),
     );
   };
-
   const handleOpenNotifSettings = async () => {
     if (AppInfoModule) {
       try {
@@ -579,7 +640,6 @@ export default function AppDetailScreen() {
     }
     handleOpenSettings();
   };
-
   const handleLaunchApp = async () => {
     if (AppInfoModule && details?.isLaunchable) {
       try {
@@ -589,7 +649,6 @@ export default function AppDetailScreen() {
     }
     Alert.alert("Cette application ne peut pas être lancée directement.");
   };
-
   const handleUninstall = () => {
     if (details?.isSystemApp) {
       Alert.alert(
@@ -617,7 +676,6 @@ export default function AppDetailScreen() {
       ],
     );
   };
-
   const handleOpenStorage = async () => {
     if (AppInfoModule) {
       try {
@@ -627,7 +685,6 @@ export default function AppDetailScreen() {
     }
     handleOpenSettings();
   };
-
   const simulateAttempt = async () => {
     const result = await VpnService.simulateConnectionAttempt(packageName);
     Alert.alert(
@@ -635,7 +692,7 @@ export default function AppDetailScreen() {
     );
   };
 
-  // ── Planifications ──────────────────────────────────────────────────────────
+  // Planifications
   const openAddModal = () => {
     setEditingSchedule(null);
     setFormLabel("");
@@ -821,8 +878,6 @@ export default function AppDetailScreen() {
             )}
           </View>
         </View>
-
-        {/* Onglets */}
         <View style={st.tabBar}>
           <Animated.View
             style={[
@@ -857,10 +912,9 @@ export default function AppDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          {/* ════════════════════ ONGLET CONTRÔLE ════════════════════ */}
+          {/* ════════ CONTRÔLE ════════ */}
           {activeTab === "control" && (
             <>
-              {/* Blocage réseau */}
               <Text style={[st.sectionLabel, { color: t.text.muted }]}>
                 ACCÈS RÉSEAU
               </Text>
@@ -925,11 +979,25 @@ export default function AppDetailScreen() {
                 <Toggle value={isBlocked} onPress={toggleBlock} />
               </View>
 
-              {/* Statistiques */}
+              {/* Condition réseau */}
+              {isBlocked && (
+                <View
+                  style={[
+                    st.conditionCard,
+                    { backgroundColor: t.bg.card, borderColor: t.border.light },
+                  ]}
+                >
+                  <NetworkConditionPicker
+                    packageName={packageName}
+                    onChange={loadAll}
+                  />
+                </View>
+              )}
+
               <Text
                 style={[
                   st.sectionLabel,
-                  { color: t.text.muted, marginTop: 20 },
+                  { color: t.text.muted, marginTop: 18 },
                 ]}
               >
                 STATISTIQUES
@@ -1009,7 +1077,6 @@ export default function AppDetailScreen() {
                 </Text>
               </TouchableOpacity>
 
-              {/* Actions rapides */}
               <Text
                 style={[
                   st.sectionLabel,
@@ -1096,7 +1163,7 @@ export default function AppDetailScreen() {
             </>
           )}
 
-          {/* ════════════════════ ONGLET INFOS ════════════════════ */}
+          {/* ════════ INFOS ════════ */}
           {activeTab === "info" && details && (
             <>
               <Text style={[st.sectionLabel, { color: t.text.muted }]}>
@@ -1166,8 +1233,6 @@ export default function AppDetailScreen() {
                   </Text>
                 </View>
               </View>
-
-              {/* Permissions */}
               {details.permissions.length > 0 && (
                 <>
                   <View style={st.permHeader}>
@@ -1183,47 +1248,40 @@ export default function AppDetailScreen() {
                       </Text>
                     </TouchableOpacity>
                   </View>
-                  {showPerms && (
-                    <View style={st.permWrap}>
-                      {details.permissions.map((p) => (
-                        <PermissionBadge key={p} perm={p} />
-                      ))}
-                    </View>
-                  )}
-                  {!showPerms && (
-                    <View style={st.permWrapCollapsed}>
-                      {details.permissions.slice(0, 6).map((p) => (
-                        <PermissionBadge key={p} perm={p} />
-                      ))}
-                      {details.permissions.length > 6 && (
-                        <TouchableOpacity
-                          onPress={() => setShowPerms(true)}
-                          activeOpacity={0.75}
+                  <View style={st.permWrap}>
+                    {(showPerms
+                      ? details.permissions
+                      : details.permissions.slice(0, 6)
+                    ).map((p) => (
+                      <PermissionBadge key={p} perm={p} />
+                    ))}
+                    {!showPerms && details.permissions.length > 6 && (
+                      <TouchableOpacity
+                        onPress={() => setShowPerms(true)}
+                        activeOpacity={0.75}
+                      >
+                        <View
+                          style={[
+                            st.permMoreBtn,
+                            {
+                              backgroundColor: t.bg.cardAlt,
+                              borderColor: t.border.light,
+                            },
+                          ]}
                         >
-                          <View
-                            style={[
-                              st.permMoreBtn,
-                              {
-                                backgroundColor: t.bg.cardAlt,
-                                borderColor: t.border.light,
-                              },
-                            ]}
+                          <Text
+                            style={[st.permMoreText, { color: t.text.link }]}
                           >
-                            <Text
-                              style={[st.permMoreText, { color: t.text.link }]}
-                            >
-                              +{details.permissions.length - 6} de plus
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  )}
+                            +{details.permissions.length - 6} de plus
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </>
               )}
             </>
           )}
-
           {activeTab === "info" && !details && (
             <View style={st.noDetails}>
               <Text style={{ fontSize: 28, marginBottom: 12 }}>ℹ</Text>
@@ -1242,7 +1300,7 @@ export default function AppDetailScreen() {
             </View>
           )}
 
-          {/* ════════════════════ ONGLET PLAGES ════════════════════ */}
+          {/* ════════ PLAGES ════════ */}
           {activeTab === "schedule" && (
             <>
               <View style={st.sectionHeaderRow}>
@@ -1682,8 +1740,6 @@ const st = StyleSheet.create({
     borderWidth: 1,
   },
   heroBadgeText: { fontSize: 10, fontWeight: "600" },
-
-  // Tab bar
   tabBar: {
     flexDirection: "row",
     position: "relative",
@@ -1702,7 +1758,6 @@ const st = StyleSheet.create({
   tab: { flex: 1, paddingVertical: 10, alignItems: "center" },
   tabText: { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,.55)" },
   tabTextActive: { color: Colors.gray[0], fontWeight: "800" },
-
   scroll: { paddingHorizontal: 18, paddingTop: 20 },
   sectionLabel: {
     fontSize: 9,
@@ -1716,8 +1771,6 @@ const st = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-
-  // Control
   controlCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1753,6 +1806,25 @@ const st = StyleSheet.create({
   },
   controlSub: { fontSize: 11 },
 
+  // Condition réseau
+  conditionCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  conditionWrap: { gap: 8 },
+  conditionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  conditionLabel: { flex: 1, fontSize: 13, fontWeight: "600" },
+
   statsRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
   statCard: {
     flex: 1,
@@ -1766,7 +1838,6 @@ const st = StyleSheet.create({
   statLabelRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   statDot: { width: 5, height: 5, borderRadius: 3 },
   statLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1 },
-
   simulateBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1778,8 +1849,6 @@ const st = StyleSheet.create({
   },
   simulateBtnIcon: { fontSize: 13 },
   simulateBtnText: { fontSize: 13, fontWeight: "600" },
-
-  // Actions
   actionsCard: { borderRadius: 18, borderWidth: 1, overflow: "hidden" },
   actionRow: {
     flexDirection: "row",
@@ -1805,8 +1874,6 @@ const st = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
   },
-
-  // Info
   infoCard: {
     borderRadius: 18,
     borderWidth: 1,
@@ -1838,12 +1905,6 @@ const st = StyleSheet.create({
     gap: 6,
     marginBottom: 20,
   },
-  permWrapCollapsed: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 20,
-  },
   permBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -1858,8 +1919,6 @@ const st = StyleSheet.create({
     borderWidth: 1,
   },
   permMoreText: { fontSize: 10, fontWeight: "700" },
-
-  // Schedule
   addBtn: {
     paddingHorizontal: 12,
     paddingVertical: 7,

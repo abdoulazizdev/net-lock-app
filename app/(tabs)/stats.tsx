@@ -6,7 +6,13 @@ import ConnectionLogService, {
   LogEntry,
   LogSummary,
 } from "@/services/connection-log.service";
+import ProductivityService, {
+  ProductivityStats,
+} from "@/services/productivity.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
+import WeeklyReportService, {
+  WeeklyReport,
+} from "@/services/weekly-report.service";
 import { Colors, Semantic, useTheme } from "@/theme";
 import React, {
   useCallback,
@@ -30,7 +36,8 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-type Tab = "overview" | "history" | "apps";
+type Tab = "overview" | "history" | "apps" | "productivity";
+
 interface LogEntryWithName extends LogEntry {
   appName: string;
 }
@@ -38,6 +45,7 @@ interface AppStatWithName extends AppLogStats {
   appName: string;
 }
 
+// ─── ProgressBar ──────────────────────────────────────────────────────────────
 function ProgressBar({
   pct,
   color,
@@ -49,7 +57,6 @@ function ProgressBar({
   trackColor: string;
   height?: number;
 }) {
-  const { t } = useTheme();
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(anim, {
@@ -80,11 +87,68 @@ function ProgressBar({
   );
 }
 
+// ─── Badge card (productivité) ────────────────────────────────────────────────
+function BadgeChip({
+  icon,
+  name,
+  earned,
+}: {
+  icon: string;
+  name: string;
+  earned: boolean;
+}) {
+  const { t } = useTheme();
+  return (
+    <View
+      style={[
+        pg.badgeChip,
+        {
+          backgroundColor: earned ? t.bg.card : t.bg.cardAlt,
+          borderColor: earned ? Colors.blue[200] : t.border.light,
+          opacity: earned ? 1 : 0.4,
+        },
+      ]}
+    >
+      <Text style={{ fontSize: 16 }}>{icon}</Text>
+      <Text style={[pg.badgeName, { color: t.text.primary }]} numberOfLines={2}>
+        {name}
+      </Text>
+    </View>
+  );
+}
+
 const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: "overview", label: "Vue d'ensemble", icon: "◈" },
+  { key: "overview", label: "Résumé", icon: "◈" },
   { key: "history", label: "Historique", icon: "◷" },
   { key: "apps", label: "Par app", icon: "◎" },
+  { key: "productivity", label: "Prod.", icon: "🔥" },
 ];
+
+function EmptyState({
+  icon,
+  title,
+  sub,
+}: {
+  icon: string;
+  title: string;
+  sub: string;
+}) {
+  const { t } = useTheme();
+  return (
+    <View style={s.empty}>
+      <View
+        style={[
+          s.emptyIconWrap,
+          { backgroundColor: t.bg.accent, borderColor: t.border.strong },
+        ]}
+      >
+        <Text style={[s.emptyIconText, { color: t.text.link }]}>{icon}</Text>
+      </View>
+      <Text style={[s.emptyTitle, { color: t.text.secondary }]}>{title}</Text>
+      <Text style={[s.emptySub, { color: t.text.muted }]}>{sub}</Text>
+    </View>
+  );
+}
 
 export default function StatsScreen() {
   const insets = useSafeAreaInsets();
@@ -98,6 +162,8 @@ export default function StatsScreen() {
   });
   const [logs, setLogs] = useState<LogEntryWithName[]>([]);
   const [appStats, setAppStats] = useState<AppStatWithName[]>([]);
+  const [prodStats, setProdStats] = useState<ProductivityStats | null>(null);
+  const [weekReport, setWeekReport] = useState<WeeklyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -116,7 +182,11 @@ export default function StatsScreen() {
 
   const switchTab = useCallback(
     (next: Tab) => {
-      if (!isPremium && !FREE_LIMITS.STATS_TABS_FREE.includes(next)) {
+      if (
+        !isPremium &&
+        !FREE_LIMITS.STATS_TABS_FREE.includes(next as any) &&
+        next !== "productivity"
+      ) {
         setPaywallVisible(true);
         return;
       }
@@ -145,15 +215,21 @@ export default function StatsScreen() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, l] = await Promise.all([
+      const [s, l, prod, report] = await Promise.all([
         ConnectionLogService.getStats(),
         ConnectionLogService.getLogs(300),
+        ProductivityService.getStats(),
+        WeeklyReportService.getLastReport(),
       ]);
       setSummary(s);
       setLogs(l.map((e) => ({ ...e, appName: displayName(e.packageName) })));
       setAppStats(
         s.perApp.map((a) => ({ ...a, appName: displayName(a.packageName) })),
       );
+      setProdStats(prod);
+      setWeekReport(report);
+
+      // Enrichir avec les noms réels en arrière-plan
       const pkgs = [
         ...new Set([
           ...l.map((e) => e.packageName),
@@ -220,11 +296,17 @@ export default function StatsScreen() {
     />
   );
 
+  // ── Onglet Overview ──────────────────────────────────────────────────────────
   const OverviewTab = useCallback(() => {
     const blockedPct =
       summary.totalEvents > 0
         ? Math.round((summary.totalBlocked / summary.totalEvents) * 100)
         : 0;
+    const fmt = (min: number) =>
+      min < 60
+        ? `${min}min`
+        : `${Math.floor(min / 60)}h${min % 60 ? (min % 60) + "m" : ""}`;
+
     return (
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -239,6 +321,31 @@ export default function StatsScreen() {
           />
         ) : (
           <>
+            {/* Mini rapport */}
+            {weekReport && (
+              <View
+                style={[
+                  s.reportCard,
+                  {
+                    backgroundColor: Colors.blue[50],
+                    borderColor: Colors.blue[100],
+                  },
+                ]}
+              >
+                <Text style={s.reportEmoji}>📊</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.reportTitle, { color: Colors.blue[700] }]}>
+                    Cette semaine
+                  </Text>
+                  <Text style={[s.reportSub, { color: Colors.blue[500] }]}>
+                    {weekReport.totalBlocked} bloquées · ~
+                    {fmt(weekReport.savedMinutes)} économisées ·{" "}
+                    {weekReport.streakDays}j de streak
+                  </Text>
+                </View>
+              </View>
+            )}
+
             <View style={s.statsGrid}>
               {[
                 {
@@ -286,6 +393,7 @@ export default function StatsScreen() {
                 </View>
               ))}
             </View>
+
             <View
               style={[
                 s.totalCard,
@@ -306,7 +414,7 @@ export default function StatsScreen() {
                     style={[
                       s.splitFill,
                       {
-                        flex: summary.totalBlocked,
+                        flex: summary.totalBlocked || 0.001,
                         backgroundColor: t.blocked.accent,
                       },
                     ]}
@@ -315,7 +423,7 @@ export default function StatsScreen() {
                     style={[
                       s.splitFill,
                       {
-                        flex: summary.totalAllowed,
+                        flex: summary.totalAllowed || 0.001,
                         backgroundColor: t.allowed.accent,
                       },
                     ]}
@@ -326,6 +434,7 @@ export default function StatsScreen() {
                 </Text>
               </View>
             </View>
+
             {appStats.length > 0 && (
               <>
                 <Text style={[s.sectionLabel, { color: t.text.muted }]}>
@@ -397,8 +506,9 @@ export default function StatsScreen() {
         )}
       </ScrollView>
     );
-  }, [summary, appStats, refreshing, insets, t]);
+  }, [summary, appStats, weekReport, refreshing, insets, t]);
 
+  // ── Onglet History ───────────────────────────────────────────────────────────
   const HistoryTab = useCallback(
     () => (
       <FlatList
@@ -500,6 +610,7 @@ export default function StatsScreen() {
     [grouped, refreshing, insets, t],
   );
 
+  // ── Onglet Apps ──────────────────────────────────────────────────────────────
   const AppsTab = useCallback(
     () => (
       <FlatList
@@ -575,42 +686,42 @@ export default function StatsScreen() {
                 </Text>
               </View>
               <View style={s.appStatCounts}>
-                <View style={s.appStatCount}>
-                  <Text style={[s.appStatCountNum, { color: t.blocked.text }]}>
-                    {app.blockedCount}
-                  </Text>
-                  <Text style={[s.appStatCountLabel, { color: t.text.muted }]}>
-                    bloquées
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    s.appStatDivider,
-                    { backgroundColor: t.border.light },
-                  ]}
-                />
-                <View style={s.appStatCount}>
-                  <Text style={[s.appStatCountNum, { color: t.allowed.text }]}>
-                    {app.allowedCount}
-                  </Text>
-                  <Text style={[s.appStatCountLabel, { color: t.text.muted }]}>
-                    autorisées
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    s.appStatDivider,
-                    { backgroundColor: t.border.light },
-                  ]}
-                />
-                <View style={s.appStatCount}>
-                  <Text style={[s.appStatCountNum, { color: t.text.link }]}>
-                    {total}
-                  </Text>
-                  <Text style={[s.appStatCountLabel, { color: t.text.muted }]}>
-                    total
-                  </Text>
-                </View>
+                {[
+                  {
+                    num: app.blockedCount,
+                    label: "bloquées",
+                    color: t.blocked.text,
+                  },
+                  null,
+                  {
+                    num: app.allowedCount,
+                    label: "autorisées",
+                    color: t.allowed.text,
+                  },
+                  null,
+                  { num: total, label: "total", color: t.text.link },
+                ].map((item, i) =>
+                  item === null ? (
+                    <View
+                      key={i}
+                      style={[
+                        s.appStatDivider,
+                        { backgroundColor: t.border.light },
+                      ]}
+                    />
+                  ) : (
+                    <View key={i} style={s.appStatCount}>
+                      <Text style={[s.appStatCountNum, { color: item.color }]}>
+                        {item.num}
+                      </Text>
+                      <Text
+                        style={[s.appStatCountLabel, { color: t.text.muted }]}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
+                  ),
+                )}
               </View>
               <View style={s.appStatBar}>
                 <View
@@ -642,6 +753,218 @@ export default function StatsScreen() {
     ),
     [appStats, refreshing, insets, t],
   );
+
+  // ── Onglet Productivité ───────────────────────────────────────────────────────
+  const ProductivityTab = useCallback(() => {
+    if (!prodStats)
+      return (
+        <EmptyState
+          icon="🔥"
+          title="Chargement…"
+          sub="Calcul des statistiques de productivité en cours."
+        />
+      );
+    const fmt = (min: number) =>
+      min < 60
+        ? `${min}min`
+        : `${Math.floor(min / 60)}h${min % 60 ? (min % 60) + "" : ""}`;
+
+    return (
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={rc}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+      >
+        {/* Score */}
+        <View
+          style={[
+            pg.scoreCard,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <View style={pg.scoreRing}>
+            <Text style={pg.scoreNum}>{prodStats.weeklyScore}</Text>
+            <Text style={[pg.scoreLabel, { color: t.text.muted }]}>/ 100</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[pg.scoreTitle, { color: t.text.primary }]}>
+              Score hebdomadaire
+            </Text>
+            <Text style={[pg.scoreSub, { color: Colors.blue[500] }]}>
+              {ProductivityService.scoreLabel(prodStats.weeklyScore)}
+            </Text>
+            <View style={pg.scoreItems}>
+              {[
+                {
+                  label: `Streak ${prodStats.currentStreak}j`,
+                  color: Colors.blue[500],
+                },
+                {
+                  label: `Focus ×${prodStats.totalFocusSessions}`,
+                  color: Colors.purple[400],
+                },
+                {
+                  label: `${prodStats.weeklyBlocked} bloquées`,
+                  color: Colors.red[500] ?? t.blocked.accent,
+                },
+              ].map((item) => (
+                <View key={item.label} style={pg.scoreItem}>
+                  <View
+                    style={[pg.scoreDot, { backgroundColor: item.color }]}
+                  />
+                  <Text style={[pg.scoreItemLabel, { color: t.text.muted }]}>
+                    {item.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        {/* Streak */}
+        <Text style={[s.sectionLabel, { color: t.text.muted }]}>STREAK</Text>
+        <View
+          style={[
+            pg.streakCard,
+            {
+              backgroundColor:
+                prodStats.currentStreak >= 7
+                  ? (Colors.red[50] ?? t.blocked.bg)
+                  : t.bg.card,
+              borderColor:
+                prodStats.currentStreak >= 7
+                  ? t.blocked.border
+                  : t.border.light,
+            },
+          ]}
+        >
+          <Text style={{ fontSize: 32 }}>
+            {prodStats.currentStreak >= 1 ? "🔥" : "💤"}
+          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[pg.streakDays, { color: t.text.primary }]}>
+              {prodStats.currentStreak} jour
+              {prodStats.currentStreak !== 1 ? "s" : ""} de suite
+            </Text>
+            <Text style={[pg.streakBest, { color: t.text.muted }]}>
+              Record : {prodStats.longestStreak} jour
+              {prodStats.longestStreak !== 1 ? "s" : ""}
+            </Text>
+          </View>
+          {prodStats.currentStreak >= 3 && (
+            <View
+              style={[
+                pg.streakBadge,
+                {
+                  backgroundColor: t.blocked.bg,
+                  borderColor: t.blocked.border,
+                },
+              ]}
+            >
+              <Text style={[pg.streakBadgeText, { color: t.blocked.accent }]}>
+                En feu !
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Stats globales */}
+        <Text style={[s.sectionLabel, { color: t.text.muted }]}>GLOBAL</Text>
+        <View style={pg.statsGrid}>
+          {[
+            {
+              icon: "🚫",
+              value: prodStats.totalBlockedAllTime.toString(),
+              label: "Total bloquées",
+              color: t.blocked.accent,
+              bg: t.blocked.bg,
+              border: t.blocked.border,
+            },
+            {
+              icon: "⏱",
+              value: fmt(prodStats.totalSavedMinutes),
+              label: "Temps économisé",
+              color: Colors.blue[500],
+              bg: Colors.blue[50],
+              border: Colors.blue[100],
+            },
+            {
+              icon: "🎯",
+              value: prodStats.totalFocusSessions.toString(),
+              label: "Sessions Focus",
+              color: Colors.purple[400],
+              bg: Colors.purple[50],
+              border: Colors.purple[100],
+            },
+            {
+              icon: "⏰",
+              value: fmt(prodStats.totalFocusMinutes),
+              label: "En focus",
+              color: Colors.green[500],
+              bg: Colors.green[50],
+              border: Colors.green[100],
+            },
+          ].map((item) => (
+            <View
+              key={item.label}
+              style={[
+                pg.statCard,
+                { backgroundColor: item.bg, borderColor: item.border },
+              ]}
+            >
+              <Text style={{ fontSize: 20 }}>{item.icon}</Text>
+              <Text style={[pg.statValue, { color: item.color }]}>
+                {item.value}
+              </Text>
+              <Text style={[pg.statLabel, { color: t.text.muted }]}>
+                {item.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Badges */}
+        <Text style={[s.sectionLabel, { color: t.text.muted }]}>
+          BADGES ({prodStats.badges.filter((b) => b.earned).length}/
+          {prodStats.badges.length})
+        </Text>
+        <View style={pg.badgesGrid}>
+          {prodStats.badges.map((badge) => (
+            <BadgeChip
+              key={badge.id}
+              icon={badge.icon}
+              name={badge.name}
+              earned={badge.earned}
+            />
+          ))}
+        </View>
+
+        {/* Conseil */}
+        <View
+          style={[
+            pg.tipCard,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <Text style={{ fontSize: 18 }}>💡</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[pg.tipTitle, { color: t.text.primary }]}>
+              Prochain objectif
+            </Text>
+            <Text style={[pg.tipText, { color: t.text.secondary }]}>
+              {prodStats.currentStreak < 3
+                ? "Maintenez le blocage 3 jours de suite pour le badge '3 jours' 🔥"
+                : prodStats.currentStreak < 7
+                  ? `Plus que ${7 - prodStats.currentStreak}j pour 'Une semaine !' ⭐`
+                  : prodStats.totalBlockedAllTime < 1000
+                    ? `${1000 - prodStats.totalBlockedAllTime} blocages pour '1000 blocages' 💪`
+                    : "Maintenez votre discipline — vous avez tout débloqué 🏆"}
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+    );
+  }, [prodStats, refreshing, insets, t]);
 
   return (
     <View style={[s.container, { backgroundColor: t.bg.page }]}>
@@ -679,7 +1002,9 @@ export default function StatsScreen() {
         <View style={s.tabs}>
           {TABS.map(({ key, label, icon }) => {
             const locked =
-              !isPremium && !FREE_LIMITS.STATS_TABS_FREE.includes(key);
+              !isPremium &&
+              !FREE_LIMITS.STATS_TABS_FREE.includes(key as any) &&
+              key !== "productivity";
             const active = tab === key;
             return (
               <TouchableOpacity
@@ -715,11 +1040,14 @@ export default function StatsScreen() {
           })}
         </View>
       </Animated.View>
+
       <Animated.View style={[s.content, { opacity: tabAnim }]}>
         {tab === "overview" && <OverviewTab />}
         {tab === "history" && <HistoryTab />}
         {tab === "apps" && <AppsTab />}
+        {tab === "productivity" && <ProductivityTab />}
       </Animated.View>
+
       <PaywallModal
         visible={paywallVisible}
         reason="stats"
@@ -733,32 +1061,7 @@ export default function StatsScreen() {
   );
 }
 
-function EmptyState({
-  icon,
-  title,
-  sub,
-}: {
-  icon: string;
-  title: string;
-  sub: string;
-}) {
-  const { t } = useTheme();
-  return (
-    <View style={s.empty}>
-      <View
-        style={[
-          s.emptyIconWrap,
-          { backgroundColor: t.bg.accent, borderColor: t.border.strong },
-        ]}
-      >
-        <Text style={[s.emptyIconText, { color: t.text.link }]}>{icon}</Text>
-      </View>
-      <Text style={[s.emptyTitle, { color: t.text.secondary }]}>{title}</Text>
-      <Text style={[s.emptySub, { color: t.text.muted }]}>{sub}</Text>
-    </View>
-  );
-}
-
+// ─── Styles stats ─────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
@@ -812,7 +1115,7 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   clearBtnText: { fontSize: 16, color: Colors.gray[0] },
-  tabs: { flexDirection: "row", gap: 6, paddingBottom: 16 },
+  tabs: { flexDirection: "row", gap: 4, paddingBottom: 16 },
   tab: {
     flex: 1,
     paddingVertical: 9,
@@ -827,9 +1130,32 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,.25)",
     borderColor: "rgba(255,255,255,.35)",
   },
-  tabIcon: { fontSize: 13 },
-  tabText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.2 },
+  tabIcon: { fontSize: 12 },
+  tabText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.2 },
   content: { flex: 1, paddingHorizontal: 18, paddingTop: 18 },
+  sectionLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 2.5,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+
+  // Report mini card
+  reportCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  reportEmoji: { fontSize: 24 },
+  reportTitle: { fontSize: 13, fontWeight: "800", marginBottom: 3 },
+  reportSub: { fontSize: 11, lineHeight: 16 },
+
+  // Overview
   statsGrid: { flexDirection: "row", gap: 10, marginBottom: 12 },
   statBig: {
     flex: 1,
@@ -879,12 +1205,6 @@ const s = StyleSheet.create({
   },
   splitFill: { height: 5 },
   splitLabel: { fontSize: 10, fontWeight: "600" },
-  sectionLabel: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 2.5,
-    marginBottom: 12,
-  },
   topAppRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -908,6 +1228,8 @@ const s = StyleSheet.create({
   topAppName: { fontSize: 13, fontWeight: "700", flex: 1 },
   topAppBlocked: { fontSize: 12, fontWeight: "700" },
   topAppPkg: { fontSize: 9, marginTop: 3 },
+
+  // History
   dateLabel: {
     fontSize: 9,
     fontWeight: "700",
@@ -948,6 +1270,8 @@ const s = StyleSheet.create({
   logBadgeDot: { width: 5, height: 5, borderRadius: 3 },
   logBadgeText: { fontSize: 10, fontWeight: "700" },
   logTime: { fontSize: 10 },
+
+  // Apps
   appStatCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -1006,6 +1330,8 @@ const s = StyleSheet.create({
   appStatFillBlocked: {},
   appStatFillAllowed: {},
   appStatPct: { fontSize: 10, textAlign: "right" },
+
+  // Empty
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyIconWrap: {
     width: 64,
@@ -1019,4 +1345,110 @@ const s = StyleSheet.create({
   emptyIconText: { fontSize: 28 },
   emptyTitle: { fontSize: 16, fontWeight: "800", marginBottom: 8 },
   emptySub: { fontSize: 12, textAlign: "center", lineHeight: 18 },
+});
+
+// ─── Styles productivité ──────────────────────────────────────────────────────
+const pg = StyleSheet.create({
+  scoreCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  scoreRing: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.blue[50],
+    borderWidth: 3,
+    borderColor: Colors.blue[400],
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  scoreNum: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: Colors.blue[600],
+    letterSpacing: -1,
+  },
+  scoreLabel: { fontSize: 9, fontWeight: "600" },
+  scoreTitle: { fontSize: 14, fontWeight: "700", marginBottom: 4 },
+  scoreSub: { fontSize: 11, fontWeight: "700", marginBottom: 8 },
+  scoreItems: { gap: 4 },
+  scoreItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  scoreDot: { width: 6, height: 6, borderRadius: 3 },
+  scoreItemLabel: { fontSize: 10, fontWeight: "600" },
+  streakCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    padding: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  streakDays: {
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    marginBottom: 2,
+  },
+  streakBest: { fontSize: 12 },
+  streakBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  streakBadgeText: { fontSize: 11, fontWeight: "800" },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 20,
+  },
+  statCard: {
+    width: "47%",
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    alignItems: "center",
+    gap: 4,
+  },
+  statValue: { fontSize: 20, fontWeight: "800", letterSpacing: -0.5 },
+  statLabel: { fontSize: 10, fontWeight: "600", textAlign: "center" },
+  badgesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 20,
+  },
+  badgeChip: {
+    width: "22%",
+    aspectRatio: 0.85,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+  badgeName: {
+    fontSize: 8,
+    fontWeight: "700",
+    textAlign: "center",
+    lineHeight: 11,
+  },
+  tipCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  tipTitle: { fontSize: 13, fontWeight: "700", marginBottom: 4 },
+  tipText: { fontSize: 12, lineHeight: 18 },
 });

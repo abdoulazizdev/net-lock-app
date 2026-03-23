@@ -29,7 +29,8 @@ class MainApplication : Application(), ReactApplication {
                     add(WidgetSyncPackage())
                     add(ConnectionLogPackage())
                     add(AppInfoPackage())
-                    add(WatchdogPackage())      // ← Watchdog
+                    add(WatchdogPackage())            // ← Watchdog
+                    add(NetworkConditionPackage())   // ← Réseau conditionnel
                 }
 
             override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"

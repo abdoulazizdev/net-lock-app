@@ -2,6 +2,7 @@ import PaywallModal from "@/components/PaywallModal";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { usePremium } from "@/hooks/usePremium";
+import ImportExportService from "@/services/import-export.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
@@ -14,17 +15,14 @@ import {
   Animated,
   Easing,
   Modal,
-  Share,
   StatusBar,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ─── Toggle ───────────────────────────────────────────────────────────────────
 function Toggle({
   value,
   onToggle,
@@ -62,7 +60,7 @@ function Toggle({
       onPress={onToggle}
       disabled={disabled}
       activeOpacity={0.8}
-      style={disabled && { opacity: 0.3 }}
+      style={disabled ? { opacity: 0.3 } : undefined}
     >
       <Animated.View
         style={[s.toggle, { backgroundColor: bg, borderColor: border }]}
@@ -78,7 +76,6 @@ function Toggle({
   );
 }
 
-// ─── SettingRow ───────────────────────────────────────────────────────────────
 function SettingRow({
   icon,
   title,
@@ -114,17 +111,18 @@ function SettingRow({
             backgroundColor: t.danger.bg,
             borderColor: t.danger.border,
           },
-          accent
-            ? { backgroundColor: accent + "15", borderColor: accent + "35" }
-            : {},
+          accent && {
+            backgroundColor: accent + "15",
+            borderColor: accent + "35",
+          },
         ]}
       >
         <Text
           style={[
             s.rowIconText,
             { color: t.text.muted },
-            accent ? { color: accent } : {},
-            danger ? { color: t.danger.accent } : {},
+            accent && { color: accent },
+            danger && { color: t.danger.accent },
           ]}
         >
           {icon}
@@ -168,7 +166,6 @@ function Divider() {
   return <View style={[s.sep, { backgroundColor: t.border.light }]} />;
 }
 
-// ─── PinPad ───────────────────────────────────────────────────────────────────
 function PinPad({
   pin,
   onDigit,
@@ -547,135 +544,6 @@ function PinChangeModal({
   );
 }
 
-function ImportModal({
-  visible,
-  onClose,
-  onImported,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onImported: () => void;
-}) {
-  const { t } = useTheme();
-  const [jsonText, setJsonText] = useState("");
-  const [loading, setLoading] = useState(false);
-  const handleImport = async () => {
-    if (!jsonText.trim()) {
-      Alert.alert("Erreur", "Collez le JSON à importer");
-      return;
-    }
-    setLoading(true);
-    try {
-      await StorageService.importData(jsonText.trim());
-      Alert.alert("Succès", "Données importées");
-      setJsonText("");
-      onImported();
-      onClose();
-    } catch {
-      Alert.alert("Erreur", "JSON invalide ou corrompu.");
-    } finally {
-      setLoading(false);
-    }
-  };
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={[imm.overlay, { backgroundColor: "rgba(0,0,0,.3)" }]}>
-        <View
-          style={[
-            imm.container,
-            { backgroundColor: t.bg.card, borderColor: t.border.light },
-          ]}
-        >
-          <View style={[imm.handle, { backgroundColor: t.border.normal }]} />
-          <View style={imm.header}>
-            <Text style={[imm.title, { color: t.text.primary }]}>
-              Importer des données
-            </Text>
-            <TouchableOpacity
-              onPress={onClose}
-              style={[
-                imm.closeIcon,
-                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
-              ]}
-            >
-              <Text style={[imm.closeIconText, { color: t.text.muted }]}>
-                ✕
-              </Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={[imm.label, { color: t.text.muted }]}>
-            COLLER LE JSON EXPORTÉ
-          </Text>
-          <TextInput
-            style={[
-              imm.input,
-              {
-                backgroundColor: t.bg.cardAlt,
-                color: t.text.primary,
-                borderColor: t.border.light,
-              },
-            ]}
-            placeholder='{"rules": [...], "profiles": [...], ...}'
-            placeholderTextColor={t.text.muted}
-            value={jsonText}
-            onChangeText={setJsonText}
-            multiline
-            numberOfLines={8}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <View
-            style={[
-              imm.warnRow,
-              { backgroundColor: t.warning.bg, borderColor: t.warning.border },
-            ]}
-          >
-            <Text style={[imm.warnIcon, { color: t.warning.accent }]}>⚠</Text>
-            <Text style={[imm.warning, { color: t.warning.text }]}>
-              L'import remplacera les données existantes. Action irréversible.
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={[
-              imm.btn,
-              {
-                backgroundColor:
-                  !jsonText.trim() || loading
-                    ? Colors.blue[200]
-                    : Colors.blue[600],
-              },
-            ]}
-            onPress={handleImport}
-            disabled={!jsonText.trim() || loading}
-            activeOpacity={0.85}
-          >
-            <Text style={imm.btnText}>
-              {loading ? "Import…" : "↓ Importer"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              imm.cancelBtn,
-              { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
-            ]}
-            onPress={onClose}
-            activeOpacity={0.8}
-          >
-            <Text style={[imm.cancelText, { color: t.text.secondary }]}>
-              Annuler
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
@@ -698,9 +566,9 @@ export default function SettingsScreen() {
   const [pinModalCreating, setPinModalCreating] = useState(false);
   const [confirmDisablePinVisible, setConfirmDisablePinVisible] =
     useState(false);
-  const [importModalVisible, setImportModalVisible] = useState(false);
   const [confirmClearVisible, setConfirmClearVisible] = useState(false);
   const [exportVisible, setExportVisible] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
   const [vpnStatus, setVpnStatus] = useState({
     isActive: false,
     isNative: false,
@@ -776,8 +644,10 @@ export default function SettingsScreen() {
     const status = VpnService.getStatus();
     const isActive = await VpnService.isVpnActive();
     setVpnStatus({ ...status, isActive });
-    const rules = await StorageService.getRules();
-    const profiles = await StorageService.getProfiles();
+    const [rules, profiles] = await Promise.all([
+      StorageService.getRules(),
+      StorageService.getProfiles(),
+    ]);
     setStats({ rules: rules.length, profiles: profiles.length });
   };
 
@@ -812,7 +682,6 @@ export default function SettingsScreen() {
       try {
         const result = await LocalAuthentication.authenticateAsync({
           promptMessage: "Confirmer l'activation",
-          fallbackLabel: "Utiliser le PIN du téléphone",
           cancelLabel: "Annuler",
         });
         if (result.success) {
@@ -847,31 +716,97 @@ export default function SettingsScreen() {
       }
     }
   };
+
   const handleExport = async () => {
     try {
-      const jsonData = await StorageService.exportData();
-      await Share.share({ message: jsonData, title: "Export NetOff" });
+      await ImportExportService.exportRules();
       closeExportModal();
-    } catch {
-      Alert.alert("Erreur", "Impossible d'exporter");
+    } catch (e: any) {
+      if (e?.message !== "User did not share")
+        Alert.alert("Erreur", e?.message ?? "Impossible d'exporter");
     }
   };
+
+  const handleImport = async () => {
+    if (!isPremium) {
+      showPaywall("export");
+      return;
+    }
+    setImportLoading(true);
+    try {
+      Alert.alert(
+        "Mode d'import",
+        "Voulez-vous fusionner avec les règles existantes ou les remplacer ?",
+        [
+          {
+            text: "Annuler",
+            style: "cancel",
+            onPress: () => setImportLoading(false),
+          },
+          {
+            text: "Fusionner",
+            onPress: async () => {
+              try {
+                const r = await ImportExportService.importRules("merge");
+                await loadAll();
+                Alert.alert(
+                  "✅ Import réussi",
+                  `${r.rules} règle${r.rules !== 1 ? "s" : ""} et ${r.profiles} profil${r.profiles !== 1 ? "s" : ""} importé${r.profiles !== 1 ? "s" : ""}.`,
+                );
+              } catch (e: any) {
+                if (e?.message !== "Import annulé.")
+                  Alert.alert("Erreur", e?.message ?? "Import échoué.");
+              } finally {
+                setImportLoading(false);
+              }
+            },
+          },
+          {
+            text: "Remplacer",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                const r = await ImportExportService.importRules("replace");
+                await loadAll();
+                Alert.alert(
+                  "✅ Import réussi",
+                  `${r.rules} règle${r.rules !== 1 ? "s" : ""} importée${r.rules !== 1 ? "s" : ""}.`,
+                );
+              } catch (e: any) {
+                if (e?.message !== "Import annulé.")
+                  Alert.alert("Erreur", e?.message ?? "Import échoué.");
+              } finally {
+                setImportLoading(false);
+              }
+            },
+          },
+        ],
+      );
+    } catch {
+      setImportLoading(false);
+    }
+  };
+
   const clearAllData = async () => {
     try {
-      await StorageService.clearStats();
-      await StorageService.clearRules();
-      await StorageService.clearProfiles();
+      await Promise.all([
+        StorageService.clearStats(),
+        StorageService.clearRules(),
+        StorageService.clearProfiles(),
+      ]);
       await loadAll();
       Alert.alert("Succès", "Toutes les données ont été effacées");
     } catch {
       Alert.alert("Erreur", "Impossible d'effacer");
     }
   };
+
   const toggleVpn = async () => {
     if (vpnStatus.isActive) await VpnService.stopVpn();
     else await VpnService.startVpn();
     await loadAll();
   };
+
   const closeExportModal = () => {
     Animated.parallel([
       Animated.timing(modalOpacity, {
@@ -897,21 +832,40 @@ export default function SettingsScreen() {
         barStyle="light-content"
         backgroundColor={Semantic.bg.header}
       />
-      <View style={[s.header, { paddingTop: insets.top + 14 }]}>
-        <View style={s.headerLeft}>
-          <View style={s.headerIconWrap}>
-            <Text style={s.headerIconText}>◈</Text>
+
+      {/* ── Header avec bouton retour ── */}
+      <View
+        style={[
+          s.header,
+          {
+            paddingTop: insets.top + 10,
+            backgroundColor: Semantic.bg.header,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={s.backBtn}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={s.backText}>← Retour</Text>
+        </TouchableOpacity>
+        <View style={s.headerRow}>
+          <View style={s.headerLeft}>
+            <View style={s.headerIconWrap}>
+              <Text style={s.headerIconText}>◈</Text>
+            </View>
+            <View>
+              <Text style={s.headerTitle}>Paramètres</Text>
+              <Text style={s.headerSubtitle}>Configuration de l'app</Text>
+            </View>
           </View>
-          <View>
-            <Text style={s.headerTitle}>Paramètres</Text>
-            <Text style={s.headerSubtitle}>Configuration de l'app</Text>
-          </View>
+          {isPremium && (
+            <View style={s.proBadge}>
+              <Text style={s.proBadgeText}>PRO</Text>
+            </View>
+          )}
         </View>
-        {isPremium && (
-          <View style={s.proBadge}>
-            <Text style={s.proBadgeText}>PRO</Text>
-          </View>
-        )}
       </View>
 
       <Animated.ScrollView
@@ -953,7 +907,6 @@ export default function SettingsScreen() {
               {vpnStatus.isNative
                 ? "Mode natif (VPNService)"
                 : "Mode simulation"}
-              {vpnStatus.platform ? ` · ${vpnStatus.platform}` : ""}
             </Text>
           </View>
           <View
@@ -1015,7 +968,7 @@ export default function SettingsScreen() {
           ))}
         </View>
 
-        {/* Thème */}
+        {/* Apparence */}
         <SectionLabel label="APPARENCE" />
         <View
           style={[
@@ -1038,6 +991,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Sécurité */}
         <SectionLabel label="SÉCURITÉ" />
         <View
           style={[
@@ -1161,28 +1115,41 @@ export default function SettingsScreen() {
           fallback
         </Text>
 
-        {pinEnabled && bioEnabled && (
-          <View
-            style={[
-              s.combinedBanner,
-              { backgroundColor: t.bg.accent, borderColor: t.border.strong },
-            ]}
-          >
-            <View
-              style={[
-                s.combinedIconWrap,
-                { backgroundColor: t.bg.card, borderColor: t.border.strong },
-              ]}
-            >
-              <Text style={[s.combinedIcon, { color: t.text.link }]}>⚡</Text>
-            </View>
-            <Text style={[s.combinedText, { color: t.text.secondary }]}>
-              Les deux méthodes sont actives. Biométrie proposée en premier, PIN
-              en secours.
-            </Text>
-          </View>
-        )}
+        {/* Contrôle parental */}
+        <SectionLabel label="CONTRÔLE PARENTAL" />
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <SettingRow
+            icon="👶"
+            title="Contrôle parental"
+            subtitle="Verrouiller NetOff avec un PIN parent"
+            onPress={() => router.push("/parental-control")}
+            accent={Colors.purple[400]}
+          />
+        </View>
 
+        {/* Productivité */}
+        <SectionLabel label="PRODUCTIVITÉ" />
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <SettingRow
+            icon="📊"
+            title="Statistiques de productivité"
+            subtitle="Streak, badges, score hebdomadaire"
+            onPress={() => router.push("/productivity")}
+            accent={Colors.blue[500]}
+          />
+        </View>
+
+        {/* Données */}
         <SectionLabel label="DONNÉES" />
         <View
           style={[
@@ -1195,7 +1162,7 @@ export default function SettingsScreen() {
             title="Exporter les règles"
             subtitle={
               isPremium
-                ? "Sauvegarder règles et profils en JSON"
+                ? "Sauvegarder règles et profils (Share)"
                 : "Fonctionnalité Premium"
             }
             onPress={() => {
@@ -1212,17 +1179,14 @@ export default function SettingsScreen() {
             icon="↓"
             title="Importer les règles"
             subtitle={
-              isPremium
-                ? "Restaurer des règles depuis un JSON"
-                : "Fonctionnalité Premium"
+              importLoading
+                ? "Import en cours…"
+                : isPremium
+                  ? "Restaurer depuis un fichier JSON"
+                  : "Fonctionnalité Premium"
             }
-            onPress={() => {
-              if (!isPremium) {
-                showPaywall("export");
-                return;
-              }
-              setImportModalVisible(true);
-            }}
+            onPress={handleImport}
+            disabled={importLoading}
             accent={Colors.purple[500]}
           />
           <Divider />
@@ -1235,6 +1199,7 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* À propos */}
         <SectionLabel label="À PROPOS" />
         <View
           style={[
@@ -1305,8 +1270,8 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
             <Text style={[em.body, { color: t.text.secondary }]}>
-              Les règles, profils et statistiques seront exportés au format
-              JSON.
+              Les règles et profils seront exportés au format JSON via le menu
+              de partage Android (WhatsApp, Drive, email…).
             </Text>
             <TouchableOpacity
               style={[em.exportBtn, { backgroundColor: Colors.blue[600] }]}
@@ -1390,11 +1355,6 @@ export default function SettingsScreen() {
         onClose={handlePinModalClose}
         isCreating={pinModalCreating}
       />
-      <ImportModal
-        visible={importModalVisible}
-        onClose={() => setImportModalVisible(false)}
-        onImported={loadAll}
-      />
       <ConfirmPinModal
         visible={confirmDisablePinVisible}
         onClose={() => setConfirmDisablePinVisible(false)}
@@ -1421,14 +1381,18 @@ const s = StyleSheet.create({
     paddingHorizontal: 22,
     paddingBottom: 18,
     backgroundColor: Semantic.bg.header,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     shadowColor: Colors.blue[800],
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 4,
+  },
+  backBtn: { marginBottom: 12 },
+  backText: { color: Colors.gray[0], fontSize: 14, fontWeight: "600" },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
   headerIconWrap: {
@@ -1557,25 +1521,6 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 4,
   },
-  combinedBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    marginTop: 12,
-  },
-  combinedIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  combinedIcon: { fontSize: 14 },
-  combinedText: { flex: 1, fontSize: 12, lineHeight: 18 },
   card: {
     borderRadius: 18,
     borderWidth: 1,
@@ -1729,75 +1674,6 @@ const pcm = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
-});
-const imm = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
-  container: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 20,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  title: { fontSize: 19, fontWeight: "800", letterSpacing: -0.5 },
-  closeIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeIconText: { fontSize: 11, fontWeight: "700" },
-  label: { fontSize: 10, fontWeight: "700", letterSpacing: 2, marginBottom: 8 },
-  input: {
-    borderRadius: 14,
-    padding: 14,
-    fontSize: 12,
-    borderWidth: 1,
-    height: 140,
-    textAlignVertical: "top",
-    fontFamily: "monospace",
-    marginBottom: 14,
-  },
-  warnRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    marginBottom: 20,
-  },
-  warnIcon: { fontSize: 13, marginTop: 1 },
-  warning: { flex: 1, fontSize: 12, lineHeight: 18 },
-  btn: {
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  btnText: { color: Colors.gray[0], fontSize: 15, fontWeight: "800" },
-  cancelBtn: {
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  cancelText: { fontSize: 14, fontWeight: "600" },
 });
 const em = StyleSheet.create({
   overlay: {
