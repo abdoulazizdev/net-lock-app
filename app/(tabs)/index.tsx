@@ -588,6 +588,420 @@ const AppCard = React.memo(
     p.limitReached === n.limitReached,
 );
 
+// ─── VpnWarningBanner ─────────────────────────────────────────────────────────
+const VpnWarningBanner = React.memo(function VpnWarningBanner({
+  blockedCount,
+  onActivate,
+  onDismiss,
+  t,
+}: {
+  blockedCount: number;
+  onActivate: () => void;
+  onDismiss: () => void;
+  t: any;
+}) {
+  const slideAnim = useRef(new Animated.Value(-8)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        g.vpnWarningBanner,
+        { backgroundColor: t.warning.bg, borderColor: t.warning.border },
+        { opacity: opacityAnim, transform: [{ translateY: slideAnim }] },
+      ]}
+    >
+      <View
+        style={[
+          g.vpnWarningIconWrap,
+          { backgroundColor: t.warning.border + "44" },
+        ]}
+      >
+        <Text style={g.vpnWarningIconText}>⚠️</Text>
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text
+          style={[g.vpnWarningTitle, { color: t.warning.text }]}
+          numberOfLines={1}
+        >
+          VPN désactivé — blocages inactifs
+        </Text>
+        <Text
+          style={[g.vpnWarningDesc, { color: t.warning.text }]}
+          numberOfLines={1}
+        >
+          {blockedCount} app{blockedCount > 1 ? "s" : ""} bloquée
+          {blockedCount > 1 ? "s" : ""} mais le réseau n'est pas filtré
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={[
+          g.vpnWarningCta,
+          {
+            backgroundColor: t.warning.text + "1A",
+            borderColor: t.warning.text + "44",
+          },
+        ]}
+        onPress={onActivate}
+        activeOpacity={0.75}
+      >
+        <Text style={[g.vpnWarningCtaText, { color: t.warning.text }]}>
+          Activer →
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onDismiss}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        style={g.vpnWarningDismiss}
+        activeOpacity={0.6}
+      >
+        <Text style={[g.vpnWarningDismissText, { color: t.warning.text }]}>
+          ✕
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+});
+
+// ─── VpnActivationModal ───────────────────────────────────────────────────────
+// Popup affiché UNIQUEMENT lors du tout premier blocage d'app sans VPN actif.
+// Se ferme avec animation avant d'exécuter l'action choisie.
+const VpnActivationModal = React.memo(function VpnActivationModal({
+  visible,
+  appName,
+  onActivate,
+  onDismiss,
+  t,
+}: {
+  visible: boolean;
+  appName: string;
+  onActivate: () => void;
+  onDismiss: () => void;
+  t: any;
+}) {
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const cardScale = useRef(new Animated.Value(0.88)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      backdropOpacity.setValue(0);
+      cardScale.setValue(0.88);
+      cardOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.spring(cardScale, {
+          toValue: 1,
+          tension: 260,
+          friction: 22,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardOpacity, {
+          toValue: 1,
+          duration: 200,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  // Anime la fermeture puis appelle le callback
+  const animateOut = (cb: () => void) => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardOpacity, {
+        toValue: 0,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardScale, {
+        toValue: 0.92,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+    ]).start(() => cb());
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      transparent
+      animationType="none"
+      onRequestClose={() => animateOut(onDismiss)}
+    >
+      <TouchableWithoutFeedback onPress={() => animateOut(onDismiss)}>
+        <Animated.View style={[p.backdrop, { opacity: backdropOpacity }]}>
+          <TouchableWithoutFeedback>
+            <Animated.View
+              style={[
+                p.card,
+                {
+                  backgroundColor: t.bg.card,
+                  borderColor: t.border.light,
+                  opacity: cardOpacity,
+                  transform: [{ scale: cardScale }],
+                },
+              ]}
+            >
+              {/* ── Icône bouclier avec halos concentriques ── */}
+              <View style={p.iconArea}>
+                <View style={p.haloOuter} />
+                <View style={p.haloMid} />
+                <View style={p.iconBox}>
+                  <Text style={p.iconEmoji}>🛡️</Text>
+                </View>
+              </View>
+
+              {/* ── Texte ── */}
+              <Text style={[p.title, { color: t.text.primary }]}>
+                VPN désactivé
+              </Text>
+
+              <Text style={[p.subtitle, { color: t.text.secondary }]}>
+                Vous venez de bloquer{" "}
+                <Text style={[p.subtitleAccent, { color: t.text.primary }]}>
+                  {appName}
+                </Text>
+                , mais le VPN est éteint.
+              </Text>
+
+              <View
+                style={[
+                  p.infoBox,
+                  {
+                    backgroundColor: t.bg.accent,
+                    borderColor: t.border.strong,
+                  },
+                ]}
+              >
+                <Text style={p.infoIcon}>ℹ️</Text>
+                <Text style={[p.infoText, { color: t.text.muted }]}>
+                  Sans VPN actif, les règles de blocage ne sont pas appliquées
+                  et l'application peut toujours accéder au réseau.
+                </Text>
+              </View>
+
+              {/* ── Séparateur ── */}
+              <View style={[p.sep, { backgroundColor: t.border.light }]} />
+
+              {/* ── Boutons ── */}
+              <View style={p.actions}>
+                {/* Pas maintenant */}
+                <TouchableOpacity
+                  style={[
+                    p.btnSecondary,
+                    {
+                      backgroundColor: t.bg.cardAlt,
+                      borderColor: t.border.normal,
+                    },
+                  ]}
+                  onPress={() => animateOut(onDismiss)}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[p.btnSecondaryText, { color: t.text.secondary }]}
+                  >
+                    Pas maintenant
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Activer maintenant */}
+                <TouchableOpacity
+                  style={p.btnPrimary}
+                  onPress={() => animateOut(onActivate)}
+                  activeOpacity={0.82}
+                >
+                  <Text style={p.btnPrimaryIcon}>⚡</Text>
+                  <Text style={p.btnPrimaryText}>Activer maintenant</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </TouchableWithoutFeedback>
+        </Animated.View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+});
+
+// Styles isolés du modal VPN
+const p = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(4,13,30,0.74)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingTop: 36,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 24 },
+    shadowOpacity: 0.38,
+    shadowRadius: 48,
+    elevation: 28,
+    alignItems: "center",
+  },
+  // Halos concentriques derrière l'icône
+  iconArea: {
+    width: 96,
+    height: 96,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 22,
+  },
+  haloOuter: {
+    position: "absolute",
+    width: 96,
+    height: 96,
+    borderRadius: 28,
+    backgroundColor: "rgba(248,113,113,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.14)",
+  },
+  haloMid: {
+    position: "absolute",
+    width: 76,
+    height: 76,
+    borderRadius: 22,
+    backgroundColor: "rgba(248,113,113,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.20)",
+  },
+  iconBox: {
+    width: 58,
+    height: 58,
+    borderRadius: 17,
+    backgroundColor: "rgba(248,113,113,0.14)",
+    borderWidth: 1.5,
+    borderColor: "rgba(248,113,113,0.34)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconEmoji: {
+    fontSize: 26,
+    lineHeight: 32,
+  },
+  title: {
+    fontSize: 21,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: "400",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  subtitleAccent: {
+    fontWeight: "700",
+  },
+  infoBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+  },
+  infoIcon: {
+    fontSize: 13,
+    lineHeight: 18,
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
+  sep: {
+    width: "100%",
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 20,
+  },
+  actions: {
+    width: "100%",
+    gap: 10,
+  },
+  // Bouton secondaire "Pas maintenant"
+  btnSecondary: {
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnSecondaryText: {
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: -0.1,
+  },
+  // Bouton primaire "Activer maintenant" — vert vif avec ombre colorée
+  btnPrimary: {
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "#16a34a",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    shadowColor: "#16a34a",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.42,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  btnPrimaryIcon: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  btnPrimaryText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.3,
+  },
+});
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -604,7 +1018,7 @@ export default function HomeScreen() {
   const [sysLoaded, setSysLoaded] = useState(false);
   const [sysLoading, setSysLoading] = useState(false);
 
-  // ── États séparés Focus / Minuterie ──────────────────────────────────────
+  // ── États Focus / Minuterie ───────────────────────────────────────────────
   const [focusVisible, setFocusVisible] = useState(false);
   const [focusStatus, setFocusStatus] = useState<FocusStatus | null>(null);
   const [focusExpanded, setFocusExpanded] = useState(false);
@@ -615,13 +1029,25 @@ export default function HomeScreen() {
   const [paywallReason, setPaywallReason] = useState<any>("general");
   const [menuVisible, setMenuVisible] = useState(false);
 
+  // ── VPN warning banner ────────────────────────────────────────────────────
+  const [vpnWarningDismissed, setVpnWarningDismissed] = useState(false);
+
+  // ── VPN activation popup ──────────────────────────────────────────────────
+  // `vpnPopupShown` est un ref — ne déclenche pas de re-render,
+  // sert uniquement de garde "déjà affiché dans cette session".
+  const vpnPopupShown = useRef(false);
+  const [vpnPopupVisible, setVpnPopupVisible] = useState(false);
+  const [vpnPopupAppName, setVpnPopupAppName] = useState("");
+
   const appStateRef = useRef(AppState.currentState);
   const focusActive = focusStatus?.isActive ?? false;
   const timerActive = timerStatus?.isActive ?? false;
-  // Les apps sont locked si Focus OU Minuterie est actif
   const anyActive = focusActive || timerActive;
   const limitReached =
     !isPremium && blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS;
+
+  const showVpnWarning =
+    !vpnActive && blockedCount > 0 && !anyActive && !vpnWarningDismissed;
 
   const mountFade = useRef(new Animated.Value(0)).current;
   const mountSlide = useRef(new Animated.Value(18)).current;
@@ -691,9 +1117,11 @@ export default function HomeScreen() {
 
   // ── AppEvents ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const unsubVpn = AppEvents.on("vpn:changed", (active) =>
-      setVpnActive(active),
-    );
+    const unsubVpn = AppEvents.on("vpn:changed", (active) => {
+      setVpnActive(active);
+      // Réinitialiser le dismiss banner si le VPN se rallume
+      if (active) setVpnWarningDismissed(false);
+    });
     const unsubRules = AppEvents.on("rules:changed", () => refreshRules());
     const unsubFocus = AppEvents.on("focus:changed", (active) => {
       if (!active) {
@@ -728,7 +1156,7 @@ export default function HomeScreen() {
     loadInitial();
     checkFocus();
     checkTimer();
-    TimerService.rescheduleIfNeeded(); // Reprendre le timer si l'app a été relancée
+    TimerService.rescheduleIfNeeded();
 
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active" && appStateRef.current !== "active") {
@@ -835,9 +1263,10 @@ export default function HomeScreen() {
   }, [apps, query, filters]);
 
   const toggleVpn = useCallback(async () => {
-    if (anyActive) return; // VPN locked si Focus OU Minuterie actif
+    if (anyActive) return;
     const next = !vpnActive;
     setVpnActive(next);
+    if (next) setVpnWarningDismissed(false);
     try {
       if (next) await VpnService.startVpn();
       else await VpnService.stopVpn();
@@ -868,6 +1297,7 @@ export default function HomeScreen() {
         showPaywall("blocked_apps");
         return;
       }
+
       const patch = (b: boolean) => ({
         ...item,
         rule: {
@@ -875,24 +1305,34 @@ export default function HomeScreen() {
           isBlocked: b,
         } as AppRule,
       });
-      setApps((p) =>
-        p.map((a) =>
+
+      setApps((prev) =>
+        prev.map((a) =>
           a.packageName === item.packageName ? patch(nowBlocked) : a,
         ),
       );
       setBlockedCount((c) => c + (nowBlocked ? 1 : -1));
+
+      // ── Déclenchement du popup VPN ────────────────────────────────────────
+      // Conditions : première fois qu'on bloque (pas débloque) avec VPN inactif
+      if (nowBlocked && !vpnActive && !vpnPopupShown.current) {
+        vpnPopupShown.current = true;
+        setVpnPopupAppName(item.appName);
+        setVpnPopupVisible(true);
+      }
+
       try {
         await VpnService.setRule(item.packageName, nowBlocked);
       } catch {
-        setApps((p) =>
-          p.map((a) =>
+        setApps((prev) =>
+          prev.map((a) =>
             a.packageName === item.packageName ? patch(!nowBlocked) : a,
           ),
         );
         setBlockedCount((c) => c + (nowBlocked ? -1 : 1));
       }
     },
-    [anyActive, isPremium, blockedCount],
+    [anyActive, isPremium, blockedCount, vpnActive],
   );
 
   const handleAppPress = useCallback(
@@ -1050,14 +1490,22 @@ export default function HomeScreen() {
         </View>
       </Animated.View>
 
-      {/* ── Sub-header : Focus + Timer + Filters ── */}
+      {/* ── Sub-header ── */}
       <View
         style={[
           g.subHeader,
           { backgroundColor: t.bg.card, borderBottomColor: t.border.light },
         ]}
       >
-        {/* Bannière Focus — Hold 5s pour stopper, fullscreen, purple */}
+        {showVpnWarning && (
+          <VpnWarningBanner
+            blockedCount={blockedCount}
+            onActivate={toggleVpn}
+            onDismiss={() => setVpnWarningDismissed(true)}
+            t={t}
+          />
+        )}
+
         {focusActive && focusStatus && (
           <FocusBanner
             status={focusStatus}
@@ -1072,7 +1520,6 @@ export default function HomeScreen() {
           />
         )}
 
-        {/* Bannière Minuterie — Tap simple pour stopper, orange/ambre */}
         {timerActive && timerStatus && (
           <TimerBanner
             status={timerStatus}
@@ -1103,6 +1550,7 @@ export default function HomeScreen() {
             </View>
           </TouchableOpacity>
         )}
+
         <SearchAndFilters
           query={query}
           onQueryChange={setQuery}
@@ -1182,7 +1630,6 @@ export default function HomeScreen() {
         }}
       />
 
-      {/* Minuterie : modale distincte, service distinct, bannière distincte */}
       <QuickTimerModal
         visible={timerVisible}
         onClose={() => setTimerVisible(false)}
@@ -1212,7 +1659,20 @@ export default function HomeScreen() {
         onTimer={() => setTimerVisible(true)}
       />
 
-      {/* Fullscreen Focus uniquement (pas pour la Minuterie) */}
+      {/* ── Popup activation VPN ─────────────────────────────────────────────
+          Affiché une seule fois : lors du premier blocage sans VPN actif.
+          vpnPopupShown (ref) garantit qu'il ne réapparaît pas dans la session. */}
+      <VpnActivationModal
+        visible={vpnPopupVisible}
+        appName={vpnPopupAppName}
+        onActivate={() => {
+          setVpnPopupVisible(false);
+          toggleVpn();
+        }}
+        onDismiss={() => setVpnPopupVisible(false)}
+        t={t}
+      />
+
       {focusActive && focusStatus && (
         <FocusFullScreen
           status={focusStatus}
@@ -1466,6 +1926,60 @@ const g = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  // ── VPN Warning Banner ────────────────────────────────────────────────────
+  vpnWarningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  vpnWarningIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    justifyContent: "center",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  vpnWarningIconText: {
+    fontSize: 15,
+    lineHeight: 18,
+  },
+  vpnWarningTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  vpnWarningDesc: {
+    fontSize: 10,
+    fontWeight: "500",
+    opacity: 0.72,
+  },
+  vpnWarningCta: {
+    borderRadius: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  vpnWarningCtaText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+  },
+  vpnWarningDismiss: {
+    flexShrink: 0,
+    paddingLeft: 2,
+  },
+  vpnWarningDismissText: {
+    fontSize: 13,
+    fontWeight: "500",
+    opacity: 0.45,
+  },
+  // ─────────────────────────────────────────────────────────────────────────
   limitBanner: {
     flexDirection: "row",
     alignItems: "center",
