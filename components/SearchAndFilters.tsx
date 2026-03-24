@@ -33,20 +33,22 @@ interface Props {
 interface ChipDef {
   key: ScopeKey | StateKey;
   label: string;
+  icon: string;
   group: "scope" | "state";
 }
 
 const CHIPS: ChipDef[] = [
-  { key: "all", label: "Toutes", group: "scope" },
-  { key: "user", label: "Installées", group: "scope" },
-  { key: "system", label: "Système", group: "scope" },
-  { key: "blocked", label: "Bloquées", group: "state" },
-  { key: "allowed", label: "Autorisées", group: "state" },
+  { key: "all", label: "Toutes", icon: "◉", group: "scope" },
+  { key: "user", label: "Installées", icon: "⬇", group: "scope" },
+  { key: "system", label: "Système", icon: "⚙", group: "scope" },
+  { key: "blocked", label: "Bloquées", icon: "⊘", group: "state" },
+  { key: "allowed", label: "Autorisées", icon: "✓", group: "state" },
 ];
 
 // ─── Chip ──────────────────────────────────────────────────────────────────────
 function Chip({
   label,
+  icon,
   chipKey,
   active,
   onPress,
@@ -54,6 +56,7 @@ function Chip({
   spinDeg,
 }: {
   label: string;
+  icon: string;
   chipKey: ScopeKey | StateKey;
   active: boolean;
   onPress: () => void;
@@ -81,9 +84,9 @@ function Chip({
     onPress();
   };
 
-  // Couleur active selon le type de chip
   const isBlocked = chipKey === "blocked";
   const isAllowed = chipKey === "allowed";
+
   const bgColor = active
     ? isBlocked
       ? t.blocked.bg
@@ -105,6 +108,13 @@ function Chip({
         ? t.allowed.text
         : t.text.link
     : t.text.secondary;
+  const iconColor = active
+    ? isBlocked
+      ? t.blocked.accent
+      : isAllowed
+        ? t.allowed.accent
+        : t.text.link
+    : t.text.muted;
 
   return (
     <TouchableOpacity
@@ -117,18 +127,21 @@ function Chip({
         style={[
           st.chip,
           { backgroundColor: bgColor, borderColor },
+          active && st.chipActive,
           { transform: [{ scale: sc }] },
         ]}
       >
-        {loading && spinDeg && (
+        {loading && spinDeg ? (
           <Animated.Text
             style={[
-              st.chipSpin,
+              st.chipIcon,
               { color: t.text.link, transform: [{ rotate: spinDeg }] },
             ]}
           >
             ◌
           </Animated.Text>
+        ) : (
+          <Text style={[st.chipIcon, { color: iconColor }]}>{icon}</Text>
         )}
         <Text
           style={[
@@ -141,6 +154,18 @@ function Chip({
         </Text>
       </Animated.View>
     </TouchableOpacity>
+  );
+}
+
+// ─── Section label ─────────────────────────────────────────────────────────────
+function SectionLabel({ label }: { label: string }) {
+  const { t } = useTheme();
+  return (
+    <View style={st.sectionLabel}>
+      <Text style={[st.sectionLabelText, { color: t.text.muted }]}>
+        {label}
+      </Text>
+    </View>
   );
 }
 
@@ -204,7 +229,6 @@ export default function SearchAndFilters({
     if (c.group === "scope") {
       onFiltersChange({ ...filters, scope: c.key as ScopeKey });
     } else {
-      // Tap sur chip actif → reset à "any"
       const next = filters.state === c.key ? "any" : (c.key as StateKey);
       onFiltersChange({ ...filters, state: next });
     }
@@ -213,9 +237,16 @@ export default function SearchAndFilters({
   const isActive = (c: ChipDef) =>
     c.group === "scope" ? filters.scope === c.key : filters.state === c.key;
 
+  const scopeChips = CHIPS.filter((c) => c.group === "scope");
+  const stateChips = CHIPS.filter((c) => c.group === "state");
+
+  // Compteur de filtres actifs (hors defaults)
+  const activeFilterCount =
+    (filters.scope !== "all" ? 1 : 0) + (filters.state !== "any" ? 1 : 0);
+
   return (
     <View style={st.wrap}>
-      {/* Search */}
+      {/* ── Search bar ── */}
       <Animated.View
         style={[
           st.searchBox,
@@ -229,13 +260,16 @@ export default function SearchAndFilters({
         ]}
       >
         <Text
-          style={[st.icon, { color: focused ? t.text.link : t.text.muted }]}
+          style={[
+            st.searchIcon,
+            { color: focused ? t.text.link : t.text.muted },
+          ]}
         >
           ⌕
         </Text>
         <TextInput
           style={[st.input, { color: t.text.primary }]}
-          placeholder="Rechercher…"
+          placeholder="Rechercher une application…"
           placeholderTextColor={t.text.muted}
           value={query}
           onChangeText={onQueryChange}
@@ -260,82 +294,169 @@ export default function SearchAndFilters({
         )}
       </Animated.View>
 
-      {/* Chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={st.chipScroll}
-        contentContainerStyle={st.chipRow}
-      >
-        {CHIPS.map((c, i) => {
-          const divider = i > 0 && c.group !== CHIPS[i - 1].group;
-          return (
-            <React.Fragment key={c.key}>
-              {divider && (
-                <View style={[st.sep, { backgroundColor: t.border.normal }]} />
-              )}
-              <Chip
-                label={c.label}
-                chipKey={c.key}
-                active={isActive(c)}
-                onPress={() => handleChip(c)}
-                loading={c.key === "system" && !!systemAppsLoading}
-                spinDeg={spinDeg}
-              />
-            </React.Fragment>
-          );
-        })}
-      </ScrollView>
+      {/* ── Filters row ── */}
+      <View style={st.filtersRow}>
+        {/* Label with active badge */}
+        <View style={st.filtersLabel}>
+          <Text style={[st.filtersLabelText, { color: t.text.muted }]}>
+            Filtres
+          </Text>
+          {activeFilterCount > 0 && (
+            <View
+              style={[
+                st.filtersBadge,
+                { backgroundColor: t.bg.accent, borderColor: t.border.strong },
+              ]}
+            >
+              <Text style={[st.filtersBadgeText, { color: t.text.link }]}>
+                {activeFilterCount}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Chips scrollable */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={st.chipScroll}
+          contentContainerStyle={st.chipRow}
+        >
+          {/* Scope group */}
+          {scopeChips.map((c) => (
+            <Chip
+              key={c.key}
+              label={c.label}
+              icon={c.icon}
+              chipKey={c.key}
+              active={isActive(c)}
+              onPress={() => handleChip(c)}
+              loading={c.key === "system" && !!systemAppsLoading}
+              spinDeg={spinDeg}
+            />
+          ))}
+
+          {/* Separator */}
+          <View style={[st.sep, { backgroundColor: t.border.normal }]} />
+
+          {/* State group */}
+          {stateChips.map((c) => (
+            <Chip
+              key={c.key}
+              label={c.label}
+              icon={c.icon}
+              chipKey={c.key}
+              active={isActive(c)}
+              onPress={() => handleChip(c)}
+            />
+          ))}
+        </ScrollView>
+      </View>
     </View>
   );
 }
 
 const st = StyleSheet.create({
   wrap: { gap: 8 },
+
+  // ── Search ──
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 11,
+    borderRadius: 12,
     borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     gap: 8,
   },
-  icon: { fontSize: 15, lineHeight: 19 },
+  searchIcon: { fontSize: 16, lineHeight: 20 },
   input: { flex: 1, fontSize: 14, paddingVertical: 0 },
   clearBtn: {
-    width: 17,
-    height: 17,
+    width: 18,
+    height: 18,
     borderRadius: 9,
     justifyContent: "center",
     alignItems: "center",
   },
   clearBtnText: { fontSize: 8, fontWeight: "700" },
 
-  chipScroll: { marginHorizontal: -14 },
+  // ── Filters row ──
+  filtersRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  filtersLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingLeft: 2,
+  },
+  filtersLabelText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  filtersBadge: {
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  filtersBadgeText: {
+    fontSize: 8,
+    fontWeight: "800",
+  },
+
+  // ── Chips ──
+  chipScroll: { flex: 1, marginRight: -14 },
   chipRow: {
     flexDirection: "row",
     gap: 5,
     alignItems: "center",
-    paddingHorizontal: 14,
+    paddingRight: 14,
     paddingVertical: 2,
   },
   chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 11,
+    paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 100,
     borderWidth: 1,
   },
+  chipActive: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  chipIcon: {
+    fontSize: 9,
+    lineHeight: 13,
+  },
   chipLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.1 },
-  chipSpin: { fontSize: 9 },
   sep: {
     width: StyleSheet.hairlineWidth,
-    height: 13,
-    marginHorizontal: 3,
-    opacity: 0.4,
+    height: 14,
+    marginHorizontal: 2,
+    opacity: 0.5,
     borderRadius: 1,
+  },
+
+  // ── Section label (unused but exported for potential reuse) ──
+  sectionLabel: {
+    paddingHorizontal: 2,
+    marginBottom: 2,
+  },
+  sectionLabelText: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
   },
 });

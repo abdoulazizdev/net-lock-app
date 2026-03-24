@@ -1,4 +1,4 @@
-import FocusBanner, { FocusFullScreen } from "@/components/FocusBanner";
+import FocusBanner from "@/components/FocusBanner";
 import FocusModal from "@/components/FocusModal";
 import HomeScreenSkeleton from "@/components/HomeScreenSkeleton";
 import PaywallModal from "@/components/PaywallModal";
@@ -8,6 +8,7 @@ import SearchAndFilters, {
   Filters,
 } from "@/components/SearchAndFilters";
 import { usePremium } from "@/hooks/usePremium";
+import AppEvents from "@/services/app-events";
 import AppListService from "@/services/app-list.service";
 import FocusService, { FocusStatus } from "@/services/focus.service";
 import StorageService from "@/services/storage.service";
@@ -39,6 +40,7 @@ import {
 } from "react-native";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import FocusFullScreen from "../Focusfullscreen";
 
 type AppItem = InstalledApp & { rule?: AppRule };
 const CARD_H = 72;
@@ -493,8 +495,6 @@ const AppCard = React.memo(
               style={[g.cardAccentBar, { backgroundColor: t.blocked.accent }]}
             />
           )}
-
-          {/* ── Icône ── */}
           <View style={g.iconWrap}>
             {item.icon ? (
               <Image
@@ -533,7 +533,6 @@ const AppCard = React.memo(
               </View>
             )}
           </View>
-
           <View style={g.cardInfo}>
             <Text
               style={[
@@ -567,7 +566,6 @@ const AppCard = React.memo(
               </View>
             )}
           </View>
-
           <View style={g.cardActions}>
             <AppToggle
               blocked={blocked}
@@ -584,7 +582,7 @@ const AppCard = React.memo(
   (p, n) =>
     p.item.packageName === n.item.packageName &&
     p.item.rule?.isBlocked === n.item.rule?.isBlocked &&
-    p.item.icon === n.item.icon && // ← préserve le re-render quand l'icône arrive
+    p.item.icon === n.item.icon &&
     p.locked === n.locked &&
     p.limitReached === n.limitReached,
 );
@@ -636,10 +634,74 @@ export default function HomeScreen() {
     ]).start();
   }, []);
 
+  // ── Merge avec préservation d'icônes ──────────────────────────────────────
+  const mergeAppsRules = useCallback(
+    (
+      incoming: InstalledApp[],
+      rules: AppRule[],
+      existing?: AppItem[],
+    ): AppItem[] => {
+      const ruleMap = new Map(rules.map((r) => [r.packageName, r]));
+      const iconMap = new Map(
+        (existing ?? []).map((a) => [a.packageName, a.icon]),
+      );
+      return incoming.map((a) => ({
+        ...a,
+        icon: a.icon ?? iconMap.get(a.packageName) ?? null,
+        rule: ruleMap.get(a.packageName),
+      }));
+    },
+    [],
+  );
+
+  // ── refreshRules — utilisé par les events ET AppState ─────────────────────
+  const refreshRules = useCallback(async () => {
+    const [rules, isVpn] = await Promise.all([
+      StorageService.getRules(),
+      VpnService.isVpnActive(),
+    ]);
+    setVpnActive(isVpn);
+    setBlockedCount(rules.filter((r) => r.isBlocked).length);
+    setApps((prev) => mergeAppsRules(prev, rules, prev));
+  }, [mergeAppsRules]);
+
+  const checkFocus = useCallback(async () => {
+    try {
+      const s = await FocusService.getStatus();
+      setFocusStatus(s.isActive ? s : null);
+    } catch {
+      setFocusStatus(null);
+    }
+  }, []);
+
+  // ── Abonnements AppEvents — synchronisation en temps réel ─────────────────
+  useEffect(() => {
+    const unsubVpn = AppEvents.on("vpn:changed", (active) => {
+      setVpnActive(active);
+    });
+    const unsubRules = AppEvents.on("rules:changed", () => {
+      refreshRules();
+    });
+    const unsubFocus = AppEvents.on("focus:changed", (active) => {
+      if (!active) setFocusStatus(null);
+      else checkFocus();
+    });
+    const unsubPremium = AppEvents.on("premium:changed", () => {
+      refreshPremium();
+    });
+    return () => {
+      unsubVpn();
+      unsubRules();
+      unsubFocus();
+      unsubPremium();
+    };
+  }, [refreshRules, checkFocus, refreshPremium]);
+
   useEffect(() => {
     VpnService.isVpnActive().then(setVpnActive);
     loadInitial();
     checkFocus();
+
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active" && appStateRef.current !== "active") {
         refreshRules();
@@ -659,48 +721,14 @@ export default function HomeScreen() {
       loadSysIfNeeded();
   }, [filters.scope]);
 
-  // ── merge avec préservation des icônes ───────────────────────────────────
-  // existing = état actuel pour récupérer les icônes déjà chargées
-  const mergeAppsRules = useCallback(
-    (
-      incoming: InstalledApp[],
-      rules: AppRule[],
-      existing?: AppItem[],
-    ): AppItem[] => {
-      const ruleMap = new Map(rules.map((r) => [r.packageName, r]));
-      // Map d'icônes depuis l'état existant pour ne pas les perdre lors d'un refresh
-      const iconMap = new Map(
-        (existing ?? []).map((a) => [a.packageName, a.icon]),
-      );
-      return incoming.map((a) => ({
-        ...a,
-        // Priorité : icône de l'app entrante → icône conservée → null
-        icon: a.icon ?? iconMap.get(a.packageName) ?? null,
-        rule: ruleMap.get(a.packageName),
-      }));
-    },
-    [],
-  );
-
-  const checkFocus = async () => {
-    try {
-      const s = await FocusService.getStatus();
-      setFocusStatus(s.isActive ? s : null);
-    } catch {
-      setFocusStatus(null);
-    }
-  };
-
   const loadSysIfNeeded = async () => {
     if (sysLoaded || sysLoading) return;
     setSysLoading(true);
     try {
       const rules = await StorageService.getRules();
-      // Phase légère sans icônes
       const all = await AppListService.getAllApps();
       setApps((prev) => mergeAppsRules(all, rules, prev));
       setSysLoaded(true);
-      // Phase enrichissement avec icônes en arrière-plan
       AppListService.getAllAppsWithIcons()
         .then((full) => {
           StorageService.getRules()
@@ -714,7 +742,6 @@ export default function HomeScreen() {
     }
   };
 
-  // ── Chargement en 3 phases pour afficher quelque chose immédiatement ──────
   const loadInitial = async () => {
     setLoading(true);
     try {
@@ -724,25 +751,19 @@ export default function HomeScreen() {
       ]);
       setVpnActive(isVpn);
       setBlockedCount(rules.filter((r) => r.isBlocked).length);
-
-      // Phase 1 — apps utilisateur SANS icônes → affichage immédiat
       const light = await AppListService.getNonSystemApps();
       setApps((prev) => mergeAppsRules(light, rules, prev));
       setLoading(false);
-
-      // Phase 2 — apps utilisateur AVEC icônes → enrichissement silencieux
       AppListService.getNonSystemAppsWithIcons()
-        .then((full) => {
+        .then((full) =>
           StorageService.getRules()
             .then((r) => setApps((prev) => mergeAppsRules(full, r, prev)))
-            .catch(() => {});
-        })
+            .catch(() => {}),
+        )
         .catch(() => {});
     } catch {
       setLoading(false);
     }
-
-    // Phase 3 — TOUTES les apps avec icônes en arrière-plan
     setSysLoading(true);
     AppListService.getAllAppsWithIcons()
       .then((all) =>
@@ -756,18 +777,6 @@ export default function HomeScreen() {
       .catch(() => {})
       .finally(() => setSysLoading(false));
   };
-
-  // ── refreshRules préserve les icônes ──────────────────────────────────────
-  const refreshRules = useCallback(async () => {
-    const [rules, isVpn] = await Promise.all([
-      StorageService.getRules(),
-      VpnService.isVpnActive(),
-    ]);
-    setVpnActive(isVpn);
-    setBlockedCount(rules.filter((r) => r.isBlocked).length);
-    // On passe prev comme existing pour préserver les icônes déjà chargées
-    setApps((prev) => mergeAppsRules(prev, rules, prev));
-  }, [mergeAppsRules]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -798,9 +807,14 @@ export default function HomeScreen() {
 
   const toggleVpn = useCallback(async () => {
     if (focusActive) return;
-    if (vpnActive) await VpnService.stopVpn();
-    else await VpnService.startVpn();
-    setVpnActive((v) => !v);
+    const next = !vpnActive;
+    setVpnActive(next);
+    try {
+      if (next) await VpnService.startVpn();
+      else await VpnService.stopVpn();
+    } catch {
+      setVpnActive(!next);
+    }
   }, [vpnActive, focusActive]);
 
   const handleFocusPress = useCallback(() => {
@@ -899,7 +913,6 @@ export default function HomeScreen() {
         translucent
       />
 
-      {/* ══ HEADER ══════════════════════════════════════════════════════════════ */}
       <Animated.View
         style={[
           g.header,
@@ -907,7 +920,7 @@ export default function HomeScreen() {
           { opacity: mountFade, transform: [{ translateY: mountSlide }] },
         ]}
       >
-        {/* Ligne 1 : brand + badge + ··· */}
+        {/* ── Top row ── */}
         <View style={g.headerTopRow}>
           <View style={g.brandBlock}>
             <View style={g.logoMark}>
@@ -921,15 +934,16 @@ export default function HomeScreen() {
           <View style={g.headerActions}>
             {isPremium ? (
               <View style={g.proBadge}>
-                <Text style={g.proBadgeText}>PRO</Text>
+                <Text style={g.proBadgeText}>✦ PRO</Text>
               </View>
             ) : (
               <TouchableOpacity
-                style={g.freeBadge}
+                style={g.upgradeBtn}
                 onPress={() => showPaywall("general")}
-                activeOpacity={0.75}
+                activeOpacity={0.78}
               >
-                <Text style={g.freeBadgeText}>FREE</Text>
+                <Text style={g.upgradeBtnIcon}>⚡</Text>
+                <Text style={g.upgradeBtnText}>Passer à Pro</Text>
               </TouchableOpacity>
             )}
             <View style={g.actionSep} />
@@ -946,7 +960,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Ligne 2 : stats + contrôles */}
+        {/* ── Stats + Controls row ── */}
         <View style={g.headerBottomRow}>
           <View
             style={[
@@ -986,7 +1000,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Ligne 3 : barre de progression */}
+        {/* ── Progress bar ── */}
         <View
           style={[
             g.progressTrack,
@@ -1010,7 +1024,7 @@ export default function HomeScreen() {
         </View>
       </Animated.View>
 
-      {/* ══ SUBHEADER ══════════════════════════════════════════════════════════ */}
+      {/* ── Sub-header (search + filters) ── */}
       <View
         style={[
           g.subHeader,
@@ -1024,6 +1038,7 @@ export default function HomeScreen() {
               setFocusStatus(null);
               setFocusExpanded(false);
               refreshRules();
+              AppEvents.emit("focus:changed", false);
             }}
             expanded={focusExpanded}
             onToggleExpand={() => setFocusExpanded((v) => !v)}
@@ -1058,7 +1073,6 @@ export default function HomeScreen() {
         />
       </View>
 
-      {/* ══ LIST ════════════════════════════════════════════════════════════════ */}
       <FlatList
         data={filteredApps}
         keyExtractor={keyExtractor}
@@ -1116,13 +1130,13 @@ export default function HomeScreen() {
         }
       />
 
-      {/* ══ MODALS ══════════════════════════════════════════════════════════════ */}
       <FocusModal
         visible={focusVisible}
         onClose={() => setFocusVisible(false)}
         onStarted={() => {
           checkFocus();
           refreshRules();
+          AppEvents.emit("focus:changed", true);
         }}
       />
       <PaywallModal
@@ -1133,6 +1147,7 @@ export default function HomeScreen() {
           refreshPremium();
           refreshRules();
           setPaywallVisible(false);
+          AppEvents.emit("premium:changed", true);
         }}
       />
       <MoreMenu
@@ -1147,6 +1162,7 @@ export default function HomeScreen() {
         onStarted={() => {
           checkFocus();
           refreshRules();
+          AppEvents.emit("focus:changed", true);
         }}
       />
       {focusActive && focusStatus && (
@@ -1154,8 +1170,9 @@ export default function HomeScreen() {
           status={focusStatus}
           onStopped={() => {
             setFocusStatus(null);
-            setFocusExpanded(false);
+            setFocusExpanded(true);
             refreshRules();
+            AppEvents.emit("focus:changed", false);
           }}
           visible={focusExpanded}
           onClose={() => setFocusExpanded(false)}
@@ -1165,10 +1182,8 @@ export default function HomeScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const g = StyleSheet.create({
   root: { flex: 1 },
-
   header: {
     paddingHorizontal: 16,
     paddingBottom: 14,
@@ -1179,7 +1194,6 @@ const g = StyleSheet.create({
     shadowRadius: 24,
     elevation: 16,
   },
-
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1215,36 +1229,47 @@ const g = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.2,
   },
-
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+
+  // ── PRO badge (utilisateurs premium) ──
   proBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: 8,
     backgroundColor: "rgba(167,139,250,0.18)",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.35)",
+    borderColor: "rgba(167,139,250,0.38)",
   },
   proBadgeText: {
     fontSize: 9,
     fontWeight: "800",
     color: Colors.purple[300],
-    letterSpacing: 1.4,
+    letterSpacing: 1.2,
   },
-  freeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.08)",
+
+  // ── "Passer à Pro" button (utilisateurs free) ──
+  upgradeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(251,191,36,0.14)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: "rgba(251,191,36,0.38)",
   },
-  freeBadgeText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "rgba(255,255,255,0.48)",
-    letterSpacing: 1.4,
+  upgradeBtnIcon: {
+    fontSize: 10,
+    lineHeight: 14,
   },
+  upgradeBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#fbbf24",
+    letterSpacing: 0.1,
+  },
+
   actionSep: {
     width: 1,
     height: 16,
@@ -1271,7 +1296,6 @@ const g = StyleSheet.create({
     borderRadius: 1.75,
     backgroundColor: "rgba(255,255,255,0.65)",
   },
-
   headerBottomRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   statsBand: {
     flex: 1,
@@ -1308,7 +1332,6 @@ const g = StyleSheet.create({
     height: 30,
     backgroundColor: "rgba(255,255,255,0.1)",
   },
-
   controlsBlock: { flexDirection: "row", alignItems: "center", gap: 6 },
   controlPill: {
     flexDirection: "row",
@@ -1327,7 +1350,6 @@ const g = StyleSheet.create({
     height: 14,
     backgroundColor: "rgba(255,255,255,0.12)",
   },
-
   progressTrack: {
     height: 22,
     borderRadius: 8,
@@ -1351,7 +1373,6 @@ const g = StyleSheet.create({
     letterSpacing: 0.4,
     zIndex: 1,
   },
-
   dotWrap: {
     width: 10,
     height: 10,
@@ -1360,7 +1381,6 @@ const g = StyleSheet.create({
   },
   dotCore: { width: 6, height: 6, borderRadius: 3, position: "absolute" },
   dotRing: { width: 10, height: 10, borderRadius: 5, position: "absolute" },
-
   menuCard: {
     position: "absolute",
     top: 96,
@@ -1394,7 +1414,6 @@ const g = StyleSheet.create({
   menuLabel: { fontSize: 14, fontWeight: "700", marginBottom: 1 },
   menuSub: { fontSize: 11 },
   menuChevron: { fontSize: 18, fontWeight: "300" },
-
   subHeader: {
     paddingHorizontal: 14,
     paddingTop: 10,
@@ -1424,7 +1443,6 @@ const g = StyleSheet.create({
     borderWidth: 1,
   },
   limitCtaText: { fontSize: 11, fontWeight: "700" },
-
   listContent: { paddingHorizontal: 14, paddingTop: 10 },
   listHeader: {
     flexDirection: "row",
@@ -1457,7 +1475,6 @@ const g = StyleSheet.create({
     backgroundColor: "#f87171",
   },
   blockedChipText: { fontSize: 10, fontWeight: "700", color: "#f87171" },
-
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -1520,7 +1537,6 @@ const g = StyleSheet.create({
     marginLeft: 8,
   },
   cardChevron: { fontSize: 18, fontWeight: "200" },
-
   empty: { alignItems: "center", paddingTop: 80, gap: 8 },
   emptyIconWrap: {
     width: 66,

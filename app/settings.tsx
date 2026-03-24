@@ -2,6 +2,7 @@ import PaywallModal from "@/components/PaywallModal";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { usePremium } from "@/hooks/usePremium";
+import AppEvents from "@/services/app-events";
 import ImportExportService from "@/services/import-export.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
@@ -569,11 +570,10 @@ export default function SettingsScreen() {
   const [confirmClearVisible, setConfirmClearVisible] = useState(false);
   const [exportVisible, setExportVisible] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
-  const [vpnStatus, setVpnStatus] = useState({
-    isActive: false,
-    isNative: false,
-    platform: "",
-  });
+
+  // ── État VPN synchronisé via AppEvents ────────────────────────────────────
+  const [vpnActive, setVpnActive] = useState(false);
+  const [vpnNative, setVpnNative] = useState(false);
   const [stats, setStats] = useState({ rules: 0, profiles: 0 });
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -596,6 +596,10 @@ export default function SettingsScreen() {
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Écouter les changements VPN émis depuis l'index ou autre
+    const unsub = AppEvents.on("vpn:changed", (active) => setVpnActive(active));
+    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -641,9 +645,10 @@ export default function SettingsScreen() {
         setBioType("Empreinte digitale");
       else setBioType("PIN du téléphone");
     }
-    const status = VpnService.getStatus();
     const isActive = await VpnService.isVpnActive();
-    setVpnStatus({ ...status, isActive });
+    const status = VpnService.getStatus();
+    setVpnActive(isActive);
+    setVpnNative(status.isNative);
     const [rules, profiles] = await Promise.all([
       StorageService.getRules(),
       StorageService.getProfiles(),
@@ -717,6 +722,20 @@ export default function SettingsScreen() {
     }
   };
 
+  // ── VPN toggle — émet l'event pour synchroniser index.tsx ─────────────────
+  const toggleVpn = async () => {
+    const next = !vpnActive;
+    setVpnActive(next); // UI immédiat
+    try {
+      if (next) await VpnService.startVpn();
+      else await VpnService.stopVpn();
+      // VpnService émet "vpn:changed" → index.tsx se met à jour automatiquement
+    } catch {
+      setVpnActive(!next); // rollback si erreur
+    }
+    await loadAll();
+  };
+
   const handleExport = async () => {
     try {
       await ImportExportService.exportRules();
@@ -749,9 +768,10 @@ export default function SettingsScreen() {
               try {
                 const r = await ImportExportService.importRules("merge");
                 await loadAll();
+                AppEvents.emit("rules:changed", undefined); // sync index
                 Alert.alert(
                   "✅ Import réussi",
-                  `${r.rules} règle${r.rules !== 1 ? "s" : ""} et ${r.profiles} profil${r.profiles !== 1 ? "s" : ""} importé${r.profiles !== 1 ? "s" : ""}.`,
+                  `${r.rules} règle${r.rules !== 1 ? "s" : ""} importée${r.rules !== 1 ? "s" : ""}.`,
                 );
               } catch (e: any) {
                 if (e?.message !== "Import annulé.")
@@ -768,6 +788,7 @@ export default function SettingsScreen() {
               try {
                 const r = await ImportExportService.importRules("replace");
                 await loadAll();
+                AppEvents.emit("rules:changed", undefined); // sync index
                 Alert.alert(
                   "✅ Import réussi",
                   `${r.rules} règle${r.rules !== 1 ? "s" : ""} importée${r.rules !== 1 ? "s" : ""}.`,
@@ -795,16 +816,11 @@ export default function SettingsScreen() {
         StorageService.clearProfiles(),
       ]);
       await loadAll();
+      AppEvents.emit("rules:changed", undefined); // sync index
       Alert.alert("Succès", "Toutes les données ont été effacées");
     } catch {
       Alert.alert("Erreur", "Impossible d'effacer");
     }
-  };
-
-  const toggleVpn = async () => {
-    if (vpnStatus.isActive) await VpnService.stopVpn();
-    else await VpnService.startVpn();
-    await loadAll();
   };
 
   const closeExportModal = () => {
@@ -823,7 +839,7 @@ export default function SettingsScreen() {
     ]).start(() => setExportVisible(false));
   };
 
-  const vpnOn = vpnStatus.isActive;
+  const vpnOn = vpnActive;
   const anyLockEnabled = pinEnabled || bioEnabled;
 
   return (
@@ -832,15 +848,10 @@ export default function SettingsScreen() {
         barStyle="light-content"
         backgroundColor={Semantic.bg.header}
       />
-
-      {/* ── Header avec bouton retour ── */}
       <View
         style={[
           s.header,
-          {
-            paddingTop: insets.top + 10,
-            backgroundColor: Semantic.bg.header,
-          },
+          { paddingTop: insets.top + 10, backgroundColor: Semantic.bg.header },
         ]}
       >
         <TouchableOpacity
@@ -876,7 +887,7 @@ export default function SettingsScreen() {
           { paddingBottom: insets.bottom + 40 },
         ]}
       >
-        {/* VPN Banner */}
+        {/* VPN Banner — toggle synchronisé */}
         <TouchableOpacity
           style={[
             s.vpnBanner,
@@ -904,9 +915,7 @@ export default function SettingsScreen() {
               {vpnOn ? "◉ VPN Actif" : "◎ VPN Inactif"}
             </Text>
             <Text style={[s.vpnSub, { color: t.text.muted }]}>
-              {vpnStatus.isNative
-                ? "Mode natif (VPNService)"
-                : "Mode simulation"}
+              {vpnNative ? "Mode natif (VPNService)" : "Mode simulation"}
             </Text>
           </View>
           <View
@@ -968,7 +977,6 @@ export default function SettingsScreen() {
           ))}
         </View>
 
-        {/* Apparence */}
         <SectionLabel label="APPARENCE" />
         <View
           style={[
@@ -991,7 +999,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Sécurité */}
         <SectionLabel label="SÉCURITÉ" />
         <View
           style={[
@@ -1115,7 +1122,6 @@ export default function SettingsScreen() {
           fallback
         </Text>
 
-        {/* Contrôle parental */}
         <SectionLabel label="CONTRÔLE PARENTAL" />
         <View
           style={[
@@ -1132,7 +1138,6 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Productivité */}
         <SectionLabel label="PRODUCTIVITÉ" />
         <View
           style={[
@@ -1149,7 +1154,6 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Données */}
         <SectionLabel label="DONNÉES" />
         <View
           style={[
@@ -1199,7 +1203,6 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* À propos */}
         <SectionLabel label="À PROPOS" />
         <View
           style={[
@@ -1271,7 +1274,7 @@ export default function SettingsScreen() {
             </View>
             <Text style={[em.body, { color: t.text.secondary }]}>
               Les règles et profils seront exportés au format JSON via le menu
-              de partage Android (WhatsApp, Drive, email…).
+              de partage Android.
             </Text>
             <TouchableOpacity
               style={[em.exportBtn, { backgroundColor: Colors.blue[600] }]}
@@ -1368,6 +1371,7 @@ export default function SettingsScreen() {
         onClose={() => setPaywallVisible(false)}
         onUpgraded={() => {
           refreshPremium();
+          AppEvents.emit("premium:changed", true);
           setPaywallVisible(false);
         }}
       />
@@ -1380,7 +1384,6 @@ const s = StyleSheet.create({
   header: {
     paddingHorizontal: 22,
     paddingBottom: 18,
-    backgroundColor: Semantic.bg.header,
     shadowColor: Colors.blue[800],
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
