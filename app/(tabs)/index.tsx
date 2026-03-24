@@ -683,8 +683,13 @@ export default function HomeScreen() {
       refreshRules();
     });
     const unsubFocus = AppEvents.on("focus:changed", (active) => {
-      if (!active) setFocusStatus(null);
-      else checkFocus();
+      if (!active) {
+        setFocusStatus(null);
+        setFocusExpanded(false);
+      } else {
+        checkFocus();
+        setFocusExpanded(true); // ouvre le fullscreen si focus activé depuis l'extérieur
+      }
     });
     const unsubPremium = AppEvents.on("premium:changed", () => {
       refreshPremium();
@@ -1136,6 +1141,7 @@ export default function HomeScreen() {
         onStarted={() => {
           checkFocus();
           refreshRules();
+          setFocusExpanded(true); // ← ouvre le fullscreen immédiatement au démarrage
           AppEvents.emit("focus:changed", true);
         }}
       />
@@ -1162,6 +1168,7 @@ export default function HomeScreen() {
         onStarted={() => {
           checkFocus();
           refreshRules();
+          setFocusExpanded(true); // ← ouvre le fullscreen immédiatement au démarrage
           AppEvents.emit("focus:changed", true);
         }}
       />
@@ -1170,7 +1177,7 @@ export default function HomeScreen() {
           status={focusStatus}
           onStopped={() => {
             setFocusStatus(null);
-            setFocusExpanded(true);
+            setFocusExpanded(false);
             refreshRules();
             AppEvents.emit("focus:changed", false);
           }}
