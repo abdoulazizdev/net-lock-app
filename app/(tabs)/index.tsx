@@ -7,12 +7,14 @@ import SearchAndFilters, {
   DEFAULT_FILTERS,
   Filters,
 } from "@/components/SearchAndFilters";
+import TimerBanner from "@/components/TimerBanner";
 import { usePremium } from "@/hooks/usePremium";
 import AppEvents from "@/services/app-events";
 import AppListService from "@/services/app-list.service";
 import FocusService, { FocusStatus } from "@/services/focus.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
+import TimerService, { TimerStatus } from "@/services/timer.service";
 import VpnService from "@/services/vpn.service";
 import { Colors, Semantic, useTheme } from "@/theme";
 import { AppRule, InstalledApp } from "@/types";
@@ -253,7 +255,7 @@ const MoreMenu = React.memo(function MoreMenu({
     {
       icon: "⏱",
       label: "Minuterie",
-      sub: "Session focus rapide",
+      sub: "Blocage temporaire · Stop en 1 tap",
       onPress: onTimer,
     },
   ];
@@ -348,7 +350,6 @@ const AppToggle = React.memo(function AppToggle({
     inputRange: [0, 1],
     outputRange: [2, 21],
   });
-
   if (locked)
     return (
       <View
@@ -602,16 +603,23 @@ export default function HomeScreen() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sysLoaded, setSysLoaded] = useState(false);
   const [sysLoading, setSysLoading] = useState(false);
+
+  // ── États séparés Focus / Minuterie ──────────────────────────────────────
   const [focusVisible, setFocusVisible] = useState(false);
   const [focusStatus, setFocusStatus] = useState<FocusStatus | null>(null);
   const [focusExpanded, setFocusExpanded] = useState(false);
+  const [timerStatus, setTimerStatus] = useState<TimerStatus | null>(null);
+  const [timerVisible, setTimerVisible] = useState(false);
+
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<any>("general");
   const [menuVisible, setMenuVisible] = useState(false);
-  const [timerVisible, setTimerVisible] = useState(false);
 
   const appStateRef = useRef(AppState.currentState);
   const focusActive = focusStatus?.isActive ?? false;
+  const timerActive = timerStatus?.isActive ?? false;
+  // Les apps sont locked si Focus OU Minuterie est actif
+  const anyActive = focusActive || timerActive;
   const limitReached =
     !isPremium && blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS;
 
@@ -634,7 +642,6 @@ export default function HomeScreen() {
     ]).start();
   }, []);
 
-  // ── Merge avec préservation d'icônes ──────────────────────────────────────
   const mergeAppsRules = useCallback(
     (
       incoming: InstalledApp[],
@@ -654,7 +661,6 @@ export default function HomeScreen() {
     [],
   );
 
-  // ── refreshRules — utilisé par les events ET AppState ─────────────────────
   const refreshRules = useCallback(async () => {
     const [rules, isVpn] = await Promise.all([
       StorageService.getRules(),
@@ -674,43 +680,61 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // ── Abonnements AppEvents — synchronisation en temps réel ─────────────────
+  const checkTimer = useCallback(async () => {
+    try {
+      const s = await TimerService.getStatus();
+      setTimerStatus(s.isActive ? s : null);
+    } catch {
+      setTimerStatus(null);
+    }
+  }, []);
+
+  // ── AppEvents ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const unsubVpn = AppEvents.on("vpn:changed", (active) => {
-      setVpnActive(active);
-    });
-    const unsubRules = AppEvents.on("rules:changed", () => {
-      refreshRules();
-    });
+    const unsubVpn = AppEvents.on("vpn:changed", (active) =>
+      setVpnActive(active),
+    );
+    const unsubRules = AppEvents.on("rules:changed", () => refreshRules());
     const unsubFocus = AppEvents.on("focus:changed", (active) => {
       if (!active) {
         setFocusStatus(null);
         setFocusExpanded(false);
       } else {
         checkFocus();
-        setFocusExpanded(true); // ouvre le fullscreen si focus activé depuis l'extérieur
+        setFocusExpanded(true);
       }
     });
-    const unsubPremium = AppEvents.on("premium:changed", () => {
-      refreshPremium();
-    });
+    const unsubTimer = AppEvents.on(
+      "timer:changed" as any,
+      (active: boolean) => {
+        if (!active) setTimerStatus(null);
+        else checkTimer();
+      },
+    );
+    const unsubPremium = AppEvents.on("premium:changed", () =>
+      refreshPremium(),
+    );
     return () => {
       unsubVpn();
       unsubRules();
       unsubFocus();
+      unsubTimer();
       unsubPremium();
     };
-  }, [refreshRules, checkFocus, refreshPremium]);
+  }, [refreshRules, checkFocus, checkTimer, refreshPremium]);
 
   useEffect(() => {
     VpnService.isVpnActive().then(setVpnActive);
     loadInitial();
     checkFocus();
+    checkTimer();
+    TimerService.rescheduleIfNeeded(); // Reprendre le timer si l'app a été relancée
 
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active" && appStateRef.current !== "active") {
         refreshRules();
         checkFocus();
+        checkTimer();
       }
       appStateRef.current = s;
     });
@@ -735,11 +759,11 @@ export default function HomeScreen() {
       setApps((prev) => mergeAppsRules(all, rules, prev));
       setSysLoaded(true);
       AppListService.getAllAppsWithIcons()
-        .then((full) => {
+        .then((full) =>
           StorageService.getRules()
             .then((r) => setApps((prev) => mergeAppsRules(full, r, prev)))
-            .catch(() => {});
-        })
+            .catch(() => {}),
+        )
         .catch(() => {});
     } catch {
     } finally {
@@ -786,7 +810,7 @@ export default function HomeScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     AppListService.invalidateCache();
-    await Promise.all([loadInitial(), checkFocus()]);
+    await Promise.all([loadInitial(), checkFocus(), checkTimer()]);
     setRefreshing(false);
   }, []);
 
@@ -811,7 +835,7 @@ export default function HomeScreen() {
   }, [apps, query, filters]);
 
   const toggleVpn = useCallback(async () => {
-    if (focusActive) return;
+    if (anyActive) return; // VPN locked si Focus OU Minuterie actif
     const next = !vpnActive;
     setVpnActive(next);
     try {
@@ -820,7 +844,7 @@ export default function HomeScreen() {
     } catch {
       setVpnActive(!next);
     }
-  }, [vpnActive, focusActive]);
+  }, [vpnActive, anyActive]);
 
   const handleFocusPress = useCallback(() => {
     if (focusActive) setFocusExpanded(true);
@@ -834,7 +858,7 @@ export default function HomeScreen() {
 
   const toggleBlock = useCallback(
     async (item: AppItem) => {
-      if (focusActive) return;
+      if (anyActive) return;
       const nowBlocked = !(item.rule?.isBlocked ?? false);
       if (
         nowBlocked &&
@@ -868,7 +892,7 @@ export default function HomeScreen() {
         setBlockedCount((c) => c + (nowBlocked ? -1 : 1));
       }
     },
-    [focusActive, isPremium, blockedCount],
+    [anyActive, isPremium, blockedCount],
   );
 
   const handleAppPress = useCallback(
@@ -894,11 +918,11 @@ export default function HomeScreen() {
         item={item}
         onToggle={toggleBlock}
         onPress={handleAppPress}
-        locked={focusActive}
+        locked={anyActive}
         limitReached={limitReached}
       />
     ),
-    [toggleBlock, handleAppPress, focusActive, limitReached],
+    [toggleBlock, handleAppPress, anyActive, limitReached],
   );
 
   if (loading) return <HomeScreenSkeleton />;
@@ -925,7 +949,6 @@ export default function HomeScreen() {
           { opacity: mountFade, transform: [{ translateY: mountSlide }] },
         ]}
       >
-        {/* ── Top row ── */}
         <View style={g.headerTopRow}>
           <View style={g.brandBlock}>
             <View style={g.logoMark}>
@@ -965,7 +988,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ── Stats + Controls row ── */}
         <View style={g.headerBottomRow}>
           <View
             style={[
@@ -997,7 +1019,7 @@ export default function HomeScreen() {
           <View style={g.controlsBlock}>
             <VpnToggle
               active={vpnActive}
-              locked={focusActive}
+              locked={anyActive}
               onPress={toggleVpn}
             />
             <View style={g.pillSep} />
@@ -1005,7 +1027,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ── Progress bar ── */}
         <View
           style={[
             g.progressTrack,
@@ -1029,13 +1050,14 @@ export default function HomeScreen() {
         </View>
       </Animated.View>
 
-      {/* ── Sub-header (search + filters) ── */}
+      {/* ── Sub-header : Focus + Timer + Filters ── */}
       <View
         style={[
           g.subHeader,
           { backgroundColor: t.bg.card, borderBottomColor: t.border.light },
         ]}
       >
+        {/* Bannière Focus — Hold 5s pour stopper, fullscreen, purple */}
         {focusActive && focusStatus && (
           <FocusBanner
             status={focusStatus}
@@ -1049,6 +1071,19 @@ export default function HomeScreen() {
             onToggleExpand={() => setFocusExpanded((v) => !v)}
           />
         )}
+
+        {/* Bannière Minuterie — Tap simple pour stopper, orange/ambre */}
+        {timerActive && timerStatus && (
+          <TimerBanner
+            status={timerStatus}
+            onStopped={() => {
+              setTimerStatus(null);
+              refreshRules();
+              AppEvents.emit("timer:changed" as any, false);
+            }}
+          />
+        )}
+
         {limitReached && (
           <TouchableOpacity
             style={[
@@ -1135,16 +1170,29 @@ export default function HomeScreen() {
         }
       />
 
+      {/* ── Modals ── */}
       <FocusModal
         visible={focusVisible}
         onClose={() => setFocusVisible(false)}
         onStarted={() => {
           checkFocus();
           refreshRules();
-          setFocusExpanded(true); // ← ouvre le fullscreen immédiatement au démarrage
+          setFocusExpanded(true);
           AppEvents.emit("focus:changed", true);
         }}
       />
+
+      {/* Minuterie : modale distincte, service distinct, bannière distincte */}
+      <QuickTimerModal
+        visible={timerVisible}
+        onClose={() => setTimerVisible(false)}
+        onStarted={() => {
+          checkTimer();
+          refreshRules();
+          AppEvents.emit("timer:changed" as any, true);
+        }}
+      />
+
       <PaywallModal
         visible={paywallVisible}
         reason={paywallReason}
@@ -1156,22 +1204,15 @@ export default function HomeScreen() {
           AppEvents.emit("premium:changed", true);
         }}
       />
+
       <MoreMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
         onSettings={() => router.push("/settings")}
         onTimer={() => setTimerVisible(true)}
       />
-      <QuickTimerModal
-        visible={timerVisible}
-        onClose={() => setTimerVisible(false)}
-        onStarted={() => {
-          checkFocus();
-          refreshRules();
-          setFocusExpanded(true); // ← ouvre le fullscreen immédiatement au démarrage
-          AppEvents.emit("focus:changed", true);
-        }}
-      />
+
+      {/* Fullscreen Focus uniquement (pas pour la Minuterie) */}
       {focusActive && focusStatus && (
         <FocusFullScreen
           status={focusStatus}
@@ -1237,8 +1278,6 @@ const g = StyleSheet.create({
     letterSpacing: 0.2,
   },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-
-  // ── PRO badge (utilisateurs premium) ──
   proBadge: {
     paddingHorizontal: 9,
     paddingVertical: 5,
@@ -1253,8 +1292,6 @@ const g = StyleSheet.create({
     color: Colors.purple[300],
     letterSpacing: 1.2,
   },
-
-  // ── "Passer à Pro" button (utilisateurs free) ──
   upgradeBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1266,17 +1303,13 @@ const g = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(251,191,36,0.38)",
   },
-  upgradeBtnIcon: {
-    fontSize: 10,
-    lineHeight: 14,
-  },
+  upgradeBtnIcon: { fontSize: 10, lineHeight: 14 },
   upgradeBtnText: {
     fontSize: 11,
     fontWeight: "700",
     color: "#fbbf24",
     letterSpacing: 0.1,
   },
-
   actionSep: {
     width: 1,
     height: 16,

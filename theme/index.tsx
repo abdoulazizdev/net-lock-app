@@ -82,6 +82,7 @@ export const Colors = {
   amber: {
     50: "#FFF8E6",
     100: "#FDECC0",
+    200: "#FCD38C",
     400: "#F5A623",
     500: "#D4860A",
     600: "#A86200",

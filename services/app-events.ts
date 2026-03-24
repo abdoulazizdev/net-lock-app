@@ -1,43 +1,37 @@
 /**
- * app-events.ts — Bus d'événements global ultra-léger
- * Permet la synchronisation d'état entre écrans sans Redux ni Context lourd.
- *
- * Usage :
- *   import AppEvents from "@/services/app-events";
- *   AppEvents.emit("vpn:changed", true);
- *   const unsub = AppEvents.on("vpn:changed", (active) => setVpnActive(active));
- *   return () => unsub();
+ * app-events.ts — Bus d'événements global
  */
-
 type EventMap = {
-  "vpn:changed": boolean; // VPN activé / désactivé
-  "rules:changed": void; // Une règle de blocage a changé
-  "focus:changed": boolean; // Mode Focus activé / désactivé
-  "profile:changed": void; // Profil activé / désactivé
-  "premium:changed": boolean; // Statut premium changé
-  "stats:refresh": void; // Forcer le refresh des stats
+  "vpn:changed": boolean;
+  "rules:changed": void;
+  "focus:changed": boolean;
+  "timer:changed": boolean;
+  "profile:changed": void;
+  "premium:changed": boolean;
+  "stats:refresh": void;
 };
 
 type EventKey = keyof EventMap;
 type Listener<K extends EventKey> = (payload: EventMap[K]) => void;
 
 class AppEventBus {
-  private listeners: { [K in EventKey]?: Set<Listener<K>> } = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private listeners = new Map<EventKey, Set<Listener<any>>>();
 
   on<K extends EventKey>(event: K, listener: Listener<K>): () => void {
-    if (!this.listeners[event]) {
-      this.listeners[event] = new Set<Listener<K>>() as never;
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
     }
-    (this.listeners[event] as Set<Listener<K>>).add(listener);
+    this.listeners.get(event)!.add(listener);
     return () => this.off(event, listener);
   }
 
   off<K extends EventKey>(event: K, listener: Listener<K>): void {
-    (this.listeners[event] as Set<Listener<K>> | undefined)?.delete(listener);
+    this.listeners.get(event)?.delete(listener);
   }
 
   emit<K extends EventKey>(event: K, payload: EventMap[K]): void {
-    (this.listeners[event] as Set<Listener<K>> | undefined)?.forEach((l) => {
+    this.listeners.get(event)?.forEach((l) => {
       try {
         l(payload);
       } catch (e) {
