@@ -49,6 +49,7 @@ const getProfileColor = (id: string) =>
     parseInt(id.replace(/\D/g, "").slice(-1) || "0", 10) % PROFILE_COLORS.length
   ];
 
+// ─── PulseDot ─────────────────────────────────────────────────────────────────
 function PulseDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0.7)).current;
@@ -111,6 +112,7 @@ function PulseDot({ color }: { color: string }) {
   );
 }
 
+// ─── ScheduleRow ──────────────────────────────────────────────────────────────
 const ScheduleRow = React.memo(function ScheduleRow({
   schedule,
   onToggle,
@@ -138,6 +140,7 @@ const ScheduleRow = React.memo(function ScheduleRow({
   const accent = isActivate ? t.allowed.accent : t.blocked.accent;
   const accentBg = isActivate ? t.allowed.bg : t.blocked.bg;
   const accentBorder = isActivate ? t.allowed.border : t.blocked.border;
+
   return (
     <View
       style={[
@@ -267,18 +270,22 @@ const ScheduleRow = React.memo(function ScheduleRow({
   );
 });
 
+// ─── AppRow ───────────────────────────────────────────────────────────────────
 const AppRow = React.memo(function AppRow({
   app,
   isBlocked,
   isSystem,
+  cannotBlock,
   onToggle,
 }: {
   app: InstalledApp;
   isBlocked: boolean;
   isSystem: boolean;
+  cannotBlock: boolean; // ← NOUVEAU : limite gratuit atteinte et pas encore bloquée
   onToggle: () => void;
 }) {
   const { t } = useTheme();
+
   return (
     <TouchableOpacity
       style={[
@@ -288,6 +295,8 @@ const AppRow = React.memo(function AppRow({
           backgroundColor: t.blocked.bg,
           borderColor: t.blocked.border,
         },
+        // Dimmer la carte si elle ne peut pas être bloquée
+        cannotBlock && { opacity: 0.45 },
       ]}
       onPress={onToggle}
       activeOpacity={0.75}
@@ -324,7 +333,18 @@ const AppRow = React.memo(function AppRow({
             <Text style={ar.blockedDotText}>✕</Text>
           </View>
         )}
-        {isSystem && !isBlocked && (
+        {/* Cadenas si limite atteinte et app non bloquée */}
+        {cannotBlock && !isBlocked && (
+          <View
+            style={[
+              ar.blockedDot,
+              { backgroundColor: t.border.strong, borderColor: t.bg.page },
+            ]}
+          >
+            <Text style={ar.blockedDotText}>🔒</Text>
+          </View>
+        )}
+        {isSystem && !isBlocked && !cannotBlock && (
           <View
             style={[
               ar.systemDot,
@@ -355,7 +375,12 @@ const AppRow = React.memo(function AppRow({
           ar.toggle,
           isBlocked
             ? { backgroundColor: t.blocked.bg, borderColor: t.blocked.border }
-            : { backgroundColor: t.allowed.bg, borderColor: t.allowed.border },
+            : cannotBlock
+              ? { backgroundColor: t.bg.cardAlt, borderColor: t.border.light }
+              : {
+                  backgroundColor: t.allowed.bg,
+                  borderColor: t.allowed.border,
+                },
         ]}
       >
         <View
@@ -363,7 +388,9 @@ const AppRow = React.memo(function AppRow({
             ar.toggleThumb,
             isBlocked
               ? { backgroundColor: t.blocked.accent, alignSelf: "flex-start" }
-              : { backgroundColor: t.allowed.accent, alignSelf: "flex-end" },
+              : cannotBlock
+                ? { backgroundColor: t.border.normal, alignSelf: "flex-start" }
+                : { backgroundColor: t.allowed.accent, alignSelf: "flex-end" },
           ]}
         />
       </View>
@@ -371,10 +398,14 @@ const AppRow = React.memo(function AppRow({
   );
 });
 
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProfileDetailScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
   const { profileId } = useLocalSearchParams<{ profileId: string }>();
+
+  const { isPremium, refresh: refreshPremium } = usePremium();
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isActiveProfile, setIsActiveProfile] = useState(false);
   const [apps, setApps] = useState<InstalledApp[]>([]);
@@ -392,11 +423,21 @@ export default function ProfileDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
-  const { isPremium, refresh: refreshPremium } = usePremium();
+  const [paywallReason, setPaywallReason] = useState<
+    "blocked_apps" | "schedules"
+  >("blocked_apps");
+
   const loadingSystemRef = useRef(false);
   const editingIdRef = useRef<string | null>(null);
   const tabAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // ── Limite apps bloquées ───────────────────────────────────────────────────
+  // La limite s'applique au niveau GLOBAL (toutes règles confondues),
+  // pas seulement au profil courant — cohérent avec HomeScreen.
+  const blockedCount = blockedPackages.size;
+  const limitReached =
+    !isPremium && blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS;
 
   useEffect(() => {
     loadAll();
@@ -406,6 +447,7 @@ export default function ProfileDetailScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
+
   useEffect(() => {
     if (
       (filters.scope === "system" || filters.scope === "all") &&
@@ -415,6 +457,7 @@ export default function ProfileDetailScreen() {
       loadSystemApps();
   }, [filters.scope]);
 
+  // ── Data loading ─────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -476,6 +519,7 @@ export default function ProfileDetailScreen() {
     }
   };
 
+  // ── Tabs ──────────────────────────────────────────────────────────────────
   const switchTab = useCallback((tab: "apps" | "schedules") => {
     setActiveTab(tab);
     Animated.timing(tabAnim, {
@@ -486,6 +530,7 @@ export default function ProfileDetailScreen() {
     }).start();
   }, []);
 
+  // ── Profile mutations ──────────────────────────────────────────────────────
   const saveProfileAndSync = useCallback(
     async (updated: Profile) => {
       await StorageService.saveProfile(updated);
@@ -495,15 +540,30 @@ export default function ProfileDetailScreen() {
     [isActiveProfile],
   );
 
+  // ── toggleApp avec gate FREE_LIMITS ───────────────────────────────────────
   const toggleApp = useCallback(
     async (packageName: string) => {
       if (!profile) return;
       const nowBlocked = !blockedPackages.has(packageName);
+
+      // ── GATE : si on essaie de bloquer et que la limite est atteinte
+      if (
+        nowBlocked &&
+        !isPremium &&
+        blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS
+      ) {
+        setPaywallReason("blocked_apps");
+        setPaywallVisible(true);
+        return;
+      }
+
+      // Mise à jour optimiste
       setBlockedPackages((prev) => {
         const next = new Set(prev);
         nowBlocked ? next.add(packageName) : next.delete(packageName);
         return next;
       });
+
       const updatedRules = [
         ...profile.rules.filter((r) => r.packageName !== packageName),
         {
@@ -514,19 +574,44 @@ export default function ProfileDetailScreen() {
           updatedAt: new Date(),
         },
       ];
-      await saveProfileAndSync({ ...profile, rules: updatedRules });
+
+      try {
+        await saveProfileAndSync({ ...profile, rules: updatedRules });
+      } catch {
+        // Rollback en cas d'erreur
+        setBlockedPackages((prev) => {
+          const next = new Set(prev);
+          nowBlocked ? next.delete(packageName) : next.add(packageName);
+          return next;
+        });
+      }
     },
-    [profile, blockedPackages, saveProfileAndSync],
+    [profile, blockedPackages, blockedCount, isPremium, saveProfileAndSync],
   );
 
+  // ── blockAll avec gate ────────────────────────────────────────────────────
   const blockAll = useCallback(async () => {
     if (!profile) return;
+
     const scope =
       filters.scope === "system"
         ? apps.filter((a) => !!a.isSystemApp)
         : filters.scope === "all"
           ? apps
           : apps.filter((a) => !a.isSystemApp);
+
+    // Combien d'apps seraient nouvellement bloquées ?
+    const newlyBlocked = scope.filter(
+      (a) => !blockedPackages.has(a.packageName),
+    );
+    const totalAfter = blockedCount + newlyBlocked.length;
+
+    if (!isPremium && totalAfter > FREE_LIMITS.MAX_BLOCKED_APPS) {
+      setPaywallReason("blocked_apps");
+      setPaywallVisible(true);
+      return;
+    }
+
     const allRules = scope.map((a) => ({
       packageName: a.packageName,
       isBlocked: true,
@@ -536,7 +621,15 @@ export default function ProfileDetailScreen() {
     }));
     setBlockedPackages(new Set(scope.map((a) => a.packageName)));
     await saveProfileAndSync({ ...profile, rules: allRules });
-  }, [profile, apps, filters.scope, saveProfileAndSync]);
+  }, [
+    profile,
+    apps,
+    filters.scope,
+    blockedPackages,
+    blockedCount,
+    isPremium,
+    saveProfileAndSync,
+  ]);
 
   const allowAll = useCallback(async () => {
     if (!profile) return;
@@ -544,6 +637,7 @@ export default function ProfileDetailScreen() {
     await saveProfileAndSync({ ...profile, rules: [] });
   }, [profile, saveProfileAndSync]);
 
+  // ── Schedule save — gate premium ──────────────────────────────────────────
   const handleScheduleSave = useCallback(
     async (data: Omit<ProfileSchedule, "id">, editingId: string | null) => {
       if (!profile) return;
@@ -552,6 +646,7 @@ export default function ProfileDetailScreen() {
         !isPremium &&
         profile.schedules.length >= FREE_LIMITS.MAX_SCHEDULES
       ) {
+        setPaywallReason("schedules");
         setPaywallVisible(true);
         return;
       }
@@ -577,6 +672,7 @@ export default function ProfileDetailScreen() {
     },
     [profile, saveProfileAndSync],
   );
+
   const deleteSchedule = useCallback(
     async (id: string) => {
       if (!profile) return;
@@ -588,6 +684,7 @@ export default function ProfileDetailScreen() {
     [profile, saveProfileAndSync],
   );
 
+  // ── Filters ───────────────────────────────────────────────────────────────
   const filteredApps = useMemo(
     () =>
       apps.filter((a) => {
@@ -612,16 +709,23 @@ export default function ProfileDetailScreen() {
     (item: InstalledApp) => item.packageName,
     [],
   );
+
   const renderApp = useCallback(
-    ({ item }: { item: InstalledApp }) => (
-      <AppRow
-        app={item}
-        isBlocked={blockedPackages.has(item.packageName)}
-        isSystem={item.isSystemApp}
-        onToggle={() => toggleApp(item.packageName)}
-      />
-    ),
-    [blockedPackages, toggleApp],
+    ({ item }: { item: InstalledApp }) => {
+      const isBlocked = blockedPackages.has(item.packageName);
+      // cannotBlock : limite atteinte ET l'app n'est pas encore bloquée
+      const cannotBlock = limitReached && !isBlocked;
+      return (
+        <AppRow
+          app={item}
+          isBlocked={isBlocked}
+          isSystem={item.isSystemApp}
+          cannotBlock={cannotBlock}
+          onToggle={() => toggleApp(item.packageName)}
+        />
+      );
+    },
+    [blockedPackages, limitReached, toggleApp],
   );
 
   const schedules = profile?.schedules ?? [];
@@ -646,6 +750,7 @@ export default function ProfileDetailScreen() {
         backgroundColor={Semantic.bg.header}
       />
 
+      {/* ── Header ── */}
       <Animated.View
         style={[
           detail.header,
@@ -723,6 +828,30 @@ export default function ProfileDetailScreen() {
             </View>
           </View>
         </View>
+
+        {/* Limit strip — visible si limite atteinte */}
+        {limitReached && (
+          <TouchableOpacity
+            style={[
+              detail.limitStrip,
+              { backgroundColor: t.warning.bg, borderColor: t.warning.border },
+            ]}
+            onPress={() => {
+              setPaywallReason("blocked_apps");
+              setPaywallVisible(true);
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={[detail.limitStripText, { color: t.warning.text }]}>
+              🔒 Limite atteinte · {blockedCount}/{FREE_LIMITS.MAX_BLOCKED_APPS}{" "}
+              apps bloquées
+            </Text>
+            <Text style={[detail.limitStripCta, { color: t.text.link }]}>
+              Pro →
+            </Text>
+          </TouchableOpacity>
+        )}
+
         <View
           style={[
             detail.tabBar,
@@ -742,46 +871,33 @@ export default function ProfileDetailScreen() {
               },
             ]}
           />
-          <TouchableOpacity
-            style={detail.tab}
-            onPress={() => switchTab("apps")}
-          >
-            <Text
-              style={[
-                detail.tabText,
-                {
-                  color:
-                    activeTab === "apps"
-                      ? Colors.gray[0]
-                      : "rgba(255,255,255,.5)",
-                },
-              ]}
+          {(["apps", "schedules"] as const).map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={detail.tab}
+              onPress={() => switchTab(tab)}
             >
-              ◎ Apps ({blockedPackages.size}/{filteredApps.length})
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={detail.tab}
-            onPress={() => switchTab("schedules")}
-          >
-            <Text
-              style={[
-                detail.tabText,
-                {
-                  color:
-                    activeTab === "schedules"
-                      ? Colors.gray[0]
-                      : "rgba(255,255,255,.5)",
-                },
-              ]}
-            >
-              ◷ Plages ({schedules.length})
-            </Text>
-          </TouchableOpacity>
+              <Text
+                style={[
+                  detail.tabText,
+                  {
+                    color:
+                      activeTab === tab
+                        ? Colors.gray[0]
+                        : "rgba(255,255,255,.5)",
+                  },
+                ]}
+              >
+                {tab === "apps"
+                  ? `◎ Apps (${blockedPackages.size}/${filteredApps.length})`
+                  : `◷ Plages (${schedules.length})`}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </Animated.View>
 
-      {/* Apps tab */}
+      {/* ══ APPS TAB ═══════════════════════════════════════════════════════════ */}
       {activeTab === "apps" && (
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
           <View style={detail.searchBar}>
@@ -802,6 +918,7 @@ export default function ProfileDetailScreen() {
                   backgroundColor: t.blocked.bg,
                   borderColor: t.blocked.border,
                 },
+                limitReached && { opacity: 0.45 },
               ]}
               onPress={blockAll}
             >
@@ -878,7 +995,7 @@ export default function ProfileDetailScreen() {
         </Animated.View>
       )}
 
-      {/* Schedules tab */}
+      {/* ══ SCHEDULES TAB ══════════════════════════════════════════════════════ */}
       {activeTab === "schedules" && (
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
           <ScrollView
@@ -897,7 +1014,7 @@ export default function ProfileDetailScreen() {
               />
             }
           >
-            {!hasSchedules ? (
+            {!hasSchedules && (
               <View
                 style={[
                   detail.noScheduleBanner,
@@ -936,7 +1053,9 @@ export default function ProfileDetailScreen() {
                   </Text>
                 </View>
               </View>
-            ) : (
+            )}
+
+            {hasSchedules && (
               <View
                 style={[
                   detail.infoBanner,
@@ -952,6 +1071,7 @@ export default function ProfileDetailScreen() {
                 </Text>
               </View>
             )}
+
             {scheduleLimitReached && (
               <TouchableOpacity
                 style={[
@@ -961,7 +1081,10 @@ export default function ProfileDetailScreen() {
                     borderColor: t.warning.border,
                   },
                 ]}
-                onPress={() => setPaywallVisible(true)}
+                onPress={() => {
+                  setPaywallReason("schedules");
+                  setPaywallVisible(true);
+                }}
                 activeOpacity={0.85}
               >
                 <View
@@ -1001,6 +1124,7 @@ export default function ProfileDetailScreen() {
                 </View>
               </TouchableOpacity>
             )}
+
             {schedules.map((sc) => (
               <ScheduleRow
                 key={sc.id}
@@ -1015,6 +1139,7 @@ export default function ProfileDetailScreen() {
               />
             ))}
           </ScrollView>
+
           <TouchableOpacity
             style={[
               detail.addSchedFab,
@@ -1031,6 +1156,7 @@ export default function ProfileDetailScreen() {
             ]}
             onPress={() => {
               if (scheduleLimitReached) {
+                setPaywallReason("schedules");
                 setPaywallVisible(true);
                 return;
               }
@@ -1063,10 +1189,11 @@ export default function ProfileDetailScreen() {
         onSave={(data, editingId) => handleScheduleSave(data, editingId)}
         editingSchedule={editingSchedule}
       />
+
       <PaywallModal
         visible={paywallVisible}
+        reason={paywallReason}
         onClose={() => setPaywallVisible(false)}
-        reason="schedules"
         onUpgraded={() => {
           setPaywallVisible(false);
           refreshPremium();
@@ -1076,6 +1203,7 @@ export default function ProfileDetailScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const detail = StyleSheet.create({
   container: { flex: 1 },
   header: {
@@ -1090,7 +1218,7 @@ const detail = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   avatar: {
     width: 50,
@@ -1132,6 +1260,21 @@ const detail = StyleSheet.create({
     borderWidth: 1,
   },
   immediateText: { fontSize: 9, fontWeight: "700" },
+
+  // Limit strip — sous le headerMain, au-dessus des tabs
+  limitStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 9,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginBottom: 10,
+  },
+  limitStripText: { fontSize: 12, fontWeight: "600" },
+  limitStripCta: { fontSize: 12, fontWeight: "700" },
+
   tabBar: {
     flexDirection: "row",
     position: "relative",
@@ -1259,6 +1402,7 @@ const detail = StyleSheet.create({
     letterSpacing: 0.2,
   },
 });
+
 const sr = StyleSheet.create({
   container: {
     borderRadius: 16,
@@ -1351,6 +1495,7 @@ const sr = StyleSheet.create({
   },
   deleteBtnText: { fontSize: 13 },
 });
+
 const ar = StyleSheet.create({
   container: {
     flexDirection: "row",

@@ -16,13 +16,13 @@ export interface SubscriptionState {
 }
 
 export const FREE_LIMITS = {
-  MAX_BLOCKED_APPS: 3,
-  MAX_PROFILES: 1,
+  MAX_BLOCKED_APPS: 9,
+  MAX_PROFILES: 2,
   MAX_SCHEDULES: 1,
-  FOCUS_PRESETS_FREE: [25] as number[],
-  STATS_TABS_FREE: ["overview"] as string[],
+  FOCUS_PRESETS_FREE: [25, 45] as number[],
+  STATS_TABS_FREE: ["overview", "history"] as string[],
   EXPORT_IMPORT: false,
-  PIN_AUTH: false,
+  PIN_AUTH: true,
   BIOMETRIC_AUTH: false,
 };
 

@@ -86,6 +86,7 @@ export const Colors = {
     400: "#F5A623",
     500: "#D4860A",
     600: "#A86200",
+    700: "#7C4E00",
     dark50: "#100C04",
     dark100: "#3A2800",
     darkAccent: "#C07010",

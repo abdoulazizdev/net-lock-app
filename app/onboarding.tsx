@@ -1,5 +1,20 @@
+/**
+ * OnboardingScreen
+ *
+ * Gates premium :
+ *   - Étape "pick" : max FREE_LIMITS.MAX_BLOCKED_APPS apps sélectionnables
+ *     → compteur coloré + badge de limite
+ *     → si l'utilisateur dépasse, le tap est bloqué et un tooltip s'affiche
+ *   - Le nombre d'apps sauvegardées est tronqué à MAX_BLOCKED_APPS
+ *     (les premières sélectionnées)
+ *
+ * Aucun PaywallModal ici : l'onboarding est une étape unique, l'utilisateur
+ * pourra toujours upgrader depuis l'accueil. On informe juste sans friction.
+ */
+
 import AppListService from "@/services/app-list.service";
 import StorageService from "@/services/storage.service";
+import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
 import WatchdogService from "@/services/watchdog.service";
 import { Colors, useTheme } from "@/theme";
@@ -9,7 +24,6 @@ import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
-  Dimensions,
   Easing,
   FlatList,
   Image,
@@ -21,12 +35,9 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const { width: W } = Dimensions.get("window");
 export const ONBOARDING_KEY = "@netoff_onboarding_done";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Step = "welcome" | "how" | "permission" | "pick" | "profile" | "done";
-
 const STEPS: Step[] = [
   "welcome",
   "how",
@@ -36,16 +47,14 @@ const STEPS: Step[] = [
   "done",
 ];
 
-// ─── SOCIAL_PACKAGES — apps populaires à suggérer ────────────────────────────
 const SOCIAL_PACKAGES = [
   { pkg: "com.instagram.android", label: "Instagram", icon: "📸" },
   { pkg: "com.zhiliaoapp.musically", label: "TikTok", icon: "🎵" },
   { pkg: "com.facebook.katana", label: "Facebook", icon: "👥" },
   { pkg: "com.twitter.android", label: "X (Twitter)", icon: "🐦" },
   { pkg: "com.snapchat.android", label: "Snapchat", icon: "👻" },
-  { pkg: "com.youtube.android", label: "YouTube", icon: "▶" },
-  { pkg: "com.netflix.mediaclient", label: "Netflix", icon: "🎬" },
   { pkg: "com.google.android.youtube", label: "YouTube", icon: "▶" },
+  { pkg: "com.netflix.mediaclient", label: "Netflix", icon: "🎬" },
   { pkg: "com.reddit.frontpage", label: "Reddit", icon: "🔴" },
   { pkg: "com.linkedin.android", label: "LinkedIn", icon: "💼" },
   { pkg: "com.pinterest", label: "Pinterest", icon: "📌" },
@@ -55,15 +64,14 @@ const SOCIAL_PACKAGES = [
   { pkg: "com.king.candycrushsaga", label: "Candy Crush", icon: "🍬" },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-async function markOnboardingDone() {
+export async function markOnboardingDone() {
   await AsyncStorage.setItem(ONBOARDING_KEY, "true");
 }
 export async function isOnboardingDone(): Promise<boolean> {
   return (await AsyncStorage.getItem(ONBOARDING_KEY)) === "true";
 }
 
-// ─── StepDot ──────────────────────────────────────────────────────────────────
+// ─── StepDots ─────────────────────────────────────────────────────────────────
 function StepDots({ current, total }: { current: number; total: number }) {
   return (
     <View style={ob.dots}>
@@ -78,15 +86,19 @@ function StepDots({ current, total }: { current: number; total: number }) {
 function AppPickCard({
   app,
   selected,
+  disabled,
   onToggle,
 }: {
   app: InstalledApp & { emoji?: string };
   selected: boolean;
+  disabled: boolean;
   onToggle: () => void;
 }) {
   const { t } = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
+
   const tap = () => {
+    if (disabled && !selected) return; // bloquer si limite atteinte et pas déjà sélectionné
     Animated.sequence([
       Animated.timing(scale, {
         toValue: 0.93,
@@ -102,8 +114,12 @@ function AppPickCard({
     ]).start();
     onToggle();
   };
+
   return (
-    <TouchableOpacity onPress={tap} activeOpacity={0.9}>
+    <TouchableOpacity
+      onPress={tap}
+      activeOpacity={disabled && !selected ? 0.4 : 0.9}
+    >
       <Animated.View
         style={[
           ob.appCard,
@@ -112,6 +128,7 @@ function AppPickCard({
             backgroundColor: Colors.blue[50],
             borderColor: Colors.blue[400],
           },
+          disabled && !selected && { opacity: 0.4 },
           { transform: [{ scale }] },
         ]}
       >
@@ -156,10 +173,11 @@ function AppPickCard({
   );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Main ──────────────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
+
   const [step, setStep] = useState<Step>("welcome");
   const [selectedPkgs, setSelectedPkgs] = useState<Set<string>>(new Set());
   const [suggestedApps, setSuggestedApps] = useState<
@@ -169,17 +187,19 @@ export default function OnboardingScreen() {
   const [permLoading, setPermLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingApps, setLoadingApps] = useState(false);
+  const [showLimitHint, setShowLimitHint] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
-
   const stepIdx = STEPS.indexOf(step);
+
+  // Limite free : nombre d'apps bloquables pendant l'onboarding
+  const maxSelect = FREE_LIMITS.MAX_BLOCKED_APPS;
+  const limitReached = selectedPkgs.size >= maxSelect;
 
   useEffect(() => {
     animateIn();
   }, [step]);
-
-  // Charger les apps installées correspondant aux suggestions
   useEffect(() => {
     if (step === "pick") loadSuggested();
   }, [step]);
@@ -211,7 +231,6 @@ export default function OnboardingScreen() {
       const matched = SOCIAL_PACKAGES.filter((s) =>
         installedMap.has(s.pkg),
       ).map((s) => ({ ...installedMap.get(s.pkg)!, emoji: s.icon }));
-      // Dédupliquer par packageName
       const seen = new Set<string>();
       const unique = matched.filter((a) => {
         if (seen.has(a.packageName)) return false;
@@ -219,8 +238,8 @@ export default function OnboardingScreen() {
         return true;
       });
       setSuggestedApps(unique);
-      // Charger les icônes en arrière-plan
-      AppListService.getNonSystemAppsWithIcons()
+      // Icônes en background
+      AppListService.getNonSystemAppsWithIcons?.()
         .then((full) => {
           const fm = new Map(full.map((a) => [a.packageName, a]));
           setSuggestedApps((prev) =>
@@ -261,7 +280,18 @@ export default function OnboardingScreen() {
   const toggleApp = (pkg: string) => {
     setSelectedPkgs((prev) => {
       const next = new Set(prev);
-      next.has(pkg) ? next.delete(pkg) : next.add(pkg);
+      if (next.has(pkg)) {
+        next.delete(pkg);
+        setShowLimitHint(false);
+        return next;
+      }
+      if (next.size >= maxSelect) {
+        // Limite atteinte → flash le hint
+        setShowLimitHint(true);
+        setTimeout(() => setShowLimitHint(false), 2500);
+        return prev; // no change
+      }
+      next.add(pkg);
       return next;
     });
   };
@@ -269,8 +299,9 @@ export default function OnboardingScreen() {
   const finish = async () => {
     setSaving(true);
     try {
-      // Sauvegarder les règles de blocage sélectionnées
-      for (const pkg of selectedPkgs) {
+      // Tronquer à maxSelect (au cas où — normalement déjà géré dans toggleApp)
+      const pkgsToSave = Array.from(selectedPkgs).slice(0, maxSelect);
+      for (const pkg of pkgsToSave) {
         await StorageService.saveRule({
           packageName: pkg,
           isBlocked: true,
@@ -278,11 +309,8 @@ export default function OnboardingScreen() {
           updatedAt: new Date(),
         });
       }
-      // Synchroniser avec le VPN
-      if (selectedPkgs.size > 0) await VpnService.syncRules();
-      // Démarrer le watchdog
-      await WatchdogService.start();
-      // Marquer l'onboarding comme terminé
+      if (pkgsToSave.length > 0) await VpnService.syncRules?.();
+      await WatchdogService.start?.();
       await markOnboardingDone();
       router.replace("/(tabs)");
     } finally {
@@ -292,18 +320,26 @@ export default function OnboardingScreen() {
 
   const skip = async () => {
     await markOnboardingDone();
-    await WatchdogService.start();
+    await WatchdogService.start?.();
     router.replace("/(tabs)");
   };
 
-  // ── Rendu par étape ──────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   const renderStep = () => {
     switch (step) {
-      // ── BIENVENUE ────────────────────────────────────────────────────────
+      // ── BIENVENUE ──────────────────────────────────────────────────────────
       case "welcome":
         return (
           <View style={ob.stepWrap}>
-            <View style={ob.heroIconBig}>
+            <View
+              style={[
+                ob.heroIconBig,
+                {
+                  backgroundColor: Colors.blue[50],
+                  borderColor: Colors.blue[100],
+                },
+              ]}
+            >
               <Text style={{ fontSize: 56 }}>🛡</Text>
             </View>
             <Text style={[ob.stepTitle, { color: t.text.primary }]}>
@@ -355,11 +391,19 @@ export default function OnboardingScreen() {
           </View>
         );
 
-      // ── COMMENT ÇA MARCHE ────────────────────────────────────────────────
+      // ── COMMENT ÇA MARCHE ─────────────────────────────────────────────────
       case "how":
         return (
           <View style={ob.stepWrap}>
-            <View style={ob.heroIconBig}>
+            <View
+              style={[
+                ob.heroIconBig,
+                {
+                  backgroundColor: Colors.blue[50],
+                  borderColor: Colors.blue[100],
+                },
+              ]}
+            >
               <Text style={{ fontSize: 56 }}>⚙</Text>
             </View>
             <Text style={[ob.stepTitle, { color: t.text.primary }]}>
@@ -373,26 +417,26 @@ export default function OnboardingScreen() {
               {[
                 {
                   n: "1",
-                  t: "Un VPN local est créé",
-                  s: "Entièrement sur votre appareil. Aucun serveur externe, aucune donnée transmise.",
+                  title: "Un VPN local est créé",
+                  sub: "Entièrement sur votre appareil. Aucun serveur externe.",
                   c: Colors.blue[400],
                 },
                 {
                   n: "2",
-                  t: "Les apps bloquées entrent",
-                  s: "Leur trafic réseau est redirigé dans le tunnel VPN local.",
+                  title: "Les apps bloquées entrent",
+                  sub: "Leur trafic réseau est redirigé dans le tunnel VPN local.",
                   c: Colors.blue[500],
                 },
                 {
                   n: "3",
-                  t: "Le trafic est drainé",
-                  s: "Les paquets sont lus et jetés. L'app pense ne pas avoir internet.",
+                  title: "Le trafic est drainé",
+                  sub: "Les paquets sont lus et jetés. L'app pense ne pas avoir internet.",
                   c: Colors.blue[600],
                 },
                 {
                   n: "4",
-                  t: "Les autres apps bypassent",
-                  s: "Toutes vos autres apps continuent de fonctionner normalement.",
+                  title: "Les autres apps bypassent",
+                  sub: "Toutes vos autres apps continuent de fonctionner normalement.",
                   c: Colors.blue[700],
                 },
               ].map((item) => (
@@ -408,10 +452,10 @@ export default function OnboardingScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[ob.howTitle, { color: t.text.primary }]}>
-                      {item.t}
+                      {item.title}
                     </Text>
                     <Text style={[ob.howSub, { color: t.text.muted }]}>
-                      {item.s}
+                      {item.sub}
                     </Text>
                   </View>
                 </View>
@@ -435,7 +479,7 @@ export default function OnboardingScreen() {
           </View>
         );
 
-      // ── PERMISSION VPN ───────────────────────────────────────────────────
+      // ── PERMISSION VPN ────────────────────────────────────────────────────
       case "permission":
         return (
           <View style={ob.stepWrap}>
@@ -543,7 +587,7 @@ export default function OnboardingScreen() {
           </View>
         );
 
-      // ── CHOISIR LES APPS ─────────────────────────────────────────────────
+      // ── CHOISIR LES APPS ──────────────────────────────────────────────────
       case "pick":
         return (
           <View style={[ob.stepWrap, { flex: 1 }]}>
@@ -554,6 +598,71 @@ export default function OnboardingScreen() {
               Sélectionnez les apps qui vous distraient. Vous pourrez modifier
               ça à tout moment.
             </Text>
+
+            {/* Compteur de sélection + info limite */}
+            <View
+              style={[
+                ob.pickCounter,
+                {
+                  backgroundColor: limitReached ? Colors.amber[50] : t.bg.card,
+                  borderColor: limitReached
+                    ? Colors.amber[100]
+                    : t.border.light,
+                },
+              ]}
+            >
+              <View style={ob.pickCounterLeft}>
+                <Text
+                  style={[
+                    ob.pickCounterNum,
+                    {
+                      color: limitReached
+                        ? Colors.amber[500]
+                        : Colors.blue[500],
+                    },
+                  ]}
+                >
+                  {selectedPkgs.size}
+                </Text>
+                <Text style={[ob.pickCounterSep, { color: t.text.muted }]}>
+                  /
+                </Text>
+                <Text style={[ob.pickCounterMax, { color: t.text.muted }]}>
+                  {maxSelect}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  ob.pickCounterLabel,
+                  {
+                    color: limitReached ? Colors.amber[600] : t.text.secondary,
+                  },
+                ]}
+              >
+                {limitReached
+                  ? "🔒 Limite gratuite — débloquez plus avec Premium"
+                  : `app${selectedPkgs.size !== 1 ? "s" : ""} sélectionnée${selectedPkgs.size !== 1 ? "s" : ""}`}
+              </Text>
+            </View>
+
+            {/* Toast limite atteinte */}
+            {showLimitHint && (
+              <View
+                style={[
+                  ob.limitToast,
+                  {
+                    backgroundColor: Colors.amber[50],
+                    borderColor: Colors.amber[200],
+                  },
+                ]}
+              >
+                <Text style={[ob.limitToastText, { color: Colors.amber[700] }]}>
+                  🔒 Version gratuite — max {maxSelect} apps. Vous pourrez en
+                  débloquer plus avec Premium depuis l'accueil.
+                </Text>
+              </View>
+            )}
+
             {loadingApps ? (
               <View style={ob.loadingWrap}>
                 <Text style={[{ color: t.text.muted, fontSize: 14 }]}>
@@ -583,41 +692,30 @@ export default function OnboardingScreen() {
                   <AppPickCard
                     app={item}
                     selected={selectedPkgs.has(item.packageName)}
+                    disabled={
+                      limitReached && !selectedPkgs.has(item.packageName)
+                    }
                     onToggle={() => toggleApp(item.packageName)}
                   />
                 )}
               />
             )}
-            {selectedPkgs.size > 0 && (
-              <View
-                style={[
-                  ob.selectionBadge,
-                  {
-                    backgroundColor: Colors.blue[50],
-                    borderColor: Colors.blue[200],
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: Colors.blue[600],
-                    fontSize: 12,
-                    fontWeight: "700",
-                  }}
-                >
-                  {selectedPkgs.size} app{selectedPkgs.size > 1 ? "s" : ""}{" "}
-                  sélectionnée{selectedPkgs.size > 1 ? "s" : ""}
-                </Text>
-              </View>
-            )}
           </View>
         );
 
-      // ── PROFIL DE BASE ───────────────────────────────────────────────────
+      // ── PROFIL DE BASE ────────────────────────────────────────────────────
       case "profile":
         return (
           <View style={ob.stepWrap}>
-            <View style={ob.heroIconBig}>
+            <View
+              style={[
+                ob.heroIconBig,
+                {
+                  backgroundColor: Colors.green[50],
+                  borderColor: Colors.green[100],
+                },
+              ]}
+            >
               <Text style={{ fontSize: 56 }}>✅</Text>
             </View>
             <Text style={[ob.stepTitle, { color: t.text.primary }]}>
@@ -628,6 +726,29 @@ export default function OnboardingScreen() {
                 ? `${selectedPkgs.size} app${selectedPkgs.size > 1 ? "s" : ""} seront bloquées dès l'activation du VPN.`
                 : "Vous n'avez pas sélectionné d'apps. Vous pourrez le faire depuis l'accueil."}
             </Text>
+
+            {/* Rappel limite si max atteinte */}
+            {selectedPkgs.size >= maxSelect && (
+              <View
+                style={[
+                  ob.limitReminder,
+                  {
+                    backgroundColor: Colors.amber[50],
+                    borderColor: Colors.amber[100],
+                  },
+                ]}
+              >
+                <Text style={{ fontSize: 14 }}>💡</Text>
+                <Text
+                  style={[ob.limitReminderText, { color: Colors.amber[700] }]}
+                >
+                  Vous avez atteint la limite de {maxSelect} apps de la version
+                  gratuite. Passez à Premium depuis l'accueil pour en débloquer
+                  plus.
+                </Text>
+              </View>
+            )}
+
             <View style={ob.summaryList}>
               {[
                 [
@@ -672,7 +793,6 @@ export default function OnboardingScreen() {
           </View>
         );
 
-      // ── DONE — ne devrait pas s'afficher, fin immédiate ──────────────────
       case "done":
         return null;
     }
@@ -683,7 +803,7 @@ export default function OnboardingScreen() {
 
   return (
     <View style={[ob.container, { backgroundColor: t.bg.page }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={t.bg.page} />
+      <StatusBar barStyle={t.statusBar} backgroundColor={t.bg.page} />
 
       {/* Header */}
       <View style={[ob.header, { paddingTop: insets.top + 12 }]}>
@@ -735,7 +855,7 @@ export default function OnboardingScreen() {
           { paddingBottom: insets.bottom + 16, backgroundColor: t.bg.page },
         ]}
       >
-        {step === "permission" && !permGranted ? (
+        {step === "permission" && !permGranted && (
           <TouchableOpacity
             style={[ob.btnSecondary, { borderColor: t.border.normal }]}
             onPress={next}
@@ -745,7 +865,7 @@ export default function OnboardingScreen() {
               Passer cette étape
             </Text>
           </TouchableOpacity>
-        ) : null}
+        )}
         <TouchableOpacity
           style={[
             ob.btnPrimary,
@@ -804,11 +924,9 @@ const ob = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 30,
-    backgroundColor: Colors.blue[50],
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
-    borderColor: Colors.blue[100],
   },
   stepTitle: {
     fontSize: 26,
@@ -818,7 +936,6 @@ const ob = StyleSheet.create({
   },
   stepSub: { fontSize: 14, lineHeight: 22, textAlign: "center", opacity: 0.8 },
 
-  // Features
   featureList: { gap: 10 },
   featureRow: {
     flexDirection: "row",
@@ -827,13 +944,11 @@ const ob = StyleSheet.create({
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
-    backgroundColor: "transparent",
   },
   featureIcon: { fontSize: 22, width: 28, textAlign: "center" },
   featureTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
   featureSub: { fontSize: 12, lineHeight: 18 },
 
-  // How
   howList: { gap: 10 },
   howRow: {
     flexDirection: "row",
@@ -863,7 +978,6 @@ const ob = StyleSheet.create({
   },
   privacyText: { fontSize: 12, lineHeight: 18, flex: 1 },
 
-  // Permission
   permBox: {
     borderRadius: 24,
     padding: 28,
@@ -908,7 +1022,29 @@ const ob = StyleSheet.create({
   permGrantedText: { fontSize: 14, fontWeight: "700" },
   permNote: { fontSize: 11, textAlign: "center", lineHeight: 18, opacity: 0.7 },
 
-  // Pick apps
+  // ── Pick apps
+  pickCounter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+  },
+  pickCounterLeft: { flexDirection: "row", alignItems: "baseline", gap: 3 },
+  pickCounterNum: { fontSize: 22, fontWeight: "800" },
+  pickCounterSep: { fontSize: 16 },
+  pickCounterMax: { fontSize: 14 },
+  pickCounterLabel: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+  },
+
+  limitToast: { borderRadius: 12, borderWidth: 1, padding: 12 },
+  limitToastText: { fontSize: 12, lineHeight: 18, fontWeight: "500" },
+
   appCard: {
     flex: 1,
     aspectRatio: 0.85,
@@ -941,15 +1077,24 @@ const ob = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  selectionBadge: {
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-  },
   loadingWrap: { paddingVertical: 32, alignItems: "center" },
 
-  // Summary
+  // ── Profile summary
+  limitReminder: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+  },
+  limitReminderText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "500",
+  },
+
   summaryList: { gap: 10 },
   summaryRow: {
     flexDirection: "row",
@@ -963,7 +1108,7 @@ const ob = StyleSheet.create({
   summaryTitle: { fontSize: 13, fontWeight: "700", marginBottom: 2 },
   summarySub: { fontSize: 11, opacity: 0.7 },
 
-  // Footer
+  // ── Footer
   footer: {
     position: "absolute",
     bottom: 0,

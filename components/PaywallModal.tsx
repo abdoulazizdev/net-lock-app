@@ -3,7 +3,7 @@ import SubscriptionService, {
   FREE_LIMITS,
 } from "@/services/subscription.service";
 import { Colors, useTheme } from "@/theme";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,7 @@ import {
   View,
 } from "react-native";
 import { Text } from "react-native-paper";
+import Purchases, { PurchasesPackage } from "react-native-purchases";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ─── Config contact ───────────────────────────────────────────────────────────
@@ -61,6 +62,44 @@ interface Props {
     | "security"
     | "general";
 }
+
+// Plan enrichi : données RevenueCat + métadonnées UI
+interface DynamicPlan {
+  id: string; // identifiant RevenueCat (package.identifier)
+  label: string; // libellé affiché
+  price: string; // prix formaté par RevenueCat (localisation auto)
+  period: string; // "/ mois" | "/ an" | "une fois"
+  badge: string | null; // badge promotionnel
+  rcPackage: PurchasesPackage | null; // null = fallback statique (pas de package RC dispo)
+}
+
+// Plans statiques de fallback (affichés si getOfferings() échoue ou retourne vide)
+const FALLBACK_PLANS: DynamicPlan[] = [
+  {
+    id: "netoff_monthly",
+    label: "Mensuel",
+    price: "2,99 €",
+    period: "/ mois",
+    badge: null,
+    rcPackage: null,
+  },
+  {
+    id: "netoff_yearly",
+    label: "Annuel",
+    price: "17,99 €",
+    period: "/ an",
+    badge: "–50%",
+    rcPackage: null,
+  },
+  {
+    id: "netoff_lifetime",
+    label: "À vie",
+    price: "34,99 €",
+    period: "une fois",
+    badge: "⭐ MEILLEUR",
+    rcPackage: null,
+  },
+];
 
 // ─── Données statiques ────────────────────────────────────────────────────────
 const REASON_MESSAGES: Record<
@@ -109,55 +148,98 @@ const REASON_MESSAGES: Record<
   },
 };
 
-const FEATURES = [
-  { icon: "◈", label: "Apps bloquées", free: "3 apps", premium: "Illimité" },
-  { icon: "◉", label: "Profils", free: "1 profil", premium: "Illimité" },
+// Table de comparaison construite à partir de FREE_LIMITS
+const plural = (n: number, singular: string, pluralForm: string) =>
+  n > 1 ? `${n} ${pluralForm}` : `${n} ${singular}`;
+
+const buildFeatures = () => [
+  {
+    icon: "◈",
+    label: "Apps bloquées",
+    free: plural(FREE_LIMITS.MAX_BLOCKED_APPS, "app", "apps"),
+    premium: "Illimité",
+  },
+  {
+    icon: "◉",
+    label: "Profils",
+    free: plural(FREE_LIMITS.MAX_PROFILES, "profil", "profils"),
+    premium: "Illimité",
+  },
   {
     icon: "◷",
     label: "Planifications",
-    free: "1 par profil",
+    free: plural(FREE_LIMITS.MAX_SCHEDULES, "par profil", "par profil"),
     premium: "Illimité",
   },
-  { icon: "◎", label: "Mode Focus", free: "25 min", premium: "Durée libre" },
+  {
+    icon: "◎",
+    label: "Mode Focus",
+    free: FREE_LIMITS.FOCUS_PRESETS_FREE.length
+      ? FREE_LIMITS.FOCUS_PRESETS_FREE.map((m) => `${m} min`).join(", ")
+      : "Limité",
+    premium: "Durée libre",
+  },
   {
     icon: "◈",
     label: "Statistiques",
-    free: "Vue d'ensemble",
+    free: FREE_LIMITS.STATS_TABS_FREE.length > 0 ? "Vue d'ensemble" : "—",
     premium: "Historique + par app",
   },
-  { icon: "◉", label: "Export / Import", free: "—", premium: "✓" },
-  { icon: "◈", label: "PIN & Biométrie", free: "—", premium: "✓" },
+  {
+    icon: "◉",
+    label: "Export / Import",
+    free: FREE_LIMITS.EXPORT_IMPORT ? "✓" : "—",
+    premium: "✓",
+  },
+  {
+    icon: "◈",
+    label: "PIN & Biométrie",
+    free: FREE_LIMITS.PIN_AUTH ? "PIN" : "—",
+    premium: "PIN + Biométrie",
+  },
   { icon: "◎", label: "VPN persistant", free: "✓", premium: "✓" },
 ];
 
-const PLANS = [
-  {
-    id: "monthly",
-    label: "Mensuel",
-    price: "2,99 €",
-    period: "/ mois",
-    badge: null,
-    rcId: "netoff_monthly",
-  },
-  {
-    id: "yearly",
-    label: "Annuel",
-    price: "17,99 €",
-    period: "/ an",
-    badge: "–50%",
-    rcId: "netoff_yearly",
-  },
-  {
-    id: "lifetime",
-    label: "À vie",
-    price: "34,99 €",
-    period: "une fois",
-    badge: "⭐ MEILLEUR",
-    rcId: "netoff_lifetime",
-  },
+// ─── Mapping package identifier → métadonnées UI ─────────────────────────────
+// Permet d'enrichir les offres RevenueCat avec des labels/badges locaux.
+// Si un identifiant n'est pas trouvé ici, on utilise les valeurs RC brutes.
+const PACKAGE_UI_META: Record<
+  string,
+  { label: string; period: string; badge: string | null }
+> = {
+  netoff_monthly: { label: "Mensuel", period: "/ mois", badge: null },
+  netoff_yearly: { label: "Annuel", period: "/ an", badge: "–50%" },
+  netoff_lifetime: { label: "À vie", period: "une fois", badge: "⭐ MEILLEUR" },
+  // Identifiants RevenueCat standard (fallback)
+  $rc_monthly: { label: "Mensuel", period: "/ mois", badge: null },
+  $rc_annual: { label: "Annuel", period: "/ an", badge: "–50%" },
+  $rc_lifetime: { label: "À vie", period: "une fois", badge: "⭐ MEILLEUR" },
+  $rc_weekly: { label: "Hebdo", period: "/ sem.", badge: null },
+};
+
+/** Priorité d'affichage des plans (du plus long au plus court engagement) */
+const PLAN_ORDER = [
+  "netoff_lifetime",
+  "$rc_lifetime",
+  "netoff_yearly",
+  "$rc_annual",
+  "netoff_monthly",
+  "$rc_monthly",
+  "$rc_weekly",
 ];
+
+function sortPlans(plans: DynamicPlan[]): DynamicPlan[] {
+  return [...plans].sort((a, b) => {
+    const ia = PLAN_ORDER.indexOf(a.id);
+    const ib = PLAN_ORDER.indexOf(b.id);
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
 // ─── Mapping erreurs internes → messages UX ───────────────────────────────────
-// Les codes viennent de subscription.service.ts — jamais de messages SDK bruts.
 const PURCHASE_ERROR_MESSAGES: Record<string, string> = {
   PURCHASE_FAILED:
     "Le paiement n'a pas pu être traité. Vérifiez votre moyen de paiement.",
@@ -167,7 +249,7 @@ const PURCHASE_ERROR_MESSAGES: Record<string, string> = {
   NO_OFFERING: "Ce plan n'est pas disponible pour le moment.",
   NOT_CONFIRMED:
     "Votre paiement a été traité mais n'a pas encore été confirmé. Attendez quelques secondes puis relancez l'app.",
-  USER_CANCELLED: "", // silence — l'utilisateur a annulé volontairement
+  USER_CANCELLED: "",
 };
 
 function friendlyPurchaseError(code: string | undefined): string {
@@ -176,10 +258,7 @@ function friendlyPurchaseError(code: string | undefined): string {
 }
 
 function friendlyPromoError(code: string | undefined): string {
-  // Les erreurs de code promo sont déjà UX-friendly dans le service
-  // On les retourne telles quelles, jamais de stack/SDK
   if (!code) return "Ce code n'est pas valide.";
-  // On s'assure qu'aucun message technique ne passe
   const safe = [
     "Code invalide ou inexistant.",
     "Ce code promotionnel a expiré.",
@@ -187,7 +266,83 @@ function friendlyPromoError(code: string | undefined): string {
   return safe.includes(code) ? code : "Ce code n'est pas valide.";
 }
 
-// ─── Section contact (réutilisable dans les 2 onglets) ───────────────────────
+// ─── Hook : chargement dynamique des offres RevenueCat ───────────────────────
+function useDynamicPlans() {
+  // Initialisation immédiate avec les plans statiques — pas de skeleton au 1er rendu
+  const [plans, setPlans] = useState<DynamicPlan[]>(FALLBACK_PLANS);
+  const [loading, setLoading] = useState(false);
+  // true = les plans viennent du fallback statique (pas de RC)
+  const [isFallback, setIsFallback] = useState(true);
+
+  const load = useCallback(async () => {
+    setIsFallback(false); // optimiste : on essaie RC
+    try {
+      const offerings = await Purchases.getOfferings();
+      const packages = offerings.current?.availablePackages ?? [];
+
+      if (packages.length === 0) {
+        // Aucune offre RC disponible → fallback silencieux
+        console.warn(
+          "[PaywallModal] getOfferings: aucun package disponible, fallback statique",
+        );
+        setPlans(FALLBACK_PLANS);
+        setIsFallback(true);
+        return;
+      }
+
+      const dynamic: DynamicPlan[] = packages.map((pkg) => {
+        const meta = PACKAGE_UI_META[pkg.identifier] ?? {
+          label: pkg.product.title || pkg.identifier,
+          period: "",
+          badge: null,
+        };
+        return {
+          id: pkg.identifier,
+          label: meta.label,
+          // Prix localisé automatiquement par RevenueCat (devise + locale user)
+          price: pkg.product.priceString,
+          period: meta.period,
+          badge: meta.badge,
+          rcPackage: pkg,
+        };
+      });
+
+      setPlans(sortPlans(dynamic));
+    } catch (e) {
+      // Erreur réseau ou SDK → fallback statique, pas de message d'erreur bloquant
+      console.error("[PaywallModal] getOfferings:", e);
+      setPlans(FALLBACK_PLANS);
+      setIsFallback(true);
+    }
+  }, []);
+
+  return { plans, loading, isFallback, reload: load };
+}
+
+// ─── Squelette de chargement des plans ───────────────────────────────────────
+function PlansSkeleton() {
+  const { t } = useTheme();
+  return (
+    <View style={{ gap: 8, marginBottom: 8 }}>
+      {[0, 1, 2].map((i) => (
+        <View
+          key={i}
+          style={[
+            pw.planCard,
+            {
+              backgroundColor: t.bg.cardAlt,
+              borderColor: t.border.light,
+              height: 56,
+              opacity: 0.5 + i * 0.15,
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+// ─── Section contact ──────────────────────────────────────────────────────────
 function ContactSection() {
   const { t } = useTheme();
   return (
@@ -197,7 +352,6 @@ function ContactSection() {
         Besoin d'aide ou d'un accès personnalisé ?
       </Text>
       <View style={cs.btns}>
-        {/* WhatsApp */}
         <TouchableOpacity
           style={[
             cs.btn,
@@ -216,7 +370,6 @@ function ContactSection() {
           <Text style={[cs.arrow, { color: t.border.normal }]}>›</Text>
         </TouchableOpacity>
 
-        {/* Email */}
         <TouchableOpacity
           style={[
             cs.btn,
@@ -356,7 +509,21 @@ export default function PaywallModal({
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
 
-  const [selectedPlan, setSelectedPlan] = useState("yearly");
+  // Plans chargés dynamiquement depuis RevenueCat
+  const {
+    plans,
+    loading: plansLoading,
+    isFallback,
+    reload,
+  } = useDynamicPlans();
+
+  // État premium courant (pour détecter si déjà premium à l'ouverture)
+  const [currentState, setCurrentState] = useState<{ isPremium: boolean }>({
+    isPremium: false,
+  });
+  const [syncing, setSyncing] = useState(false);
+
+  const [selectedPlan, setSelectedPlan] = useState<string>("netoff_yearly");
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [activeTab, setActiveTab] = useState<"plans" | "code">("plans");
@@ -367,10 +534,17 @@ export default function PaywallModal({
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const msg = REASON_MESSAGES[reason] ?? REASON_MESSAGES.general;
 
+  // Table de fonctionnalités construite depuis FREE_LIMITS
+  const FEATURES = buildFeatures();
+
+  // ── Synchronisation à l'ouverture ───────────────────────────────────────────
   useEffect(() => {
     if (visible) {
       setActiveTab("plans");
       setPromoCode("");
+      setSelectedPlan("netoff_yearly"); // toujours annuel par défaut
+
+      // Lancer en parallèle : animation + chargement données
       Animated.parallel([
         Animated.timing(overlayAnim, {
           toValue: 1,
@@ -384,6 +558,10 @@ export default function PaywallModal({
           useNativeDriver: true,
         }),
       ]).start();
+
+      // Charger les offres et synchroniser l'état premium
+      reload();
+      syncState();
     } else {
       Keyboard.dismiss();
       Animated.parallel([
@@ -402,32 +580,86 @@ export default function PaywallModal({
     }
   }, [visible]);
 
-  // ── Achat réel via RevenueCat ── pas d'auto-activation ─────────────────────
-  const handleUpgrade = async () => {
-    const plan = PLANS.find((p) => p.id === selectedPlan);
-    if (!plan) return;
-    setLoading(true);
+  // Sync état local + RevenueCat à l'ouverture
+  const syncState = async () => {
+    setSyncing(true);
     try {
-      const result = await SubscriptionService.purchase(plan.rcId);
-      if (result.success) {
+      // 1. Lire l'état local d'abord (rapide)
+      const localState = await SubscriptionService.getState();
+      setCurrentState({ isPremium: localState.isPremium });
+
+      // 2. Synchroniser avec RevenueCat (peut révéler un abonnement expiré/restauré)
+      const rcIsPremium = await SubscriptionService.syncWithRevenueCat();
+      if (rcIsPremium && !localState.isPremium) {
+        // RevenueCat dit premium mais pas en local → fermer directement
         onUpgraded();
         onClose();
-      } else if (result.error && result.error !== "USER_CANCELLED") {
-        const msg = friendlyPurchaseError(result.error);
-        Alert.alert("Paiement impossible", msg, [
-          { text: "Réessayer", onPress: handleUpgrade },
-          {
-            text: "Nous contacter",
-            onPress: () =>
-              Alert.alert("Besoin d'aide ?", "Contactez-nous directement :", [
-                { text: "WhatsApp", onPress: openWhatsApp },
-                { text: "Email", onPress: openEmail },
-                { text: "Fermer", style: "cancel" },
-              ]),
-          },
-          { text: "Annuler", style: "cancel" },
-        ]);
+      } else if (!rcIsPremium) {
+        const refreshed = await SubscriptionService.getState();
+        setCurrentState({ isPremium: refreshed.isPremium });
       }
+    } catch (e) {
+      console.warn("[PaywallModal] syncState:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // ── Achat via RevenueCat ────────────────────────────────────────────────────
+  // Si rcPackage est disponible (plans RC chargés), on l'utilise directement.
+  // Sinon (fallback statique), on délègue à SubscriptionService.purchase(id).
+  const handleUpgrade = async () => {
+    const plan = plans.find((p) => p.id === selectedPlan);
+    if (!plan) return;
+    setLoading(true);
+
+    const contactAlert = () =>
+      Alert.alert("Besoin d'aide ?", "Contactez-nous directement :", [
+        { text: "WhatsApp", onPress: openWhatsApp },
+        { text: "Email", onPress: openEmail },
+        { text: "Fermer", style: "cancel" },
+      ]);
+
+    const showPurchaseError = (code: string) =>
+      Alert.alert("Paiement impossible", friendlyPurchaseError(code), [
+        { text: "Réessayer", onPress: handleUpgrade },
+        { text: "Nous contacter", onPress: contactAlert },
+        { text: "Annuler", style: "cancel" },
+      ]);
+
+    try {
+      if (plan.rcPackage) {
+        // ── Chemin nominal : package RC disponible ────────────────────────────
+        const { customerInfo } = await Purchases.purchasePackage(
+          plan.rcPackage,
+        );
+        const isPremium =
+          Object.keys(customerInfo.entitlements.active).length > 0;
+        if (isPremium) {
+          const entitlement = Object.values(
+            customerInfo.entitlements.active,
+          )[0] as any;
+          await SubscriptionService.activateFromPurchase(
+            entitlement?.expirationDate ?? undefined,
+          );
+          onUpgraded();
+          onClose();
+        } else {
+          showPurchaseError("NOT_CONFIRMED");
+        }
+      } else {
+        // ── Chemin fallback : plans statiques, on passe par le service ────────
+        const result = await SubscriptionService.purchase(plan.id);
+        if (result.success) {
+          onUpgraded();
+          onClose();
+        } else if (result.error !== "USER_CANCELLED") {
+          showPurchaseError(result.error ?? "PURCHASE_FAILED");
+        }
+      }
+    } catch (e: any) {
+      if (e?.userCancelled) return; // silencieux
+      showPurchaseError("PURCHASE_FAILED");
     } finally {
       setLoading(false);
     }
@@ -478,6 +710,75 @@ export default function PaywallModal({
     } finally {
       setCodeLoading(false);
     }
+  };
+
+  // ── Rendu de la liste des plans (dynamique) ─────────────────────────────────
+  const renderPlans = () => {
+    if (plansLoading) return <PlansSkeleton />;
+
+    return plans.map((plan) => (
+      <TouchableOpacity
+        key={plan.id}
+        style={[
+          pw.planCard,
+          { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+          selectedPlan === plan.id && {
+            backgroundColor: t.bg.accent,
+            borderColor: Colors.blue[500],
+          },
+        ]}
+        onPress={() => setSelectedPlan(plan.id)}
+        activeOpacity={0.8}
+      >
+        {plan.badge && (
+          <View style={[pw.planBadge, { backgroundColor: Colors.blue[600] }]}>
+            <Text style={pw.planBadgeText}>{plan.badge}</Text>
+          </View>
+        )}
+        <View style={pw.planLeft}>
+          <View
+            style={[
+              pw.planRadio,
+              {
+                borderColor:
+                  selectedPlan === plan.id ? Colors.blue[500] : t.border.normal,
+              },
+            ]}
+          >
+            {selectedPlan === plan.id && <View style={pw.planRadioDot} />}
+          </View>
+          <Text
+            style={[
+              pw.planLabel,
+              {
+                color:
+                  selectedPlan === plan.id ? t.text.primary : t.text.secondary,
+              },
+            ]}
+          >
+            {plan.label}
+          </Text>
+        </View>
+        <View style={pw.planRight}>
+          <Text
+            style={[
+              pw.planPrice,
+              {
+                color:
+                  selectedPlan === plan.id
+                    ? Colors.blue[600]
+                    : t.text.secondary,
+              },
+            ]}
+          >
+            {plan.price}
+          </Text>
+          <Text style={[pw.planPeriod, { color: t.text.muted }]}>
+            {plan.period}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    ));
   };
 
   return (
@@ -564,6 +865,16 @@ export default function PaywallModal({
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 8 }}
               >
+                {/* Indicateur de synchronisation discret */}
+                {syncing && (
+                  <View style={pw.syncRow}>
+                    <ActivityIndicator size="small" color={t.text.muted} />
+                    <Text style={[pw.syncText, { color: t.text.muted }]}>
+                      Vérification…
+                    </Text>
+                  </View>
+                )}
+
                 {/* Hero */}
                 <View style={pw.hero}>
                   <View
@@ -600,7 +911,7 @@ export default function PaywallModal({
                   </Text>
                 </View>
 
-                {/* Table */}
+                {/* Table des fonctionnalités (construite depuis FREE_LIMITS) */}
                 <View
                   style={[
                     pw.tableWrap,
@@ -668,87 +979,28 @@ export default function PaywallModal({
                   ))}
                 </View>
 
-                {/* Plans */}
+                {/* Plans dynamiques */}
                 <Text style={[pw.plansTitle, { color: t.text.muted }]}>
                   CHOISIR UN PLAN
                 </Text>
-                {PLANS.map((plan) => (
-                  <TouchableOpacity
-                    key={plan.id}
+                {isFallback && (
+                  <View
                     style={[
-                      pw.planCard,
+                      pw.fallbackBanner,
                       {
                         backgroundColor: t.bg.cardAlt,
                         borderColor: t.border.light,
                       },
-                      selectedPlan === plan.id && {
-                        backgroundColor: t.bg.accent,
-                        borderColor: Colors.blue[500],
-                      },
                     ]}
-                    onPress={() => setSelectedPlan(plan.id)}
-                    activeOpacity={0.8}
                   >
-                    {plan.badge && (
-                      <View
-                        style={[
-                          pw.planBadge,
-                          { backgroundColor: Colors.blue[600] },
-                        ]}
-                      >
-                        <Text style={pw.planBadgeText}>{plan.badge}</Text>
-                      </View>
-                    )}
-                    <View style={pw.planLeft}>
-                      <View
-                        style={[
-                          pw.planRadio,
-                          {
-                            borderColor:
-                              selectedPlan === plan.id
-                                ? Colors.blue[500]
-                                : t.border.normal,
-                          },
-                        ]}
-                      >
-                        {selectedPlan === plan.id && (
-                          <View style={pw.planRadioDot} />
-                        )}
-                      </View>
-                      <Text
-                        style={[
-                          pw.planLabel,
-                          {
-                            color:
-                              selectedPlan === plan.id
-                                ? t.text.primary
-                                : t.text.secondary,
-                          },
-                        ]}
-                      >
-                        {plan.label}
-                      </Text>
-                    </View>
-                    <View style={pw.planRight}>
-                      <Text
-                        style={[
-                          pw.planPrice,
-                          {
-                            color:
-                              selectedPlan === plan.id
-                                ? Colors.blue[600]
-                                : t.text.secondary,
-                          },
-                        ]}
-                      >
-                        {plan.price}
-                      </Text>
-                      <Text style={[pw.planPeriod, { color: t.text.muted }]}>
-                        {plan.period}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                    <Text
+                      style={[pw.fallbackBannerText, { color: t.text.muted }]}
+                    >
+                      ⚠ Prix indicatifs — connexion requise pour confirmer.
+                    </Text>
+                  </View>
+                )}
+                {renderPlans()}
 
                 <Text style={[pw.legalText, { color: t.text.muted }]}>
                   Paiement sécurisé via Google Play.
@@ -756,7 +1008,6 @@ export default function PaywallModal({
                   moment.
                 </Text>
 
-                {/* Contact dans l'onglet plans */}
                 <ContactSection />
               </ScrollView>
 
@@ -765,13 +1016,14 @@ export default function PaywallModal({
                 style={[
                   pw.ctaBtn,
                   {
-                    backgroundColor: loading
-                      ? Colors.blue[200]
-                      : Colors.blue[600],
+                    backgroundColor:
+                      loading || !selectedPlan
+                        ? Colors.blue[200]
+                        : Colors.blue[600],
                   },
                 ]}
                 onPress={handleUpgrade}
-                disabled={loading}
+                disabled={loading || !selectedPlan}
                 activeOpacity={0.9}
               >
                 {loading ? (
@@ -1035,6 +1287,14 @@ const pw = StyleSheet.create({
   planRight: { alignItems: "flex-end" },
   planPrice: { fontSize: 16, fontWeight: "800", letterSpacing: -0.5 },
   planPeriod: { fontSize: 10, marginTop: 1 },
+  fallbackBanner: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  fallbackBannerText: { fontSize: 11, textAlign: "center" },
   legalText: {
     fontSize: 10,
     textAlign: "center",
@@ -1042,6 +1302,14 @@ const pw = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 16,
   },
+  syncRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 6,
+  },
+  syncText: { fontSize: 11 },
   ctaBtn: {
     borderRadius: 16,
     paddingVertical: 16,
