@@ -6,8 +6,12 @@
  * - Tap-to-stop (pas de hold)
  * - Bloque les apps actuellement cochées dans les règles
  * - Pas de message de motivation
+ * - Version gratuite : limité aux présets 5, 15, 30 min
  */
 
+import PaywallModal from "@/components/PaywallModal";
+import { usePremium } from "@/hooks/usePremium";
+import { FREE_LIMITS } from "@/services/subscription.service";
 import TimerService from "@/services/timer.service";
 import VpnService from "@/services/vpn.service";
 import { Colors, useTheme } from "@/theme";
@@ -45,10 +49,15 @@ export default function QuickTimerModal({
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
+  const { isPremium } = usePremium();
   const [selected, setSelected] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(400)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
+
+  const isPresetLocked = (minutes: number) =>
+    !isPremium && !FREE_LIMITS.TIMER_PRESETS_FREE.includes(minutes);
 
   useEffect(() => {
     if (visible) {
@@ -118,216 +127,294 @@ export default function QuickTimerModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-    >
-      <Animated.View style={[qt.overlay, { opacity: overlayAnim }]}>
-        <TouchableOpacity
-          style={{ flex: 1 }}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-        <Animated.View
-          style={[
-            qt.sheet,
-            {
-              backgroundColor: t.bg.card,
-              borderColor: t.border.light,
-              transform: [{ translateY: slideAnim }],
-              paddingBottom: insets.bottom + 20,
-            },
-          ]}
-        >
-          <View style={[qt.handle, { backgroundColor: t.border.normal }]} />
-
-          {/* Header — distingue visuellement de Focus */}
-          <View style={qt.header}>
-            <View style={qt.headerLeft}>
-              <View
-                style={[
-                  qt.headerIcon,
-                  {
-                    backgroundColor: Colors.amber[50],
-                    borderColor: Colors.amber[100],
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: 20 }}>⏱</Text>
-              </View>
-              <View>
-                <Text style={[qt.title, { color: t.text.primary }]}>
-                  Minuterie rapide
-                </Text>
-                <Text style={[qt.sub, { color: t.text.muted }]}>
-                  Blocage temporaire · Stop en 1 tap
-                </Text>
-              </View>
-            </View>
-            <TouchableOpacity
-              onPress={onClose}
-              style={[qt.closeBtn, { backgroundColor: t.bg.cardAlt }]}
-            >
-              <Text
-                style={{ fontSize: 11, color: t.text.muted, fontWeight: "700" }}
-              >
-                ✕
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Différence claire avec Focus */}
-          <View
+    <>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="none"
+        onRequestClose={onClose}
+      >
+        <Animated.View style={[qt.overlay, { opacity: overlayAnim }]}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={onClose}
+          />
+          <Animated.View
             style={[
-              qt.diffBanner,
-              { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              qt.sheet,
+              {
+                backgroundColor: t.bg.card,
+                borderColor: t.border.light,
+                transform: [{ translateY: slideAnim }],
+                paddingBottom: insets.bottom + 20,
+              },
             ]}
           >
-            <View style={qt.diffRow}>
-              <Text style={[qt.diffIcon, { color: Colors.amber[400] }]}>⏱</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[qt.diffLabel, { color: t.text.primary }]}>
-                  Minuterie
-                </Text>
-                <Text style={[qt.diffDesc, { color: t.text.muted }]}>
-                  Stop en 1 tap · Sans stats
-                </Text>
-              </View>
-              <View
-                style={[
-                  qt.diffBadge,
-                  {
-                    backgroundColor: Colors.amber[50],
-                    borderColor: Colors.amber[100],
-                  },
-                ]}
-              >
-                <Text
+            <View style={[qt.handle, { backgroundColor: t.border.normal }]} />
+
+            {/* Header — distingue visuellement de Focus */}
+            <View style={qt.header}>
+              <View style={qt.headerLeft}>
+                <View
                   style={[
+                    qt.headerIcon,
                     {
-                      fontSize: 9,
-                      fontWeight: "800",
-                      color: Colors.amber[500],
+                      backgroundColor: Colors.amber[50],
+                      borderColor: Colors.amber[100],
                     },
                   ]}
                 >
-                  CASUAL
-                </Text>
+                  <Text style={{ fontSize: 20 }}>⏱</Text>
+                </View>
+                <View>
+                  <Text style={[qt.title, { color: t.text.primary }]}>
+                    Minuterie rapide
+                  </Text>
+                  <Text style={[qt.sub, { color: t.text.muted }]}>
+                    Blocage temporaire · Stop en 1 tap
+                  </Text>
+                </View>
               </View>
+              <TouchableOpacity
+                onPress={onClose}
+                style={[qt.closeBtn, { backgroundColor: t.bg.cardAlt }]}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: t.text.muted,
+                    fontWeight: "700",
+                  }}
+                >
+                  ✕
+                </Text>
+              </TouchableOpacity>
             </View>
+
+            {/* Différence claire avec Focus */}
             <View
-              style={[qt.diffDivider, { backgroundColor: t.border.light }]}
-            />
-            <View style={qt.diffRow}>
-              <Text style={[qt.diffIcon, { color: Colors.purple[400] }]}>
-                🎯
-              </Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[qt.diffLabel, { color: t.text.muted }]}>
-                  Mode Focus
+              style={[
+                qt.diffBanner,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <View style={qt.diffRow}>
+                <Text style={[qt.diffIcon, { color: Colors.amber[400] }]}>
+                  ⏱
                 </Text>
-                <Text style={[qt.diffDesc, { color: t.text.muted }]}>
-                  Hold 5s pour stopper · Stats + badges
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[qt.diffLabel, { color: t.text.primary }]}>
+                    Minuterie
+                  </Text>
+                  <Text style={[qt.diffDesc, { color: t.text.muted }]}>
+                    Stop en 1 tap · Sans stats
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    qt.diffBadge,
+                    {
+                      backgroundColor: Colors.amber[50],
+                      borderColor: Colors.amber[100],
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      {
+                        fontSize: 9,
+                        fontWeight: "800",
+                        color: Colors.amber[500],
+                      },
+                    ]}
+                  >
+                    CASUAL
+                  </Text>
+                </View>
               </View>
               <View
+                style={[qt.diffDivider, { backgroundColor: t.border.light }]}
+              />
+              <View style={qt.diffRow}>
+                <Text style={[qt.diffIcon, { color: Colors.purple[400] }]}>
+                  🎯
+                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[qt.diffLabel, { color: t.text.muted }]}>
+                    Mode Focus
+                  </Text>
+                  <Text style={[qt.diffDesc, { color: t.text.muted }]}>
+                    Hold 5s pour stopper · Stats + badges
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    qt.diffBadge,
+                    {
+                      backgroundColor: Colors.purple[50],
+                      borderColor: Colors.purple[100],
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      {
+                        fontSize: 9,
+                        fontWeight: "800",
+                        color: Colors.purple[500],
+                      },
+                    ]}
+                  >
+                    FOCUS
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Durées */}
+            <View style={qt.grid}>
+              {PRESETS.map((preset) => {
+                const active = selected === preset.minutes;
+                const locked = isPresetLocked(preset.minutes);
+                return (
+                  <TouchableOpacity
+                    key={preset.minutes}
+                    style={[
+                      qt.presetCard,
+                      {
+                        backgroundColor: t.bg.cardAlt,
+                        borderColor: t.border.light,
+                      },
+                      active && {
+                        backgroundColor: Colors.amber[50],
+                        borderColor: Colors.amber[200],
+                      },
+                      locked && { opacity: 0.55 },
+                    ]}
+                    onPress={() => {
+                      if (locked) {
+                        setPaywallVisible(true);
+                        return;
+                      }
+                      setSelected(preset.minutes);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    {locked && (
+                      <View
+                        style={[
+                          qt.lockBadge,
+                          {
+                            backgroundColor: Colors.purple[50],
+                            borderColor: Colors.purple[100],
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            qt.lockBadgeText,
+                            { color: Colors.purple[600] },
+                          ]}
+                        >
+                          PRO
+                        </Text>
+                      </View>
+                    )}
+                    <Text style={qt.presetIcon}>{preset.icon}</Text>
+                    <Text
+                      style={[
+                        qt.presetLabel,
+                        {
+                          color: active
+                            ? Colors.amber[600]
+                            : locked
+                              ? t.border.normal
+                              : t.text.primary,
+                        },
+                      ]}
+                    >
+                      {preset.label}
+                    </Text>
+                    <Text style={[qt.presetDesc, { color: t.text.muted }]}>
+                      {locked ? "Premium" : preset.desc}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Bannière limite gratuit */}
+            {!isPremium && (
+              <TouchableOpacity
                 style={[
-                  qt.diffBadge,
+                  qt.freeBanner,
                   {
                     backgroundColor: Colors.purple[50],
                     borderColor: Colors.purple[100],
                   },
                 ]}
+                onPress={() => setPaywallVisible(true)}
+                activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    {
-                      fontSize: 9,
-                      fontWeight: "800",
-                      color: Colors.purple[500],
-                    },
-                  ]}
-                >
-                  FOCUS
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Durées */}
-          <View style={qt.grid}>
-            {PRESETS.map((preset) => {
-              const active = selected === preset.minutes;
-              return (
-                <TouchableOpacity
-                  key={preset.minutes}
-                  style={[
-                    qt.presetCard,
-                    {
-                      backgroundColor: t.bg.cardAlt,
-                      borderColor: t.border.light,
-                    },
-                    active && {
-                      backgroundColor: Colors.amber[50],
-                      borderColor: Colors.amber[200],
-                    },
-                  ]}
-                  onPress={() => setSelected(preset.minutes)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={qt.presetIcon}>{preset.icon}</Text>
+                <Text style={qt.freeBannerIcon}>🔒</Text>
+                <View style={{ flex: 1 }}>
                   <Text
-                    style={[
-                      qt.presetLabel,
-                      { color: active ? Colors.amber[600] : t.text.primary },
-                    ]}
+                    style={[qt.freeBannerText, { color: Colors.purple[700] }]}
                   >
-                    {preset.label}
+                    Minuteries longues réservées à Premium
                   </Text>
-                  <Text style={[qt.presetDesc, { color: t.text.muted }]}>
-                    {preset.desc}
+                  <Text
+                    style={[qt.freeBannerSub, { color: Colors.purple[500] }]}
+                  >
+                    1h, 2h, 4h disponibles avec NetOff Pro →
                   </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                </View>
+              </TouchableOpacity>
+            )}
 
-          {/* Note */}
-          <View
-            style={[
-              qt.note,
-              { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
-            ]}
-          >
-            <Text style={[{ fontSize: 12, color: t.text.muted }]}>
-              💡 Les apps déjà bloquées dans votre liste seront maintenues
-              bloquées. Arrêt possible d'un simple tap.
-            </Text>
-          </View>
+            {/* Note */}
+            <View
+              style={[
+                qt.note,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <Text style={[{ fontSize: 12, color: t.text.muted }]}>
+                💡 Les apps déjà bloquées dans votre liste seront maintenues
+                bloquées. Arrêt possible d'un simple tap.
+              </Text>
+            </View>
 
-          <TouchableOpacity
-            style={[
-              qt.startBtn,
-              { backgroundColor: Colors.amber[400] },
-              (selected === null || starting) && { opacity: 0.45 },
-            ]}
-            onPress={handleStart}
-            disabled={selected === null || starting}
-            activeOpacity={0.85}
-          >
-            <Text style={qt.startBtnText}>
-              {starting
-                ? "Démarrage…"
-                : selected
-                  ? `⏱ Démarrer — ${PRESETS.find((p) => p.minutes === selected)?.label}`
-                  : "Choisissez une durée"}
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                qt.startBtn,
+                { backgroundColor: Colors.amber[400] },
+                (selected === null || starting) && { opacity: 0.45 },
+              ]}
+              onPress={handleStart}
+              disabled={selected === null || starting}
+              activeOpacity={0.85}
+            >
+              <Text style={qt.startBtnText}>
+                {starting
+                  ? "Démarrage…"
+                  : selected
+                    ? `⏱ Démarrer — ${PRESETS.find((p) => p.minutes === selected)?.label}`
+                    : "Choisissez une durée"}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
         </Animated.View>
-      </Animated.View>
-    </Modal>
+      </Modal>
+
+      <PaywallModal
+        visible={paywallVisible}
+        reason="general"
+        onClose={() => setPaywallVisible(false)}
+        onUpgraded={() => setPaywallVisible(false)}
+      />
+    </>
   );
 }
 
@@ -402,10 +489,34 @@ const qt = StyleSheet.create({
     padding: 14,
     alignItems: "center",
     gap: 4,
+    position: "relative",
   },
+  lockBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderWidth: 1,
+  },
+  lockBadgeText: { fontSize: 7, fontWeight: "800", letterSpacing: 0.5 },
   presetIcon: { fontSize: 22, marginBottom: 2 },
   presetLabel: { fontSize: 15, fontWeight: "800", letterSpacing: -0.3 },
   presetDesc: { fontSize: 9, fontWeight: "600" },
+  freeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  freeBannerIcon: { fontSize: 16 },
+  freeBannerText: { fontSize: 12, fontWeight: "700", marginBottom: 2 },
+  freeBannerSub: { fontSize: 11, fontWeight: "500" },
   note: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 14 },
   startBtn: { borderRadius: 16, paddingVertical: 16, alignItems: "center" },
   startBtnText: {

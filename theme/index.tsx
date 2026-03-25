@@ -99,6 +99,7 @@ export const Colors = {
     400: "#7B6EF6",
     500: "#5A4FD4",
     600: "#3D34A8",
+    700: "#2A2A96",
     dark50: "#16103A",
     dark100: "#4A3F8A",
   },

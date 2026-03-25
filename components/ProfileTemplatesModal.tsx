@@ -1,17 +1,18 @@
 import ProfileTemplatesService, {
-    ProfileTemplate,
-    TEMPLATES,
+  ProfileTemplate,
+  TEMPLATES,
 } from "@/services/profile-templates.service";
+import { FREE_LIMITS } from "@/services/subscription.service";
 import { useTheme } from "@/theme";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Alert,
-    Animated,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  Alert,
+  Animated,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +21,12 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onCreated: (profileId: string) => void;
+  /** Nombre de profils déjà créés — utilisé pour vérifier la limite free */
+  profileCount: number;
+  /** Appelé quand la limite est atteinte, pour ouvrir le PaywallModal */
+  onLimitReached: () => void;
+  /** true si l'utilisateur est premium */
+  isPremium: boolean;
 }
 
 function TemplateCard({
@@ -108,6 +115,9 @@ export default function ProfileTemplatesModal({
   visible,
   onClose,
   onCreated,
+  profileCount,
+  onLimitReached,
+  isPremium,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
@@ -115,6 +125,9 @@ export default function ProfileTemplatesModal({
   const [creating, setCreating] = useState<string | null>(null);
   const slideAnim = useRef(new Animated.Value(600)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
+
+  // Limite atteinte si non-premium et déjà au max
+  const limitReached = !isPremium && profileCount >= FREE_LIMITS.MAX_PROFILES;
 
   useEffect(() => {
     if (visible) {
@@ -159,6 +172,14 @@ export default function ProfileTemplatesModal({
   };
 
   const handleCreate = async (template: ProfileTemplate) => {
+    // Vérification limite avant toute création
+    if (limitReached) {
+      onClose();
+      // Léger délai pour laisser le modal se fermer avant d'ouvrir le paywall
+      setTimeout(onLimitReached, 300);
+      return;
+    }
+
     if (creating) return;
     setCreating(template.id);
     try {
@@ -212,7 +233,7 @@ export default function ProfileTemplatesModal({
         >
           <View style={[tm.handle, { backgroundColor: t.border.normal }]} />
           <View style={tm.header}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[tm.title, { color: t.text.primary }]}>
                 Templates de profils
               </Text>
@@ -231,6 +252,36 @@ export default function ProfileTemplatesModal({
               </Text>
             </TouchableOpacity>
           </View>
+
+          {/* Bandeau limite atteinte */}
+          {limitReached && (
+            <TouchableOpacity
+              style={[
+                tm.limitBanner,
+                { backgroundColor: "#7F77DD18", borderColor: "#7F77DD40" },
+              ]}
+              onPress={() => {
+                onClose();
+                setTimeout(onLimitReached, 300);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={tm.limitBannerIcon}>🔒</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[tm.limitBannerTitle, { color: "#A89FE8" }]}>
+                  Limite atteinte ({profileCount}/{FREE_LIMITS.MAX_PROFILES}{" "}
+                  profils)
+                </Text>
+                <Text style={[tm.limitBannerSub, { color: t.text.muted }]}>
+                  Passez à Premium pour créer des profils illimités.
+                </Text>
+              </View>
+              <Text style={[tm.limitBannerCta, { color: "#A89FE8" }]}>
+                Voir →
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 16 }}
@@ -303,6 +354,20 @@ const tm = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  limitBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 16,
+  },
+  limitBannerIcon: { fontSize: 18 },
+  limitBannerTitle: { fontSize: 12, fontWeight: "700", marginBottom: 2 },
+  limitBannerSub: { fontSize: 11, lineHeight: 16 },
+  limitBannerCta: { fontSize: 13, fontWeight: "700" },
   card: {
     flexDirection: "row",
     alignItems: "center",

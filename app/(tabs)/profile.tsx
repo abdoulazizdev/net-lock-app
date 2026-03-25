@@ -744,6 +744,11 @@ export default function ProfilesScreen() {
     setShowModal(true);
   }, [isPremium, profiles.length]);
 
+  // Ouvre les templates — la vérification de limite se fait dans ProfileTemplatesModal
+  const handleOpenTemplates = useCallback(() => {
+    setShowTemplates(true);
+  }, []);
+
   const createProfile = async (name: string, desc: string) => {
     const newProfile: Profile = {
       id: `profile_${Date.now()}`,
@@ -865,7 +870,7 @@ export default function ProfilesScreen() {
             )}
             <TouchableOpacity
               style={s.templatesBtn}
-              onPress={() => setShowTemplates(true)}
+              onPress={handleOpenTemplates}
               activeOpacity={0.8}
             >
               <Text style={s.templatesBtnText}>⚡ Templates</Text>
@@ -946,7 +951,7 @@ export default function ProfilesScreen() {
                     borderColor: "rgba(255,255,255,.18)",
                   },
                 ]}
-                onPress={() => setShowTemplates(true)}
+                onPress={handleOpenTemplates}
               >
                 <Text style={[s.emptyBtnText, { color: Colors.blue[100] }]}>
                   ⚡ Templates
@@ -1029,6 +1034,9 @@ export default function ProfilesScreen() {
             params: { profileId },
           });
         }}
+        profileCount={profiles.length}
+        isPremium={isPremium}
+        onLimitReached={() => setPaywallVisible(true)}
       />
       <PaywallModal
         visible={paywallVisible}

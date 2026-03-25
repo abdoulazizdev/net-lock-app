@@ -20,6 +20,7 @@ export const FREE_LIMITS = {
   MAX_PROFILES: 2,
   MAX_SCHEDULES: 1,
   FOCUS_PRESETS_FREE: [25, 45] as number[],
+  TIMER_PRESETS_FREE: [5, 15, 30] as number[], // Minuterie limitée à 30 min en gratuit
   STATS_TABS_FREE: ["overview", "history"] as string[],
   EXPORT_IMPORT: false,
   PIN_AUTH: true,

@@ -1,6 +1,7 @@
 import FocusBanner from "@/components/FocusBanner";
 import FocusModal from "@/components/FocusModal";
 import HomeScreenSkeleton from "@/components/HomeScreenSkeleton";
+import { MoreMenu } from "@/components/MoreMenu";
 import PaywallModal from "@/components/PaywallModal";
 import QuickTimerModal from "@/components/QuickTimerModal";
 import SearchAndFilters, {
@@ -32,7 +33,6 @@ import {
   Easing,
   FlatList,
   Image,
-  Modal,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -100,7 +100,7 @@ const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
   );
 });
 
-// ─── VPN pill ─────────────────────────────────────────────────────────────────
+// ─── VpnToggle ────────────────────────────────────────────────────────────────
 const VpnToggle = React.memo(function VpnToggle({
   active,
   locked,
@@ -164,7 +164,7 @@ const VpnToggle = React.memo(function VpnToggle({
   );
 });
 
-// ─── Focus pill ───────────────────────────────────────────────────────────────
+// ─── FocusToggle ──────────────────────────────────────────────────────────────
 const FocusToggle = React.memo(function FocusToggle({
   active,
   onPress,
@@ -210,121 +210,7 @@ const FocusToggle = React.memo(function FocusToggle({
   );
 });
 
-// ─── More menu ────────────────────────────────────────────────────────────────
-const MoreMenu = React.memo(function MoreMenu({
-  visible,
-  onClose,
-  onSettings,
-  onTimer,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onSettings: () => void;
-  onTimer: () => void;
-}) {
-  const { t } = useTheme();
-  const slideAnim = useRef(new Animated.Value(-10)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (visible) {
-      slideAnim.setValue(-10);
-      opacityAnim.setValue(0);
-      Animated.parallel([
-        Animated.timing(opacityAnim, {
-          toValue: 1,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 170,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible]);
-  if (!visible) return null;
-  const items = [
-    {
-      icon: "⚙",
-      label: "Paramètres",
-      sub: "Config & sécurité",
-      onPress: onSettings,
-    },
-    {
-      icon: "⏱",
-      label: "Minuterie",
-      sub: "Blocage temporaire · Stop en 1 tap",
-      onPress: onTimer,
-    },
-  ];
-  return (
-    <Modal transparent animationType="none" onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={StyleSheet.absoluteFill}>
-          <TouchableWithoutFeedback>
-            <Animated.View
-              style={[
-                g.menuCard,
-                { backgroundColor: t.bg.card, borderColor: t.border.light },
-                {
-                  opacity: opacityAnim,
-                  transform: [{ translateY: slideAnim }],
-                },
-              ]}
-            >
-              {items.map((item, i) => (
-                <TouchableOpacity
-                  key={item.label}
-                  style={[
-                    g.menuItem,
-                    i < items.length - 1 && {
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                      borderBottomColor: t.border.light,
-                    },
-                  ]}
-                  onPress={() => {
-                    onClose();
-                    item.onPress();
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      g.menuIconWrap,
-                      {
-                        backgroundColor: t.bg.accent,
-                        borderColor: t.border.strong,
-                      },
-                    ]}
-                  >
-                    <Text style={[g.menuIcon, { color: t.text.link }]}>
-                      {item.icon}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[g.menuLabel, { color: t.text.primary }]}>
-                      {item.label}
-                    </Text>
-                    <Text style={[g.menuSub, { color: t.text.muted }]}>
-                      {item.sub}
-                    </Text>
-                  </View>
-                  <Text style={[g.menuChevron, { color: t.border.normal }]}>
-                    ›
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </Animated.View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
-    </Modal>
-  );
-});
-
-// ─── App switch ───────────────────────────────────────────────────────────────
+// ─── AppToggle ────────────────────────────────────────────────────────────────
 const AppToggle = React.memo(function AppToggle({
   blocked,
   locked,
@@ -350,6 +236,7 @@ const AppToggle = React.memo(function AppToggle({
     inputRange: [0, 1],
     outputRange: [2, 21],
   });
+
   if (locked)
     return (
       <View
@@ -363,6 +250,7 @@ const AppToggle = React.memo(function AppToggle({
         />
       </View>
     );
+
   if (cannotBlock)
     return (
       <TouchableOpacity
@@ -385,6 +273,7 @@ const AppToggle = React.memo(function AppToggle({
         </View>
       </TouchableOpacity>
     );
+
   return (
     <TouchableOpacity
       onPress={onToggle}
@@ -681,8 +570,6 @@ const VpnWarningBanner = React.memo(function VpnWarningBanner({
 });
 
 // ─── VpnActivationModal ───────────────────────────────────────────────────────
-// Popup affiché UNIQUEMENT lors du tout premier blocage d'app sans VPN actif.
-// Se ferme avec animation avant d'exécuter l'action choisie.
 const VpnActivationModal = React.memo(function VpnActivationModal({
   visible,
   appName,
@@ -727,7 +614,6 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
     }
   }, [visible]);
 
-  // Anime la fermeture puis appelle le callback
   const animateOut = (cb: () => void) => {
     Animated.parallel([
       Animated.timing(backdropOpacity, {
@@ -751,106 +637,91 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
   if (!visible) return null;
 
   return (
-    <Modal
-      transparent
-      animationType="none"
-      onRequestClose={() => animateOut(onDismiss)}
-    >
-      <TouchableWithoutFeedback onPress={() => animateOut(onDismiss)}>
-        <Animated.View style={[p.backdrop, { opacity: backdropOpacity }]}>
-          <TouchableWithoutFeedback>
-            <Animated.View
+    <TouchableWithoutFeedback onPress={() => animateOut(onDismiss)}>
+      <Animated.View style={[p.backdrop, { opacity: backdropOpacity }]}>
+        <TouchableWithoutFeedback>
+          <Animated.View
+            style={[
+              p.card,
+              {
+                backgroundColor: t.bg.card,
+                borderColor: t.border.light,
+                opacity: cardOpacity,
+                transform: [{ scale: cardScale }],
+              },
+            ]}
+          >
+            <View style={p.iconArea}>
+              <View style={p.haloOuter} />
+              <View style={p.haloMid} />
+              <View style={p.iconBox}>
+                <Text style={p.iconEmoji}>🛡️</Text>
+              </View>
+            </View>
+
+            <Text style={[p.title, { color: t.text.primary }]}>
+              VPN désactivé
+            </Text>
+
+            <Text style={[p.subtitle, { color: t.text.secondary }]}>
+              Vous venez de bloquer{" "}
+              <Text style={[p.subtitleAccent, { color: t.text.primary }]}>
+                {appName}
+              </Text>
+              , mais le VPN est éteint.
+            </Text>
+
+            <View
               style={[
-                p.card,
+                p.infoBox,
                 {
-                  backgroundColor: t.bg.card,
-                  borderColor: t.border.light,
-                  opacity: cardOpacity,
-                  transform: [{ scale: cardScale }],
+                  backgroundColor: t.bg.accent,
+                  borderColor: t.border.strong,
                 },
               ]}
             >
-              {/* ── Icône bouclier avec halos concentriques ── */}
-              <View style={p.iconArea}>
-                <View style={p.haloOuter} />
-                <View style={p.haloMid} />
-                <View style={p.iconBox}>
-                  <Text style={p.iconEmoji}>🛡️</Text>
-                </View>
-              </View>
-
-              {/* ── Texte ── */}
-              <Text style={[p.title, { color: t.text.primary }]}>
-                VPN désactivé
+              <Text style={p.infoIcon}>ℹ️</Text>
+              <Text style={[p.infoText, { color: t.text.muted }]}>
+                Sans VPN actif, les règles de blocage ne sont pas appliquées et
+                l'application peut toujours accéder au réseau.
               </Text>
+            </View>
 
-              <Text style={[p.subtitle, { color: t.text.secondary }]}>
-                Vous venez de bloquer{" "}
-                <Text style={[p.subtitleAccent, { color: t.text.primary }]}>
-                  {appName}
-                </Text>
-                , mais le VPN est éteint.
-              </Text>
+            <View style={[p.sep, { backgroundColor: t.border.light }]} />
 
-              <View
+            <View style={p.actions}>
+              <TouchableOpacity
                 style={[
-                  p.infoBox,
+                  p.btnSecondary,
                   {
-                    backgroundColor: t.bg.accent,
-                    borderColor: t.border.strong,
+                    backgroundColor: t.bg.cardAlt,
+                    borderColor: t.border.normal,
                   },
                 ]}
+                onPress={() => animateOut(onDismiss)}
+                activeOpacity={0.75}
               >
-                <Text style={p.infoIcon}>ℹ️</Text>
-                <Text style={[p.infoText, { color: t.text.muted }]}>
-                  Sans VPN actif, les règles de blocage ne sont pas appliquées
-                  et l'application peut toujours accéder au réseau.
+                <Text style={[p.btnSecondaryText, { color: t.text.secondary }]}>
+                  Pas maintenant
                 </Text>
-              </View>
+              </TouchableOpacity>
 
-              {/* ── Séparateur ── */}
-              <View style={[p.sep, { backgroundColor: t.border.light }]} />
-
-              {/* ── Boutons ── */}
-              <View style={p.actions}>
-                {/* Pas maintenant */}
-                <TouchableOpacity
-                  style={[
-                    p.btnSecondary,
-                    {
-                      backgroundColor: t.bg.cardAlt,
-                      borderColor: t.border.normal,
-                    },
-                  ]}
-                  onPress={() => animateOut(onDismiss)}
-                  activeOpacity={0.75}
-                >
-                  <Text
-                    style={[p.btnSecondaryText, { color: t.text.secondary }]}
-                  >
-                    Pas maintenant
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Activer maintenant */}
-                <TouchableOpacity
-                  style={p.btnPrimary}
-                  onPress={() => animateOut(onActivate)}
-                  activeOpacity={0.82}
-                >
-                  <Text style={p.btnPrimaryIcon}>⚡</Text>
-                  <Text style={p.btnPrimaryText}>Activer maintenant</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          </TouchableWithoutFeedback>
-        </Animated.View>
-      </TouchableWithoutFeedback>
-    </Modal>
+              <TouchableOpacity
+                style={p.btnPrimary}
+                onPress={() => animateOut(onActivate)}
+                activeOpacity={0.82}
+              >
+                <Text style={p.btnPrimaryIcon}>⚡</Text>
+                <Text style={p.btnPrimaryText}>Activer maintenant</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </TouchableWithoutFeedback>
+      </Animated.View>
+    </TouchableWithoutFeedback>
   );
 });
 
-// Styles isolés du modal VPN
 const p = StyleSheet.create({
   backdrop: {
     flex: 1,
@@ -874,7 +745,6 @@ const p = StyleSheet.create({
     elevation: 28,
     alignItems: "center",
   },
-  // Halos concentriques derrière l'icône
   iconArea: {
     width: 96,
     height: 96,
@@ -910,10 +780,7 @@ const p = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconEmoji: {
-    fontSize: 26,
-    lineHeight: 32,
-  },
+  iconEmoji: { fontSize: 26, lineHeight: 32 },
   title: {
     fontSize: 21,
     fontWeight: "800",
@@ -928,9 +795,7 @@ const p = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 14,
   },
-  subtitleAccent: {
-    fontWeight: "700",
-  },
+  subtitleAccent: { fontWeight: "700" },
   infoBox: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -941,28 +806,14 @@ const p = StyleSheet.create({
     paddingVertical: 10,
     width: "100%",
   },
-  infoIcon: {
-    fontSize: 13,
-    lineHeight: 18,
-    flexShrink: 0,
-    marginTop: 1,
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: "500",
-  },
+  infoIcon: { fontSize: 13, lineHeight: 18, flexShrink: 0, marginTop: 1 },
+  infoText: { flex: 1, fontSize: 11, lineHeight: 16, fontWeight: "500" },
   sep: {
     width: "100%",
     height: StyleSheet.hairlineWidth,
     marginVertical: 20,
   },
-  actions: {
-    width: "100%",
-    gap: 10,
-  },
-  // Bouton secondaire "Pas maintenant"
+  actions: { width: "100%", gap: 10 },
   btnSecondary: {
     height: 46,
     borderRadius: 12,
@@ -970,12 +821,7 @@ const p = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  btnSecondaryText: {
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-  },
-  // Bouton primaire "Activer maintenant" — vert vif avec ombre colorée
+  btnSecondaryText: { fontSize: 14, fontWeight: "600", letterSpacing: -0.1 },
   btnPrimary: {
     height: 52,
     borderRadius: 14,
@@ -990,10 +836,7 @@ const p = StyleSheet.create({
     shadowRadius: 14,
     elevation: 8,
   },
-  btnPrimaryIcon: {
-    fontSize: 15,
-    lineHeight: 20,
-  },
+  btnPrimaryIcon: { fontSize: 15, lineHeight: 20 },
   btnPrimaryText: {
     fontSize: 15,
     fontWeight: "800",
@@ -1002,7 +845,7 @@ const p = StyleSheet.create({
   },
 });
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── HomeScreen ───────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { isPremium, refresh: refreshPremium } = usePremium();
@@ -1018,7 +861,6 @@ export default function HomeScreen() {
   const [sysLoaded, setSysLoaded] = useState(false);
   const [sysLoading, setSysLoading] = useState(false);
 
-  // ── États Focus / Minuterie ───────────────────────────────────────────────
   const [focusVisible, setFocusVisible] = useState(false);
   const [focusStatus, setFocusStatus] = useState<FocusStatus | null>(null);
   const [focusExpanded, setFocusExpanded] = useState(false);
@@ -1029,12 +871,8 @@ export default function HomeScreen() {
   const [paywallReason, setPaywallReason] = useState<any>("general");
   const [menuVisible, setMenuVisible] = useState(false);
 
-  // ── VPN warning banner ────────────────────────────────────────────────────
   const [vpnWarningDismissed, setVpnWarningDismissed] = useState(false);
 
-  // ── VPN activation popup ──────────────────────────────────────────────────
-  // `vpnPopupShown` est un ref — ne déclenche pas de re-render,
-  // sert uniquement de garde "déjà affiché dans cette session".
   const vpnPopupShown = useRef(false);
   const [vpnPopupVisible, setVpnPopupVisible] = useState(false);
   const [vpnPopupAppName, setVpnPopupAppName] = useState("");
@@ -1045,7 +883,6 @@ export default function HomeScreen() {
   const anyActive = focusActive || timerActive;
   const limitReached =
     !isPremium && blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS;
-
   const showVpnWarning =
     !vpnActive && blockedCount > 0 && !anyActive && !vpnWarningDismissed;
 
@@ -1115,11 +952,9 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // ── AppEvents ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const unsubVpn = AppEvents.on("vpn:changed", (active) => {
       setVpnActive(active);
-      // Réinitialiser le dismiss banner si le VPN se rallume
       if (active) setVpnWarningDismissed(false);
     });
     const unsubRules = AppEvents.on("rules:changed", () => refreshRules());
@@ -1313,8 +1148,6 @@ export default function HomeScreen() {
       );
       setBlockedCount((c) => c + (nowBlocked ? 1 : -1));
 
-      // ── Déclenchement du popup VPN ────────────────────────────────────────
-      // Conditions : première fois qu'on bloque (pas débloque) avec VPN inactif
       if (nowBlocked && !vpnActive && !vpnPopupShown.current) {
         vpnPopupShown.current = true;
         setVpnPopupAppName(item.appName);
@@ -1382,6 +1215,7 @@ export default function HomeScreen() {
         translucent
       />
 
+      {/* ── Header ── */}
       <Animated.View
         style={[
           g.header,
@@ -1561,6 +1395,7 @@ export default function HomeScreen() {
         />
       </View>
 
+      {/* ── Liste apps ── */}
       <FlatList
         data={filteredApps}
         keyExtractor={keyExtractor}
@@ -1659,9 +1494,6 @@ export default function HomeScreen() {
         onTimer={() => setTimerVisible(true)}
       />
 
-      {/* ── Popup activation VPN ─────────────────────────────────────────────
-          Affiché une seule fois : lors du premier blocage sans VPN actif.
-          vpnPopupShown (ref) garantit qu'il ne réapparaît pas dans la session. */}
       <VpnActivationModal
         visible={vpnPopupVisible}
         appName={vpnPopupAppName}
@@ -1690,8 +1522,10 @@ export default function HomeScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const g = StyleSheet.create({
   root: { flex: 1 },
+  // Header
   header: {
     paddingHorizontal: 16,
     paddingBottom: 14,
@@ -1796,6 +1630,7 @@ const g = StyleSheet.create({
     borderRadius: 1.75,
     backgroundColor: "rgba(255,255,255,0.65)",
   },
+  // Stats + controls row
   headerBottomRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   statsBand: {
     flex: 1,
@@ -1850,6 +1685,7 @@ const g = StyleSheet.create({
     height: 14,
     backgroundColor: "rgba(255,255,255,0.12)",
   },
+  // Progress bar
   progressTrack: {
     height: 22,
     borderRadius: 8,
@@ -1873,6 +1709,7 @@ const g = StyleSheet.create({
     letterSpacing: 0.4,
     zIndex: 1,
   },
+  // PulseDot
   dotWrap: {
     width: 10,
     height: 10,
@@ -1881,39 +1718,7 @@ const g = StyleSheet.create({
   },
   dotCore: { width: 6, height: 6, borderRadius: 3, position: "absolute" },
   dotRing: { width: 10, height: 10, borderRadius: 5, position: "absolute" },
-  menuCard: {
-    position: "absolute",
-    top: 96,
-    right: 16,
-    minWidth: 196,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.26,
-    shadowRadius: 24,
-    elevation: 18,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-  },
-  menuIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
-    borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  menuIcon: { fontSize: 14 },
-  menuLabel: { fontSize: 14, fontWeight: "700", marginBottom: 1 },
-  menuSub: { fontSize: 11 },
-  menuChevron: { fontSize: 18, fontWeight: "300" },
+  // Sub-header
   subHeader: {
     paddingHorizontal: 14,
     paddingTop: 10,
@@ -1926,7 +1731,7 @@ const g = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  // ── VPN Warning Banner ────────────────────────────────────────────────────
+  // VPN warning banner
   vpnWarningBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1944,20 +1749,9 @@ const g = StyleSheet.create({
     alignItems: "center",
     flexShrink: 0,
   },
-  vpnWarningIconText: {
-    fontSize: 15,
-    lineHeight: 18,
-  },
-  vpnWarningTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: -0.1,
-  },
-  vpnWarningDesc: {
-    fontSize: 10,
-    fontWeight: "500",
-    opacity: 0.72,
-  },
+  vpnWarningIconText: { fontSize: 15, lineHeight: 18 },
+  vpnWarningTitle: { fontSize: 12, fontWeight: "700", letterSpacing: -0.1 },
+  vpnWarningDesc: { fontSize: 10, fontWeight: "500", opacity: 0.72 },
   vpnWarningCta: {
     borderRadius: 7,
     paddingHorizontal: 10,
@@ -1965,21 +1759,10 @@ const g = StyleSheet.create({
     borderWidth: 1,
     flexShrink: 0,
   },
-  vpnWarningCtaText: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.1,
-  },
-  vpnWarningDismiss: {
-    flexShrink: 0,
-    paddingLeft: 2,
-  },
-  vpnWarningDismissText: {
-    fontSize: 13,
-    fontWeight: "500",
-    opacity: 0.45,
-  },
-  // ─────────────────────────────────────────────────────────────────────────
+  vpnWarningCtaText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.1 },
+  vpnWarningDismiss: { flexShrink: 0, paddingLeft: 2 },
+  vpnWarningDismissText: { fontSize: 13, fontWeight: "500", opacity: 0.45 },
+  // Limit banner
   limitBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1997,6 +1780,7 @@ const g = StyleSheet.create({
     borderWidth: 1,
   },
   limitCtaText: { fontSize: 11, fontWeight: "700" },
+  // List
   listContent: { paddingHorizontal: 14, paddingTop: 10 },
   listHeader: {
     flexDirection: "row",
@@ -2029,6 +1813,7 @@ const g = StyleSheet.create({
     backgroundColor: "#f87171",
   },
   blockedChipText: { fontSize: 10, fontWeight: "700", color: "#f87171" },
+  // App card
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -2091,6 +1876,7 @@ const g = StyleSheet.create({
     marginLeft: 8,
   },
   cardChevron: { fontSize: 18, fontWeight: "200" },
+  // Empty state
   empty: { alignItems: "center", paddingTop: 80, gap: 8 },
   emptyIconWrap: {
     width: 66,

@@ -57,6 +57,7 @@ interface Props {
     | "profiles"
     | "schedules"
     | "focus"
+    | "timer"
     | "stats"
     | "export"
     | "security"
@@ -65,15 +66,15 @@ interface Props {
 
 // Plan enrichi : données RevenueCat + métadonnées UI
 interface DynamicPlan {
-  id: string; // identifiant RevenueCat (package.identifier)
-  label: string; // libellé affiché
-  price: string; // prix formaté par RevenueCat (localisation auto)
-  period: string; // "/ mois" | "/ an" | "une fois"
-  badge: string | null; // badge promotionnel
-  rcPackage: PurchasesPackage | null; // null = fallback statique (pas de package RC dispo)
+  id: string;
+  label: string;
+  price: string;
+  period: string;
+  badge: string | null;
+  rcPackage: PurchasesPackage | null;
 }
 
-// Plans statiques de fallback (affichés si getOfferings() échoue ou retourne vide)
+// Plans statiques de fallback
 const FALLBACK_PLANS: DynamicPlan[] = [
   {
     id: "netoff_monthly",
@@ -125,6 +126,12 @@ const REASON_MESSAGES: Record<
     icon: "◎",
     title: "Focus Premium",
     sub: "Les durées personnalisées et les sessions longues nécessitent Premium.",
+  },
+  // ── Nouveau contexte Minuterie ─────────────────────────────────────────────
+  timer: {
+    icon: "⏱",
+    title: "Minuteries longues",
+    sub: `La version gratuite est limitée aux présets ${FREE_LIMITS.TIMER_PRESETS_FREE.map((m) => `${m} min`).join(", ")}. Débloquez 1h, 2h et 4h avec Premium.`,
   },
   stats: {
     icon: "◈",
@@ -180,6 +187,14 @@ const buildFeatures = () => [
     premium: "Durée libre",
   },
   {
+    icon: "⏱",
+    label: "Minuterie",
+    free: FREE_LIMITS.TIMER_PRESETS_FREE.length
+      ? FREE_LIMITS.TIMER_PRESETS_FREE.map((m) => `${m} min`).join(", ")
+      : "Limité",
+    premium: "1h, 2h, 4h+",
+  },
+  {
     icon: "◈",
     label: "Statistiques",
     free: FREE_LIMITS.STATS_TABS_FREE.length > 0 ? "Vue d'ensemble" : "—",
@@ -201,8 +216,6 @@ const buildFeatures = () => [
 ];
 
 // ─── Mapping package identifier → métadonnées UI ─────────────────────────────
-// Permet d'enrichir les offres RevenueCat avec des labels/badges locaux.
-// Si un identifiant n'est pas trouvé ici, on utilise les valeurs RC brutes.
 const PACKAGE_UI_META: Record<
   string,
   { label: string; period: string; badge: string | null }
@@ -210,14 +223,12 @@ const PACKAGE_UI_META: Record<
   netoff_monthly: { label: "Mensuel", period: "/ mois", badge: null },
   netoff_yearly: { label: "Annuel", period: "/ an", badge: "–50%" },
   netoff_lifetime: { label: "À vie", period: "une fois", badge: "⭐ MEILLEUR" },
-  // Identifiants RevenueCat standard (fallback)
   $rc_monthly: { label: "Mensuel", period: "/ mois", badge: null },
   $rc_annual: { label: "Annuel", period: "/ an", badge: "–50%" },
   $rc_lifetime: { label: "À vie", period: "une fois", badge: "⭐ MEILLEUR" },
   $rc_weekly: { label: "Hebdo", period: "/ sem.", badge: null },
 };
 
-/** Priorité d'affichage des plans (du plus long au plus court engagement) */
 const PLAN_ORDER = [
   "netoff_lifetime",
   "$rc_lifetime",
@@ -239,7 +250,6 @@ function sortPlans(plans: DynamicPlan[]): DynamicPlan[] {
   });
 }
 
-// ─── Mapping erreurs internes → messages UX ───────────────────────────────────
 const PURCHASE_ERROR_MESSAGES: Record<string, string> = {
   PURCHASE_FAILED:
     "Le paiement n'a pas pu être traité. Vérifiez votre moyen de paiement.",
@@ -268,20 +278,17 @@ function friendlyPromoError(code: string | undefined): string {
 
 // ─── Hook : chargement dynamique des offres RevenueCat ───────────────────────
 function useDynamicPlans() {
-  // Initialisation immédiate avec les plans statiques — pas de skeleton au 1er rendu
   const [plans, setPlans] = useState<DynamicPlan[]>(FALLBACK_PLANS);
   const [loading, setLoading] = useState(false);
-  // true = les plans viennent du fallback statique (pas de RC)
   const [isFallback, setIsFallback] = useState(true);
 
   const load = useCallback(async () => {
-    setIsFallback(false); // optimiste : on essaie RC
+    setIsFallback(false);
     try {
       const offerings = await Purchases.getOfferings();
       const packages = offerings.current?.availablePackages ?? [];
 
       if (packages.length === 0) {
-        // Aucune offre RC disponible → fallback silencieux
         console.warn(
           "[PaywallModal] getOfferings: aucun package disponible, fallback statique",
         );
@@ -299,7 +306,6 @@ function useDynamicPlans() {
         return {
           id: pkg.identifier,
           label: meta.label,
-          // Prix localisé automatiquement par RevenueCat (devise + locale user)
           price: pkg.product.priceString,
           period: meta.period,
           badge: meta.badge,
@@ -309,7 +315,6 @@ function useDynamicPlans() {
 
       setPlans(sortPlans(dynamic));
     } catch (e) {
-      // Erreur réseau ou SDK → fallback statique, pas de message d'erreur bloquant
       console.error("[PaywallModal] getOfferings:", e);
       setPlans(FALLBACK_PLANS);
       setIsFallback(true);
@@ -499,6 +504,69 @@ function CodeTab({
   );
 }
 
+// ─── Bannière contexte Minuterie ──────────────────────────────────────────────
+// Affichée uniquement quand reason === "timer" pour rappeler visuellement
+// les limites de la minuterie et les présets débloqués avec Premium.
+function TimerContextBanner() {
+  const { t } = useTheme();
+  return (
+    <View
+      style={[
+        tcb.wrap,
+        {
+          backgroundColor: Colors.amber[50],
+          borderColor: Colors.amber[100],
+        },
+      ]}
+    >
+      <View style={tcb.row}>
+        {/* Gratuit */}
+        <View style={[tcb.col, { borderColor: t.border.light }]}>
+          <Text style={[tcb.colTitle, { color: t.text.muted }]}>GRATUIT</Text>
+          {FREE_LIMITS.TIMER_PRESETS_FREE.map((m) => (
+            <View key={m} style={tcb.presetRow}>
+              <Text style={[tcb.dot, { color: t.text.muted }]}>·</Text>
+              <Text style={[tcb.presetLabel, { color: t.text.muted }]}>
+                {m} min
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={[tcb.arrow, { color: Colors.amber[400] }]}>›</Text>
+
+        {/* Premium */}
+        <View style={tcb.col}>
+          <Text style={[tcb.colTitle, { color: Colors.amber[600] }]}>
+            PREMIUM ⭐
+          </Text>
+          {[5, 15, 30, 60, 120, 240].map((m) => (
+            <View key={m} style={tcb.presetRow}>
+              <Text style={[tcb.dot, { color: Colors.amber[500] }]}>·</Text>
+              <Text
+                style={[
+                  tcb.presetLabel,
+                  {
+                    color: FREE_LIMITS.TIMER_PRESETS_FREE.includes(m)
+                      ? t.text.secondary
+                      : Colors.amber[600],
+                    fontWeight: FREE_LIMITS.TIMER_PRESETS_FREE.includes(m)
+                      ? "500"
+                      : "800",
+                  },
+                ]}
+              >
+                {m < 60 ? `${m} min` : `${m / 60}h`}
+                {!FREE_LIMITS.TIMER_PRESETS_FREE.includes(m) ? " 🔓" : ""}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 // ─── Modal principal ──────────────────────────────────────────────────────────
 export default function PaywallModal({
   visible,
@@ -509,7 +577,6 @@ export default function PaywallModal({
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
 
-  // Plans chargés dynamiquement depuis RevenueCat
   const {
     plans,
     loading: plansLoading,
@@ -517,7 +584,6 @@ export default function PaywallModal({
     reload,
   } = useDynamicPlans();
 
-  // État premium courant (pour détecter si déjà premium à l'ouverture)
   const [currentState, setCurrentState] = useState<{ isPremium: boolean }>({
     isPremium: false,
   });
@@ -534,17 +600,16 @@ export default function PaywallModal({
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const msg = REASON_MESSAGES[reason] ?? REASON_MESSAGES.general;
 
-  // Table de fonctionnalités construite depuis FREE_LIMITS
   const FEATURES = buildFeatures();
 
-  // ── Synchronisation à l'ouverture ───────────────────────────────────────────
+  const isTimerContext = reason === "timer";
+
   useEffect(() => {
     if (visible) {
       setActiveTab("plans");
       setPromoCode("");
-      setSelectedPlan("netoff_yearly"); // toujours annuel par défaut
+      setSelectedPlan("netoff_yearly");
 
-      // Lancer en parallèle : animation + chargement données
       Animated.parallel([
         Animated.timing(overlayAnim, {
           toValue: 1,
@@ -559,7 +624,6 @@ export default function PaywallModal({
         }),
       ]).start();
 
-      // Charger les offres et synchroniser l'état premium
       reload();
       syncState();
     } else {
@@ -580,18 +644,14 @@ export default function PaywallModal({
     }
   }, [visible]);
 
-  // Sync état local + RevenueCat à l'ouverture
   const syncState = async () => {
     setSyncing(true);
     try {
-      // 1. Lire l'état local d'abord (rapide)
       const localState = await SubscriptionService.getState();
       setCurrentState({ isPremium: localState.isPremium });
 
-      // 2. Synchroniser avec RevenueCat (peut révéler un abonnement expiré/restauré)
       const rcIsPremium = await SubscriptionService.syncWithRevenueCat();
       if (rcIsPremium && !localState.isPremium) {
-        // RevenueCat dit premium mais pas en local → fermer directement
         onUpgraded();
         onClose();
       } else if (!rcIsPremium) {
@@ -605,9 +665,6 @@ export default function PaywallModal({
     }
   };
 
-  // ── Achat via RevenueCat ────────────────────────────────────────────────────
-  // Si rcPackage est disponible (plans RC chargés), on l'utilise directement.
-  // Sinon (fallback statique), on délègue à SubscriptionService.purchase(id).
   const handleUpgrade = async () => {
     const plan = plans.find((p) => p.id === selectedPlan);
     if (!plan) return;
@@ -629,7 +686,6 @@ export default function PaywallModal({
 
     try {
       if (plan.rcPackage) {
-        // ── Chemin nominal : package RC disponible ────────────────────────────
         const { customerInfo } = await Purchases.purchasePackage(
           plan.rcPackage,
         );
@@ -648,7 +704,6 @@ export default function PaywallModal({
           showPurchaseError("NOT_CONFIRMED");
         }
       } else {
-        // ── Chemin fallback : plans statiques, on passe par le service ────────
         const result = await SubscriptionService.purchase(plan.id);
         if (result.success) {
           onUpgraded();
@@ -658,14 +713,13 @@ export default function PaywallModal({
         }
       }
     } catch (e: any) {
-      if (e?.userCancelled) return; // silencieux
+      if (e?.userCancelled) return;
       showPurchaseError("PURCHASE_FAILED");
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Restauration via RevenueCat ─────────────────────────────────────────────
   const handleRestore = async () => {
     setRestoring(true);
     try {
@@ -693,7 +747,6 @@ export default function PaywallModal({
     }
   };
 
-  // ── Code promo ──────────────────────────────────────────────────────────────
   const handlePromoCode = async () => {
     const code = promoCode.trim();
     if (!code) return;
@@ -712,7 +765,6 @@ export default function PaywallModal({
     }
   };
 
-  // ── Rendu de la liste des plans (dynamique) ─────────────────────────────────
   const renderPlans = () => {
     if (plansLoading) return <PlansSkeleton />;
 
@@ -865,7 +917,6 @@ export default function PaywallModal({
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 8 }}
               >
-                {/* Indicateur de synchronisation discret */}
                 {syncing && (
                   <View style={pw.syncRow}>
                     <ActivityIndicator size="small" color={t.text.muted} />
@@ -880,7 +931,12 @@ export default function PaywallModal({
                   <View
                     style={[
                       pw.heroIconWrap,
-                      { backgroundColor: Colors.blue[600] },
+                      {
+                        // Couleur ambrée pour le contexte minuterie, bleue sinon
+                        backgroundColor: isTimerContext
+                          ? Colors.amber[400]
+                          : Colors.blue[600],
+                      },
                     ]}
                   >
                     <Text style={pw.heroIcon}>{msg.icon}</Text>
@@ -889,18 +945,26 @@ export default function PaywallModal({
                     style={[
                       pw.premiumBadge,
                       {
-                        backgroundColor: Colors.purple[50],
-                        borderColor: Colors.purple[100],
+                        backgroundColor: isTimerContext
+                          ? Colors.amber[50]
+                          : Colors.purple[50],
+                        borderColor: isTimerContext
+                          ? Colors.amber[100]
+                          : Colors.purple[100],
                       },
                     ]}
                   >
                     <Text
                       style={[
                         pw.premiumBadgeText,
-                        { color: Colors.purple[600] },
+                        {
+                          color: isTimerContext
+                            ? Colors.amber[600]
+                            : Colors.purple[600],
+                        },
                       ]}
                     >
-                      ◎ NETOFF PREMIUM
+                      {isTimerContext ? "⏱ MINUTERIE PRO" : "◎ NETOFF PREMIUM"}
                     </Text>
                   </View>
                   <Text style={[pw.heroTitle, { color: t.text.primary }]}>
@@ -911,7 +975,10 @@ export default function PaywallModal({
                   </Text>
                 </View>
 
-                {/* Table des fonctionnalités (construite depuis FREE_LIMITS) */}
+                {/* Bannière visuelle spécifique au contexte minuterie */}
+                {isTimerContext && <TimerContextBanner />}
+
+                {/* Table des fonctionnalités */}
                 <View
                   style={[
                     pw.tableWrap,
@@ -949,34 +1016,67 @@ export default function PaywallModal({
                       PREMIUM
                     </Text>
                   </View>
-                  {FEATURES.map((f, i) => (
-                    <View
-                      key={f.label}
-                      style={[
-                        pw.tableRow,
-                        i % 2 === 0 && { backgroundColor: t.bg.card },
-                      ]}
-                    >
-                      <View style={pw.tableFeature}>
-                        <Text style={[pw.featureIcon, { color: t.text.muted }]}>
-                          {f.icon}
+                  {FEATURES.map((f, i) => {
+                    const isHighlighted =
+                      isTimerContext && f.label === "Minuterie";
+                    return (
+                      <View
+                        key={f.label}
+                        style={[
+                          pw.tableRow,
+                          i % 2 === 0 && { backgroundColor: t.bg.card },
+                          isHighlighted && {
+                            backgroundColor: Colors.amber[50],
+                            borderLeftWidth: 3,
+                            borderLeftColor: Colors.amber[400],
+                          },
+                        ]}
+                      >
+                        <View style={pw.tableFeature}>
+                          <Text
+                            style={[
+                              pw.featureIcon,
+                              {
+                                color: isHighlighted
+                                  ? Colors.amber[500]
+                                  : t.text.muted,
+                              },
+                            ]}
+                          >
+                            {f.icon}
+                          </Text>
+                          <Text
+                            style={[
+                              pw.featureLabel,
+                              {
+                                color: isHighlighted
+                                  ? Colors.amber[700]
+                                  : t.text.secondary,
+                                fontWeight: isHighlighted ? "700" : "500",
+                              },
+                            ]}
+                          >
+                            {f.label}
+                          </Text>
+                        </View>
+                        <Text style={[pw.freeVal, { color: t.text.muted }]}>
+                          {f.free}
                         </Text>
                         <Text
-                          style={[pw.featureLabel, { color: t.text.secondary }]}
+                          style={[
+                            pw.premiumVal,
+                            {
+                              color: isHighlighted
+                                ? Colors.amber[600]
+                                : Colors.blue[600],
+                            },
+                          ]}
                         >
-                          {f.label}
+                          {f.premium}
                         </Text>
                       </View>
-                      <Text style={[pw.freeVal, { color: t.text.muted }]}>
-                        {f.free}
-                      </Text>
-                      <Text
-                        style={[pw.premiumVal, { color: Colors.blue[600] }]}
-                      >
-                        {f.premium}
-                      </Text>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
 
                 {/* Plans dynamiques */}
@@ -1018,8 +1118,12 @@ export default function PaywallModal({
                   {
                     backgroundColor:
                       loading || !selectedPlan
-                        ? Colors.blue[200]
-                        : Colors.blue[600],
+                        ? isTimerContext
+                          ? Colors.amber[200]
+                          : Colors.blue[200]
+                        : isTimerContext
+                          ? Colors.amber[400]
+                          : Colors.blue[600],
                   },
                 ]}
                 onPress={handleUpgrade}
@@ -1029,7 +1133,11 @@ export default function PaywallModal({
                 {loading ? (
                   <ActivityIndicator color={Colors.gray[0]} />
                 ) : (
-                  <Text style={pw.ctaBtnText}>Passer à Premium ◎</Text>
+                  <Text style={pw.ctaBtnText}>
+                    {isTimerContext
+                      ? "Débloquer les minuteries longues ⏱"
+                      : "Passer à Premium ◎"}
+                  </Text>
                 )}
               </TouchableOpacity>
 
@@ -1066,6 +1174,49 @@ export default function PaywallModal({
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
+const tcb = StyleSheet.create({
+  wrap: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 16,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  col: {
+    flex: 1,
+    gap: 4,
+  },
+  colTitle: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  presetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  dot: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  presetLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  arrow: {
+    fontSize: 22,
+    fontWeight: "300",
+    alignSelf: "center",
+    marginTop: 16,
+  },
+});
+
 const ct = StyleSheet.create({
   wrap: {
     alignItems: "center",
