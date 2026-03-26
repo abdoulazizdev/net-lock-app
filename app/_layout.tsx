@@ -118,6 +118,10 @@ export default function RootLayout() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
+              name="screens/oem-compat"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
               name="screens/parental-control"
               options={{ headerShown: false }}
             />

@@ -1,16 +1,19 @@
+import AllowlistModal from "@/components/AllowlistModal";
 import PaywallModal from "@/components/PaywallModal";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { usePremium } from "@/hooks/usePremium";
+import AllowlistService, { AllowlistState } from "@/services/allowlist.service";
 import AppEvents from "@/services/app-events";
 import ImportExportService from "@/services/import-export.service";
+import OemCompatService, { DeviceInfo } from "@/services/oem-compat.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
 import { Colors, Semantic, useTheme } from "@/theme";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -24,6 +27,7 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// ─── Toggle ───────────────────────────────────────────────────────────────────
 function Toggle({
   value,
   onToggle,
@@ -77,6 +81,7 @@ function Toggle({
   );
 }
 
+// ─── SettingRow ───────────────────────────────────────────────────────────────
 function SettingRow({
   icon,
   title,
@@ -158,6 +163,7 @@ function SettingRow({
     </TouchableOpacity>
   );
 }
+
 function SectionLabel({ label }: { label: string }) {
   const { t } = useTheme();
   return <Text style={[s.sectionLabel, { color: t.text.muted }]}>{label}</Text>;
@@ -167,6 +173,7 @@ function Divider() {
   return <View style={[s.sep, { backgroundColor: t.border.light }]} />;
 }
 
+// ─── PinPad ───────────────────────────────────────────────────────────────────
 function PinPad({
   pin,
   onDigit,
@@ -291,6 +298,7 @@ function shake(anim: Animated.Value) {
   ]).start();
 }
 
+// ─── ConfirmPinModal ──────────────────────────────────────────────────────────
 function ConfirmPinModal({
   visible,
   onClose,
@@ -385,6 +393,7 @@ function ConfirmPinModal({
   );
 }
 
+// ─── PinChangeModal ───────────────────────────────────────────────────────────
 function PinChangeModal({
   visible,
   onClose,
@@ -395,8 +404,9 @@ function PinChangeModal({
   isCreating?: boolean;
 }) {
   const { t } = useTheme();
-  const initialStep = isCreating ? "new" : "current";
-  const [step, setStep] = useState<"current" | "new" | "confirm">(initialStep);
+  const [step, setStep] = useState<"current" | "new" | "confirm">(
+    isCreating ? "new" : "current",
+  );
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -545,6 +555,7 @@ function PinChangeModal({
   );
 }
 
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
@@ -571,10 +582,37 @@ export default function SettingsScreen() {
   const [exportVisible, setExportVisible] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
 
-  // ── État VPN synchronisé via AppEvents ────────────────────────────────────
+  // ── VPN + OEM ──────────────────────────────────────────────────────────────
   const [vpnActive, setVpnActive] = useState(false);
   const [vpnNative, setVpnNative] = useState(false);
   const [stats, setStats] = useState({ rules: 0, profiles: 0 });
+  const [oemInfo, setOemInfo] = useState<DeviceInfo | null>(null);
+
+  // ── Allowlist ──────────────────────────────────────────────────────────────
+  const [allowlistState, setAllowlistState] = useState<AllowlistState>({
+    enabled: false,
+    packages: [],
+  });
+  const [allowlistModal, setAllowlistModal] = useState(false);
+  const [allowlistLoading, setAllowlistLoading] = useState(false);
+  // Animation du toggle allowlist
+  const allowlistAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(allowlistAnim, {
+      toValue: allowlistState.enabled ? 1 : 0,
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [allowlistState.enabled]);
+  const allowlistBg = allowlistAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [t.bg.cardAlt, Colors.green[50]],
+  });
+  const allowlistBorder = allowlistAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [t.border.light, Colors.green[100]],
+  });
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -596,8 +634,6 @@ export default function SettingsScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-
-    // Écouter les changements VPN émis depuis l'index ou autre
     const unsub = AppEvents.on("vpn:changed", (active) => setVpnActive(active));
     return () => unsub();
   }, []);
@@ -654,8 +690,67 @@ export default function SettingsScreen() {
       StorageService.getProfiles(),
     ]);
     setStats({ rules: rules.length, profiles: profiles.length });
+    // Allowlist
+    const alState = await AllowlistService.getState();
+    setAllowlistState(alState);
+    // OEM (non bloquant)
+    OemCompatService.getDeviceInfo()
+      .then(setOemInfo)
+      .catch(() => {});
   };
 
+  // ── Allowlist handlers ─────────────────────────────────────────────────────
+  const handleAllowlistToggle = async () => {
+    if (allowlistLoading) return;
+    setAllowlistLoading(true);
+    try {
+      if (allowlistState.enabled) {
+        Alert.alert(
+          "Désactiver le mode Liste blanche ?",
+          "Le blocage reviendra en mode normal (les apps cochées dans l'accueil seront bloquées).",
+          [
+            { text: "Annuler", style: "cancel" },
+            {
+              text: "Désactiver",
+              style: "destructive",
+              onPress: async () => {
+                await AllowlistService.disable();
+                setAllowlistState(await AllowlistService.getState());
+                AppEvents.emit("rules:changed", undefined);
+              },
+            },
+          ],
+        );
+      } else {
+        // Ouvrir le sélecteur d'apps avant d'activer
+        setAllowlistModal(true);
+      }
+    } finally {
+      setAllowlistLoading(false);
+    }
+  };
+
+  const handleAllowlistSave = useCallback(
+    async (pkgs: string[]) => {
+      setAllowlistLoading(true);
+      try {
+        if (allowlistState.enabled) {
+          // Mise à jour de la liste existante
+          await AllowlistService.updateAllowedPackages(pkgs);
+        } else {
+          // Première activation
+          await AllowlistService.enable(pkgs);
+        }
+        setAllowlistState(await AllowlistService.getState());
+        AppEvents.emit("rules:changed", undefined);
+      } finally {
+        setAllowlistLoading(false);
+      }
+    },
+    [allowlistState.enabled],
+  );
+
+  // ── PIN / Bio ──────────────────────────────────────────────────────────────
   const handlePinToggle = () => {
     if (!isPremium && !FREE_LIMITS.PIN_AUTH) {
       showPaywall("security");
@@ -722,20 +817,20 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── VPN toggle — émet l'event pour synchroniser index.tsx ─────────────────
+  // ── VPN ───────────────────────────────────────────────────────────────────
   const toggleVpn = async () => {
     const next = !vpnActive;
-    setVpnActive(next); // UI immédiat
+    setVpnActive(next);
     try {
       if (next) await VpnService.startVpn();
       else await VpnService.stopVpn();
-      // VpnService émet "vpn:changed" → index.tsx se met à jour automatiquement
     } catch {
-      setVpnActive(!next); // rollback si erreur
+      setVpnActive(!next);
     }
     await loadAll();
   };
 
+  // ── Export / Import ────────────────────────────────────────────────────────
   const handleExport = async () => {
     try {
       await ImportExportService.exportRules();
@@ -753,56 +848,52 @@ export default function SettingsScreen() {
     }
     setImportLoading(true);
     try {
-      Alert.alert(
-        "Mode d'import",
-        "Voulez-vous fusionner avec les règles existantes ou les remplacer ?",
-        [
-          {
-            text: "Annuler",
-            style: "cancel",
-            onPress: () => setImportLoading(false),
+      Alert.alert("Mode d'import", "Voulez-vous fusionner ou remplacer ?", [
+        {
+          text: "Annuler",
+          style: "cancel",
+          onPress: () => setImportLoading(false),
+        },
+        {
+          text: "Fusionner",
+          onPress: async () => {
+            try {
+              const r = await ImportExportService.importRules("merge");
+              await loadAll();
+              AppEvents.emit("rules:changed", undefined);
+              Alert.alert(
+                "✅ Import réussi",
+                `${r.rules} règle${r.rules !== 1 ? "s" : ""}.`,
+              );
+            } catch (e: any) {
+              if (e?.message !== "Import annulé.")
+                Alert.alert("Erreur", e?.message ?? "Import échoué.");
+            } finally {
+              setImportLoading(false);
+            }
           },
-          {
-            text: "Fusionner",
-            onPress: async () => {
-              try {
-                const r = await ImportExportService.importRules("merge");
-                await loadAll();
-                AppEvents.emit("rules:changed", undefined); // sync index
-                Alert.alert(
-                  "✅ Import réussi",
-                  `${r.rules} règle${r.rules !== 1 ? "s" : ""} importée${r.rules !== 1 ? "s" : ""}.`,
-                );
-              } catch (e: any) {
-                if (e?.message !== "Import annulé.")
-                  Alert.alert("Erreur", e?.message ?? "Import échoué.");
-              } finally {
-                setImportLoading(false);
-              }
-            },
+        },
+        {
+          text: "Remplacer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const r = await ImportExportService.importRules("replace");
+              await loadAll();
+              AppEvents.emit("rules:changed", undefined);
+              Alert.alert(
+                "✅ Import réussi",
+                `${r.rules} règle${r.rules !== 1 ? "s" : ""}.`,
+              );
+            } catch (e: any) {
+              if (e?.message !== "Import annulé.")
+                Alert.alert("Erreur", e?.message ?? "Import échoué.");
+            } finally {
+              setImportLoading(false);
+            }
           },
-          {
-            text: "Remplacer",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                const r = await ImportExportService.importRules("replace");
-                await loadAll();
-                AppEvents.emit("rules:changed", undefined); // sync index
-                Alert.alert(
-                  "✅ Import réussi",
-                  `${r.rules} règle${r.rules !== 1 ? "s" : ""} importée${r.rules !== 1 ? "s" : ""}.`,
-                );
-              } catch (e: any) {
-                if (e?.message !== "Import annulé.")
-                  Alert.alert("Erreur", e?.message ?? "Import échoué.");
-              } finally {
-                setImportLoading(false);
-              }
-            },
-          },
-        ],
-      );
+        },
+      ]);
     } catch {
       setImportLoading(false);
     }
@@ -816,7 +907,7 @@ export default function SettingsScreen() {
         StorageService.clearProfiles(),
       ]);
       await loadAll();
-      AppEvents.emit("rules:changed", undefined); // sync index
+      AppEvents.emit("rules:changed", undefined);
       Alert.alert("Succès", "Toutes les données ont été effacées");
     } catch {
       Alert.alert("Erreur", "Impossible d'effacer");
@@ -887,7 +978,7 @@ export default function SettingsScreen() {
           { paddingBottom: insets.bottom + 40 },
         ]}
       >
-        {/* VPN Banner — toggle synchronisé */}
+        {/* ── VPN Banner ── */}
         <TouchableOpacity
           style={[
             s.vpnBanner,
@@ -944,7 +1035,7 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Stats */}
+        {/* ── Stats ── */}
         <View style={s.statsRow}>
           {[
             { num: stats.rules, label: "Règles", color: t.text.link },
@@ -977,6 +1068,7 @@ export default function SettingsScreen() {
           ))}
         </View>
 
+        {/* ── Apparence ── */}
         <SectionLabel label="APPARENCE" />
         <View
           style={[
@@ -999,6 +1091,136 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── Mode Allowlist (Liste blanche) ── */}
+        <SectionLabel label="MODE LISTE BLANCHE" />
+        <Animated.View
+          style={[
+            s.allowlistCard,
+            { backgroundColor: allowlistBg, borderColor: allowlistBorder },
+          ]}
+        >
+          <View style={s.allowlistHeader}>
+            <View
+              style={[
+                s.allowlistIconWrap,
+                {
+                  backgroundColor: allowlistState.enabled
+                    ? Colors.green[50]
+                    : t.bg.cardAlt,
+                  borderColor: allowlistState.enabled
+                    ? Colors.green[200]
+                    : t.border.light,
+                },
+              ]}
+            >
+              <Text style={{ fontSize: 18 }}>
+                {allowlistState.enabled ? "✅" : "◎"}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.allowlistTitle, { color: t.text.primary }]}>
+                {allowlistState.enabled
+                  ? "Liste blanche active"
+                  : "Liste blanche désactivée"}
+              </Text>
+              <Text style={[s.allowlistSub, { color: t.text.muted }]}>
+                {allowlistState.enabled
+                  ? `${allowlistState.packages.length} app${allowlistState.packages.length > 1 ? "s" : ""} autorisée${allowlistState.packages.length > 1 ? "s" : ""} — tout le reste est bloqué`
+                  : "Bloquer tout sauf une liste d'apps approuvées"}
+              </Text>
+            </View>
+            <Toggle
+              value={allowlistState.enabled}
+              onToggle={handleAllowlistToggle}
+              disabled={allowlistLoading}
+            />
+          </View>
+
+          {/* Explication du mode */}
+          {!allowlistState.enabled && (
+            <View
+              style={[
+                s.allowlistExplain,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <View style={s.allowlistExplainRow}>
+                <Text style={s.allowlistExplainIcon}>🔴</Text>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      s.allowlistExplainTitle,
+                      { color: t.text.secondary },
+                    ]}
+                  >
+                    Mode normal (actuel)
+                  </Text>
+                  <Text
+                    style={[s.allowlistExplainText, { color: t.text.muted }]}
+                  >
+                    Vous bloquez explicitement certaines apps. Tout le reste a
+                    internet.
+                  </Text>
+                </View>
+              </View>
+              <View
+                style={[
+                  s.allowlistExplainDivider,
+                  { backgroundColor: t.border.light },
+                ]}
+              />
+              <View style={s.allowlistExplainRow}>
+                <Text style={s.allowlistExplainIcon}>🟢</Text>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      s.allowlistExplainTitle,
+                      { color: t.text.secondary },
+                    ]}
+                  >
+                    Mode liste blanche
+                  </Text>
+                  <Text
+                    style={[s.allowlistExplainText, { color: t.text.muted }]}
+                  >
+                    Vous choisissez les apps autorisées. Toutes les autres sont
+                    bloquées automatiquement.
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Actions quand actif */}
+          {allowlistState.enabled && (
+            <View style={s.allowlistActions}>
+              <TouchableOpacity
+                style={[
+                  s.allowlistEditBtn,
+                  {
+                    backgroundColor: Colors.green[50],
+                    borderColor: Colors.green[200],
+                  },
+                ]}
+                onPress={() => setAllowlistModal(true)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[s.allowlistEditBtnText, { color: Colors.green[600] }]}
+                >
+                  ✎ Modifier la liste ({allowlistState.packages.length} apps)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
+        <Text style={[s.allowlistNote, { color: t.text.muted }]}>
+          {allowlistState.enabled
+            ? "⚠ Mode actif — assurez-vous d'avoir autorisé toutes vos apps essentielles."
+            : "✦ Idéal pour les périodes de concentration maximale ou le contrôle parental."}
+        </Text>
+
+        {/* ── Sécurité ── */}
         <SectionLabel label="SÉCURITÉ" />
         <View
           style={[
@@ -1122,6 +1344,7 @@ export default function SettingsScreen() {
           fallback
         </Text>
 
+        {/* ── Contrôle parental ── */}
         <SectionLabel label="CONTRÔLE PARENTAL" />
         <View
           style={[
@@ -1138,6 +1361,7 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── Productivité ── */}
         <SectionLabel label="PRODUCTIVITÉ" />
         <View
           style={[
@@ -1154,6 +1378,7 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── Données ── */}
         <SectionLabel label="DONNÉES" />
         <View
           style={[
@@ -1203,6 +1428,52 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── Compatibilité appareil ── */}
+        <SectionLabel label="COMPATIBILITÉ APPAREIL" />
+        {oemInfo?.isBatteryOptimized && (
+          <View
+            style={[
+              s.oemWarnBanner,
+              { backgroundColor: Colors.red[50], borderColor: Colors.red[100] },
+            ]}
+          >
+            <Text style={{ fontSize: 16 }}>⚠</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.oemWarnTitle, { color: Colors.red[600] }]}>
+                Optimisation batterie active
+              </Text>
+              <Text style={[s.oemWarnSub, { color: Colors.red[500] }]}>
+                {oemInfo.oem === "huawei" || oemInfo.oem === "xiaomi"
+                  ? "Sur cet appareil, le VPN peut être tué en mode normal. Configuration requise."
+                  : "Le VPN peut s'arrêter en arrière-plan. Désactivez l'optimisation batterie."}
+              </Text>
+            </View>
+          </View>
+        )}
+        <View
+          style={[
+            s.card,
+            { backgroundColor: t.bg.card, borderColor: t.border.light },
+          ]}
+        >
+          <SettingRow
+            icon="🔧"
+            title="Compatibilité appareil"
+            subtitle={
+              oemInfo
+                ? `${oemInfo.brand} ${oemInfo.model} — ${oemInfo.isBatteryOptimized ? "⚠ Configuration requise" : "✓ Aucun problème détecté"}`
+                : "Diagnostic + paramètres OEM (Huawei, Xiaomi…)"
+            }
+            onPress={() => router.push("/screens/oem-compat")}
+            accent={
+              oemInfo?.isBatteryOptimized
+                ? (Colors.red[500] ?? t.danger.accent)
+                : Colors.green[400]
+            }
+          />
+        </View>
+
+        {/* ── À propos ── */}
         <SectionLabel label="À PROPOS" />
         <View
           style={[
@@ -1228,7 +1499,7 @@ export default function SettingsScreen() {
         </View>
       </Animated.ScrollView>
 
-      {/* Export Modal */}
+      {/* ── Export Modal ── */}
       <Modal
         visible={exportVisible}
         transparent
@@ -1300,7 +1571,7 @@ export default function SettingsScreen() {
         </Animated.View>
       </Modal>
 
-      {/* Confirm Clear */}
+      {/* ── Confirm Clear ── */}
       <Modal
         visible={confirmClearVisible}
         transparent
@@ -1353,6 +1624,14 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
+      {/* ── Allowlist Modal ── */}
+      <AllowlistModal
+        visible={allowlistModal}
+        onClose={() => setAllowlistModal(false)}
+        allowedPackages={allowlistState.packages}
+        onSave={handleAllowlistSave}
+      />
+
       <PinChangeModal
         visible={pinModalVisible}
         onClose={handlePinModalClose}
@@ -1379,6 +1658,7 @@ export default function SettingsScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
@@ -1443,6 +1723,8 @@ const s = StyleSheet.create({
     marginBottom: 10,
     marginTop: 8,
   },
+
+  // VPN
   vpnBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1492,6 +1774,53 @@ const s = StyleSheet.create({
   statNum: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   statDot: { width: 12, height: 12, borderRadius: 6 },
   statLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1.5 },
+
+  // Allowlist
+  allowlistCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 4,
+    gap: 14,
+  },
+  allowlistHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  allowlistIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  allowlistTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  allowlistSub: { fontSize: 11, lineHeight: 16 },
+  allowlistExplain: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 10 },
+  allowlistExplainRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  allowlistExplainIcon: { fontSize: 14, marginTop: 1 },
+  allowlistExplainTitle: { fontSize: 12, fontWeight: "700", marginBottom: 2 },
+  allowlistExplainText: { fontSize: 11, lineHeight: 16 },
+  allowlistExplainDivider: { height: StyleSheet.hairlineWidth },
+  allowlistActions: { gap: 8 },
+  allowlistEditBtn: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+  allowlistEditBtnText: { fontSize: 13, fontWeight: "700" },
+  allowlistNote: {
+    fontSize: 11,
+    lineHeight: 17,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+
+  // Sécurité
   lockStatusBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1524,6 +1853,8 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 4,
   },
+
+  // Cards
   card: {
     borderRadius: 18,
     borderWidth: 1,
@@ -1560,7 +1891,21 @@ const s = StyleSheet.create({
     borderWidth: 1,
   },
   toggleThumb: { width: 18, height: 18, borderRadius: 9, position: "absolute" },
+
+  // OEM
+  oemWarnBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  oemWarnTitle: { fontSize: 13, fontWeight: "800", marginBottom: 3 },
+  oemWarnSub: { fontSize: 12, lineHeight: 18 },
 });
+
 const pp = StyleSheet.create({
   dotsRow: {
     flexDirection: "row",
@@ -1782,4 +2127,125 @@ const ccm = StyleSheet.create({
     borderWidth: 1,
   },
   cancelBtnText: { fontSize: 14, fontWeight: "600" },
+});
+// ── Allowlist Modal Styles ────────────────────────────────────────────────────
+const alm = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,.5)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 0,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  title: { fontSize: 16, fontWeight: "800", letterSpacing: -0.3 },
+  sub: { fontSize: 11, marginTop: 2 },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  infoBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  infoText: { fontSize: 12, lineHeight: 17, flex: 1 },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  searchPlaceholder: { fontSize: 13 },
+  quickBtns: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  quickBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  quickBtnText: { fontSize: 12, fontWeight: "700" },
+  loadingWrap: { paddingVertical: 32, alignItems: "center" },
+  appRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 6,
+  },
+  appIcon: { width: 40, height: 40, borderRadius: 11 },
+  appIconFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  appIconLetter: { fontSize: 16, fontWeight: "800" },
+  appName: { fontSize: 13, fontWeight: "600", marginBottom: 2 },
+  appPkg: { fontSize: 10, fontFamily: "monospace", opacity: 0.6 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  checkboxText: { fontSize: 11, color: "#fff", fontWeight: "800" },
+  footer: { paddingHorizontal: 16, paddingTop: 10, gap: 6 },
+  saveBtn: { borderRadius: 16, paddingVertical: 15, alignItems: "center" },
+  saveBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  emptyHint: { fontSize: 11, textAlign: "center" },
 });

@@ -7,18 +7,32 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.io.FileInputStream
 import java.io.IOException
 
+/**
+ * NetLockVpnService — Service VPN local pour NetOff
+ *
+ * Robustesse OEM (Huawei/EMUI, Xiaomi/MIUI, Oppo, Vivo…) :
+ *  1. START_STICKY  → Android relance le service si tué par le système
+ *  2. startForeground avec PRIORITY_MAX → moins susceptible d'être tué
+ *  3. WakeLock CPU PARTIAL → empêche le drain thread d'être suspendu en veille
+ *  4. onTaskRemoved → redémarre le service si l'app est balayée du récent
+ *  5. onDestroy avec auto-restart si vpn_was_active = true
+ *  6. FOREGROUND_SERVICE_TYPE_SPECIAL_USE sur Android 14+
+ */
 class NetLockVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var drainThread: Thread? = null
+    private var drainThread:  Thread?              = null
+    private var wakeLock:     PowerManager.WakeLock? = null
 
     companion object {
         const val TAG         = "NetLockVpnService"
@@ -39,12 +53,19 @@ class NetLockVpnService : VpnService() {
         }
     }
 
+    // ── Cycle de vie ──────────────────────────────────────────────────────────
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Toujours en premier : démarrer en foreground avant tout traitement
         startForegroundNotification()
 
         if (intent == null) {
+            // Relance par le système (START_STICKY) → vérifier si on devait être actif
             val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            if (prefs.getBoolean(KEY_ACTIVE, false)) startVpn()
+            if (prefs.getBoolean(KEY_ACTIVE, false)) {
+                Log.d(TAG, "Relance système — redémarrage VPN")
+                startVpn()
+            }
             return START_STICKY
         }
 
@@ -74,33 +95,115 @@ class NetLockVpnService : VpnService() {
         return START_STICKY
     }
 
+    /**
+     * Quand l'utilisateur balaie l'app du gestionnaire de tâches (swipe-to-kill),
+     * certains OEM tuent les services. On replanifie un redémarrage immédiat.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_ACTIVE, false)) return
+
+        Log.w(TAG, "onTaskRemoved — app balayée, redémarrage du VPN dans 1s")
+        // Redémarrer le service après un court délai via alarme AlarmManager
+        val restartIntent = Intent(this, NetLockVpnService::class.java).apply { action = "START" }
+        val pi = android.app.PendingIntent.getService(
+            this, 1,
+            restartIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+            else android.app.PendingIntent.FLAG_ONE_SHOT
+        )
+        val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val delay = System.currentTimeMillis() + 1000L
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, delay, pi)
+        else
+            am.setExact(android.app.AlarmManager.RTC_WAKEUP, delay, pi)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        releaseWakeLock()
+        val old = vpnInterface
+        vpnInterface     = null
+        isVpnEstablished = false
+        serviceRunning   = false
+        old?.close()
+        drainThread?.interrupt()
+        drainThread = null
+        NetOffWidget.forceUpdate(this)
+    }
+
+    // ── Notification foreground ───────────────────────────────────────────────
+
     private fun startForegroundNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(NOTIF_CHANNEL, "NetOff VPN", NotificationManager.IMPORTANCE_LOW)
-                .apply { description = "Service VPN actif" }
+            val ch = NotificationChannel(
+                NOTIF_CHANNEL,
+                "NetOff VPN",
+                // IMPORTANCE_DEFAULT (non LOW) → moins susceptible d'être tué sur certains OEM
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description     = "Service VPN actif — protection réseau"
+                setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(ch)
         }
+
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         else PendingIntent.FLAG_UPDATE_CURRENT
+
         val openPi = PendingIntent.getActivity(
-            this, 0, packageManager.getLaunchIntentForPackage(packageName), flags
+            this, 0,
+            packageManager.getLaunchIntentForPackage(packageName),
+            flags
         )
+
+        // Action rapide "Désactiver" dans la notification
+        val stopPi = PendingIntent.getService(
+            this, 2,
+            Intent(this, NetLockVpnService::class.java).apply { action = "STOP" },
+            flags
+        )
+
         val focusActive = isFocusActive(this)
         val notif = NotificationCompat.Builder(this, NOTIF_CHANNEL)
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setContentTitle(if (focusActive) "🎯 Mode Focus actif" else "🛡 NetOff VPN actif")
-            .setContentText(if (focusActive) "Session en cours — ne peut pas être arrêtée" else "Protection réseau en cours")
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentText(
+                if (focusActive) "Session en cours — maintien du blocage réseau"
+                else "${blockedPackages.size} app${if (blockedPackages.size > 1) "s" else ""} bloquée${if (blockedPackages.size > 1) "s" else ""}"
+            )
+            .setOngoing(true)           // Non swipable — survit mieux sur OEM
+            .setAutoCancel(false)
+            // PRIORITY_MAX (vs LOW) = moins probable d'être reclaimed par Huawei/EMUI
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openPi)
+            .apply {
+                if (!focusActive) {
+                    addAction(android.R.drawable.ic_lock_power_off, "Désactiver", stopPi)
+                }
+            }
             .build()
-        startForeground(NOTIF_ID, notif)
+
+        // Android 14+ : FOREGROUND_SERVICE_TYPE requis pour les VPN
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
     }
 
+    // ── VPN ───────────────────────────────────────────────────────────────────
+
     private fun startVpn() {
-        // Arrêter proprement l'ancien tunnel
         val old = vpnInterface
         vpnInterface     = null
         isVpnEstablished = false
@@ -118,7 +221,6 @@ class NetLockVpnService : VpnService() {
                 .setBlocking(true)
 
             if (blockedPackages.isEmpty()) {
-                // Aucune app à bloquer → seule notre app dans le tunnel
                 try { builder.addAllowedApplication(packageName) } catch (_: Exception) {}
             } else {
                 applyBlockingRules(builder)
@@ -126,7 +228,7 @@ class NetLockVpnService : VpnService() {
 
             val iface = builder.establish()
             if (iface == null) {
-                Log.e(TAG, "establish() retourné null — permission révoquée ou autre VPN actif")
+                Log.e(TAG, "establish() null — permission révoquée ou autre VPN actif")
                 getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit().putBoolean(KEY_ACTIVE, false).apply()
                 stopForeground(true)
@@ -138,10 +240,12 @@ class NetLockVpnService : VpnService() {
             isVpnEstablished = true
             serviceRunning   = true
 
-            // Thread drain — lit et jette les paquets du tunnel
+            // WakeLock PARTIAL — empêche le CPU de suspendre le drain thread
+            acquireWakeLock()
+
             val fd = iface.fileDescriptor
             drainThread = Thread {
-                val buf = ByteArray(32767)
+                val buf    = ByteArray(32767)
                 val stream = FileInputStream(fd)
                 try {
                     while (!Thread.currentThread().isInterrupted) {
@@ -149,11 +253,15 @@ class NetLockVpnService : VpnService() {
                         if (len < 0) break
                     }
                 } catch (_: IOException) {
-                    // fd fermé proprement par stopVpn
+                    // fd fermé proprement
                 } finally {
                     Thread.currentThread().interrupt()
+                    releaseWakeLock()
                 }
             }.also { it.isDaemon = true; it.name = "NetOff-VPN-Drain"; it.start() }
+
+            // Rafraîchir la notification avec le bon count
+            startForegroundNotification()
 
         } catch (e: Exception) {
             Log.e(TAG, "startVpn error: ${e.message}", e)
@@ -161,63 +269,36 @@ class NetLockVpnService : VpnService() {
             serviceRunning   = false
             vpnInterface?.close()
             vpnInterface = null
+            releaseWakeLock()
         }
 
         NetOffWidget.forceUpdate(this)
     }
 
-    /**
-     * Applique les règles de blocage sur le Builder.
-     *
-     * MODE WHITELIST (addAllowedApplication) :
-     * Seules les apps BLOQUÉES entrent dans le tunnel → leur trafic est drainé → pas d'internet.
-     * Les apps non bloquées bypassent le tunnel → internet normal.
-     *
-     * Problèmes rencontrés sur certains appareils :
-     * 1. addAllowedApplication() throw NameNotFoundException pour les apps du profil clone/travail
-     *    → On essaie d'abord le packageName tel quel, sinon on ignore silencieusement
-     * 2. Sur Huawei/EMUI : certaines apps système ignorent le VPN (réseau propre)
-     *    → Pas de solution sans root, on logge un avertissement
-     * 3. Si AUCUNE app n'est ajoutée avec succès → whitelist vide → establish() peut retourner
-     *    un tunnel qui ne fait rien → on ajoute notre propre packageName comme sentinelle
-     */
     private fun applyBlockingRules(builder: Builder) {
         var successCount = 0
         val failed = mutableListOf<String>()
-
         for (pkg in blockedPackages) {
-            // Nettoyer le packageName : supprimer tout suffixe @userId ajouté par AppListModule
             val cleanPkg = pkg.substringBefore("@").trim()
             if (cleanPkg.isEmpty()) continue
-
             try {
-                // Vérifier que l'app existe bien dans le profil principal avant d'ajouter
                 packageManager.getApplicationInfo(cleanPkg, 0)
                 builder.addAllowedApplication(cleanPkg)
                 successCount++
-                Log.d(TAG, "  ✓ bloqué: $cleanPkg")
             } catch (e: PackageManager.NameNotFoundException) {
-                // App clonée ou profil secondaire — addAllowedApplication ne peut pas la bloquer
-                // Le trafic de cette app (sous userId>0) n'est de toute façon pas intercepté
-                // par un VPN lancé depuis le profil principal
                 failed.add(cleanPkg)
-                Log.w(TAG, "  ✗ introuvable dans profil principal (app clonée ?): $cleanPkg")
             } catch (e: Exception) {
                 failed.add(cleanPkg)
-                Log.w(TAG, "  ✗ erreur pour $cleanPkg: ${e.message}")
             }
         }
-
-        Log.d(TAG, "Règles appliquées: $successCount/${blockedPackages.size} apps bloquées, ${failed.size} ignorées")
-
-        // Sentinelle : si aucune app valide, ajouter notre propre app pour que le tunnel soit valide
+        Log.d(TAG, "Règles: $successCount/${blockedPackages.size} ok, ${failed.size} ignorées")
         if (successCount == 0) {
             try { builder.addAllowedApplication(packageName) } catch (_: Exception) {}
-            Log.w(TAG, "Whitelist vide — tunnel sentinelle uniquement")
         }
     }
 
     private fun stopVpnExplicit() {
+        releaseWakeLock()
         val old = vpnInterface
         vpnInterface     = null
         isVpnEstablished = false
@@ -232,15 +313,34 @@ class NetLockVpnService : VpnService() {
         NetOffWidget.forceUpdate(this)
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        val old = vpnInterface
-        vpnInterface     = null
-        isVpnEstablished = false
-        serviceRunning   = false
-        old?.close()
-        drainThread?.interrupt()
-        drainThread = null
-        NetOffWidget.forceUpdate(this)
+    // ── WakeLock ──────────────────────────────────────────────────────────────
+
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) return
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "NetOff:VpnDrain"
+            ).apply {
+                // 8h max de sécurité — évite les leaks si stopVpn n'est pas appelé
+                acquire(8 * 60 * 60 * 1000L)
+            }
+            Log.d(TAG, "WakeLock acquis")
+        } catch (e: Exception) {
+            Log.w(TAG, "WakeLock non disponible: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+                Log.d(TAG, "WakeLock relâché")
+            }
+            wakeLock = null
+        } catch (e: Exception) {
+            Log.w(TAG, "releaseWakeLock: ${e.message}")
+        }
     }
 }
