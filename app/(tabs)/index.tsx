@@ -104,10 +104,12 @@ const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
 const VpnToggle = React.memo(function VpnToggle({
   active,
   locked,
+  danger, // true = vpn off + apps bloquées
   onPress,
 }: {
   active: boolean;
   locked: boolean;
+  danger: boolean;
   onPress: () => void;
 }) {
   const anim = useRef(new Animated.Value(active ? 1 : 0)).current;
@@ -119,24 +121,41 @@ const VpnToggle = React.memo(function VpnToggle({
       useNativeDriver: false,
     }).start();
   }, [active]);
+
+  // ON  → vert
+  // OFF + danger → rouge discret
+  // OFF           → gris neutre
   const bg = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.07)", "rgba(52,211,153,0.16)"],
+    outputRange: [
+      danger ? "rgba(248,113,113,0.12)" : "rgba(255,255,255,0.07)",
+      "rgba(52,211,153,0.16)",
+    ],
   });
   const border = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.14)", "rgba(52,211,153,0.42)"],
+    outputRange: [
+      danger ? "rgba(248,113,113,0.38)" : "rgba(255,255,255,0.14)",
+      "rgba(52,211,153,0.42)",
+    ],
   });
+
   const dotColor = locked
     ? "rgba(255,255,255,0.2)"
     : active
       ? "#34d399"
-      : "rgba(255,255,255,0.28)";
+      : danger
+        ? "#f87171"
+        : "rgba(255,255,255,0.28)";
+
   const textColor = locked
     ? "rgba(255,255,255,0.28)"
     : active
       ? "#34d399"
-      : "rgba(255,255,255,0.5)";
+      : danger
+        ? "#f87171"
+        : "rgba(255,255,255,0.5)";
+
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -152,6 +171,8 @@ const VpnToggle = React.memo(function VpnToggle({
       >
         {active && !locked ? (
           <PulseDot color="#34d399" />
+        ) : danger ? (
+          <PulseDot color="#f87171" />
         ) : (
           <View style={[g.pillDot, { backgroundColor: dotColor }]} />
         )}
@@ -542,6 +563,9 @@ export default function HomeScreen() {
   const hasBanners =
     showVpnWarning || focusActive || timerActive || limitReached;
 
+  // VPN en état d'alerte : éteint ET apps bloquées ET pas de session active
+  const vpnDanger = !vpnActive && blockedCount > 0 && !anyActive;
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(mountFade, {
@@ -578,7 +602,6 @@ export default function HomeScreen() {
     [],
   );
 
-  // refreshRules ne touche plus à vpnActive — géré exclusivement par AppEvents
   const refreshRules = useCallback(async () => {
     const rules = await StorageService.getRules();
     setBlockedCount(rules.filter((r) => r.isBlocked).length);
@@ -603,17 +626,12 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // toggleVpn — fire-and-forget.
-  // VpnService.startVpn/stopVpn émettent "vpn:changed" APRÈS confirmation.
-  // Le listener ci-dessous est le SEUL endroit qui appelle setVpnActive().
-  // ─────────────────────────────────────────────────────────────────────────
   const toggleVpn = useCallback(() => {
     if (anyActive) return;
     if (vpnActive) {
-      VpnService.stopVpn(); // → émet "vpn:changed" false quand confirmé
+      VpnService.stopVpn();
     } else {
-      VpnService.startVpn(); // → émet "vpn:changed" true quand confirmé
+      VpnService.startVpn();
     }
   }, [vpnActive, anyActive]);
 
@@ -622,7 +640,7 @@ export default function HomeScreen() {
       setVpnActive(active);
       if (active) {
         setVpnWarningDismissed(false);
-        setVpnPopupVisible(false); // ferme le modal si VPN s'active
+        setVpnPopupVisible(false);
       }
     });
     const unsubRules = AppEvents.on("rules:changed", () => refreshRules());
@@ -662,7 +680,6 @@ export default function HomeScreen() {
     TimerService.rescheduleIfNeeded();
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active" && appStateRef.current !== "active") {
-        // Resync état VPN natif à chaque retour foreground (OEM kill, etc.)
         VpnService.isVpnActive().then(setVpnActive);
         refreshRules();
         checkFocus();
@@ -775,6 +792,7 @@ export default function HomeScreen() {
     if (focusActive) setFocusExpanded(true);
     else setFocusVisible(true);
   }, [focusActive]);
+
   const showPaywall = (r: any) => {
     setPaywallReason(r);
     setPaywallVisible(true);
@@ -812,7 +830,6 @@ export default function HomeScreen() {
       }
       try {
         await VpnService.setRule(item.packageName, nowBlocked);
-        // "rules:changed" émis par VpnService → refreshRules() via listener
       } catch {
         setApps((prev) =>
           prev.map((a) =>
@@ -856,19 +873,30 @@ export default function HomeScreen() {
       ? Math.round((blockedInList / filteredApps.length) * 100)
       : 0;
 
+  // ─── ListHeaderComponent — search + meta ────────────────────────────────────
   const ListHeader = (
-    <View style={g.listMeta}>
-      <Text style={[g.listCount, { color: t.text.muted }]} numberOfLines={1}>
-        {filteredApps.length} APP{filteredApps.length > 1 ? "S" : ""}
-      </Text>
-      {blockedInList > 0 && (
-        <View style={g.blockedChip}>
-          <View style={g.blockedChipDot} />
-          <Text style={g.blockedChipText} numberOfLines={1}>
-            {blockedInList} bloquée{blockedInList > 1 ? "s" : ""}
-          </Text>
-        </View>
-      )}
+    <View style={g.listHeader}>
+      <SearchAndFilters
+        query={query}
+        onQueryChange={setQuery}
+        filters={filters}
+        onFiltersChange={setFilters}
+        systemAppsLoaded={sysLoaded}
+        systemAppsLoading={sysLoading}
+      />
+      <View style={g.listMeta}>
+        <Text style={[g.listCount, { color: t.text.muted }]} numberOfLines={1}>
+          {filteredApps.length} APP{filteredApps.length > 1 ? "S" : ""}
+        </Text>
+        {blockedInList > 0 && (
+          <View style={g.blockedChip}>
+            <View style={g.blockedChipDot} />
+            <Text style={g.blockedChipText} numberOfLines={1}>
+              {blockedInList} bloquée{blockedInList > 1 ? "s" : ""}
+            </Text>
+          </View>
+        )}
+      </View>
     </View>
   );
 
@@ -963,6 +991,7 @@ export default function HomeScreen() {
             <VpnToggle
               active={vpnActive}
               locked={anyActive}
+              danger={vpnDanger}
               onPress={toggleVpn}
             />
             <View style={g.pillSep} />
@@ -1062,69 +1091,57 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* ── SearchBar fixe + liste ── */}
-      <View style={g.listWrapper}>
-        <View style={[g.searchBarFixed, { backgroundColor: t.bg.page }]}>
-          <SearchAndFilters
-            query={query}
-            onQueryChange={setQuery}
-            filters={filters}
-            onFiltersChange={setFilters}
-            systemAppsLoaded={sysLoaded}
-            systemAppsLoading={sysLoading}
+      {/* ── Liste ── */}
+      <FlatList
+        data={filteredApps}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews={false}
+        windowSize={15}
+        scrollEventThrottle={16}
+        contentContainerStyle={[
+          g.listContent,
+          { paddingBottom: insets.bottom + 88 },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={t.refreshTint}
+            colors={[t.refreshTint]}
+            progressBackgroundColor={t.bg.card}
           />
-        </View>
-        <FlatList
-          data={filteredApps}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          showsVerticalScrollIndicator={false}
-          removeClippedSubviews={false}
-          windowSize={15}
-          scrollEventThrottle={16}
-          contentContainerStyle={[
-            g.listContent,
-            { paddingBottom: insets.bottom + 88 },
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={t.refreshTint}
-              colors={[t.refreshTint]}
-              progressBackgroundColor={t.bg.card}
-            />
-          }
-          ListHeaderComponent={ListHeader}
-          ListEmptyComponent={
-            <View style={g.empty}>
-              <View
-                style={[
-                  g.emptyIconWrap,
-                  {
-                    backgroundColor: t.bg.accent,
-                    borderColor: t.border.strong,
-                  },
-                ]}
-              >
-                <Text style={[g.emptyIcon, { color: t.text.link }]}>◈</Text>
-              </View>
-              <Text
-                style={[g.emptyTitle, { color: t.text.secondary }]}
-                numberOfLines={1}
-              >
-                Aucune application
-              </Text>
-              <Text
-                style={[g.emptySub, { color: t.text.muted }]}
-                numberOfLines={2}
-              >
-                Modifiez la recherche ou les filtres
-              </Text>
+        }
+        ListHeaderComponent={ListHeader}
+        ListEmptyComponent={
+          <View style={g.empty}>
+            <View
+              style={[
+                g.emptyIconWrap,
+                {
+                  backgroundColor: t.bg.accent,
+                  borderColor: t.border.strong,
+                },
+              ]}
+            >
+              <Text style={[g.emptyIcon, { color: t.text.link }]}>◈</Text>
             </View>
-          }
-        />
-      </View>
+            <Text
+              style={[g.emptyTitle, { color: t.text.secondary }]}
+              numberOfLines={1}
+            >
+              Aucune application
+            </Text>
+            <Text
+              style={[g.emptySub, { color: t.text.muted }]}
+              numberOfLines={2}
+            >
+              Modifiez la recherche ou les filtres
+            </Text>
+          </View>
+        }
+      />
 
       {/* ── Modals ── */}
       <FocusModal
@@ -1167,8 +1184,6 @@ export default function HomeScreen() {
         visible={vpnPopupVisible}
         appName={vpnPopupAppName}
         onActivate={() => {
-          // Ne pas setVpnPopupVisible(false) ici — le listener "vpn:changed" le fera
-          // quand VpnService confirme l'activation.
           toggleVpn();
         }}
         onDismiss={() => setVpnPopupVisible(false)}
@@ -1418,29 +1433,14 @@ const g = StyleSheet.create({
     flexShrink: 0,
   },
   limitCtaText: { fontSize: 11, fontWeight: "700" },
-  searchBarFixed: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    elevation: 4,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-  },
-  listWrapper: { flex: 1, position: "relative" },
-  listContent: { paddingHorizontal: 14, paddingTop: 70 },
+  // ── List ──
+  listContent: { paddingHorizontal: 14 },
+  listHeader: { gap: 10, paddingTop: 14, paddingBottom: 6 },
   listMeta: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 2,
-    marginBottom: 6,
   },
   listCount: {
     fontSize: 9,
