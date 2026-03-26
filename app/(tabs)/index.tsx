@@ -47,9 +47,168 @@ import FocusFullScreen from "../Focusfullscreen";
 
 type AppItem = InstalledApp & { rule?: AppRule };
 const CARD_H = 72;
+// Delay (ms) before the list re-sorts after a block action.
+// This keeps the card in place so the user doesn't lose context.
+const SORT_DEFER_MS = 1500;
+
 function pkgHue(pkg: string) {
   return pkg.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
 }
+
+// ─── BlockedToast ──────────────────────────────────────────────────────────────
+// Shows a brief notification at the bottom after blocking an app.
+// The "Voir ↑" button scrolls the FlatList back to the top so the user can
+// find the newly-blocked app without confusion.
+const BlockedToast = React.memo(function BlockedToast({
+  appName,
+  visible,
+  onScrollTop,
+  onDismiss,
+  bottomInset,
+}: {
+  appName: string;
+  visible: boolean;
+  onScrollTop: () => void;
+  onDismiss: () => void;
+  bottomInset: number;
+}) {
+  const translateY = useRef(new Animated.Value(80)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(translateY, {
+          toValue: 0,
+          tension: 320,
+          friction: 22,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(translateY, {
+          toValue: 80,
+          duration: 220,
+          easing: Easing.in(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  return (
+    <Animated.View
+      pointerEvents={visible ? "auto" : "none"}
+      style={[
+        toast.wrap,
+        {
+          bottom: bottomInset + 100,
+          transform: [{ translateY }],
+          opacity,
+        },
+      ]}
+    >
+      <View style={toast.inner}>
+        <View style={toast.dot} />
+        <Text style={toast.label} numberOfLines={1}>
+          <Text style={toast.appName}>{appName}</Text>
+          {" bloquée"}
+        </Text>
+        <TouchableOpacity
+          style={toast.cta}
+          onPress={() => {
+            onScrollTop();
+            onDismiss();
+          }}
+          activeOpacity={0.75}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={toast.ctaText}>Voir ↑</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onDismiss}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.7}
+        >
+          <Text style={toast.close}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+});
+
+const toast = StyleSheet.create({
+  wrap: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 99,
+    alignItems: "center",
+  },
+  inner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(15,20,35,0.92)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.14)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    elevation: 12,
+    maxWidth: 400,
+    alignSelf: "center",
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: "#f87171",
+    flexShrink: 0,
+  },
+  label: {
+    flex: 1,
+    fontSize: 13,
+    color: "rgba(255,255,255,0.75)",
+  },
+  appName: {
+    fontWeight: "700",
+    color: "#fff",
+  },
+  cta: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "rgba(248,113,113,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.35)",
+  },
+  ctaText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#f87171",
+  },
+  close: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.35)",
+    paddingLeft: 2,
+  },
+});
 
 // ─── PulseDot ─────────────────────────────────────────────────────────────────
 const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
@@ -104,7 +263,7 @@ const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
 const VpnToggle = React.memo(function VpnToggle({
   active,
   locked,
-  danger, // true = vpn off + apps bloquées
+  danger,
   onPress,
 }: {
   active: boolean;
@@ -122,9 +281,6 @@ const VpnToggle = React.memo(function VpnToggle({
     }).start();
   }, [active]);
 
-  // ON  → vert
-  // OFF + danger → rouge discret
-  // OFF           → gris neutre
   const bg = anim.interpolate({
     inputRange: [0, 1],
     outputRange: [
@@ -553,6 +709,20 @@ export default function HomeScreen() {
   const mountFade = useRef(new Animated.Value(0)).current;
   const mountSlide = useRef(new Animated.Value(18)).current;
 
+  // ── Deferred-sort state ────────────────────────────────────────────────────
+  // When true, filteredApps skips the blocked-first sort so cards stay in place.
+  // A timer resets it after SORT_DEFER_MS, triggering a smooth re-sort.
+  const [pendingSort, setPendingSort] = useState(false);
+  const sortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Toast state ────────────────────────────────────────────────────────────
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastAppName, setToastAppName] = useState("");
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── FlatList ref for programmatic scroll ──────────────────────────────────
+  const flatListRef = useRef<FlatList<AppItem>>(null);
+
   const focusActive = focusStatus?.isActive ?? false;
   const timerActive = timerStatus?.isActive ?? false;
   const anyActive = focusActive || timerActive;
@@ -563,8 +733,38 @@ export default function HomeScreen() {
   const hasBanners =
     showVpnWarning || focusActive || timerActive || limitReached;
 
-  // VPN en état d'alerte : éteint ET apps bloquées ET pas de session active
   const vpnDanger = !vpnActive && blockedCount > 0 && !anyActive;
+
+  // Show toast for TOAST_DURATION_MS then auto-dismiss
+  const TOAST_DURATION_MS = 4000;
+
+  const showBlockedToast = useCallback((name: string) => {
+    setToastAppName(name);
+    setToastVisible(true);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(
+      () => setToastVisible(false),
+      TOAST_DURATION_MS,
+    );
+  }, []);
+
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastVisible(false);
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  // Arm the deferred sort. Every new block action resets the timer.
+  const armSortTimer = useCallback(() => {
+    if (sortTimerRef.current) clearTimeout(sortTimerRef.current);
+    setPendingSort(true);
+    sortTimerRef.current = setTimeout(() => {
+      setPendingSort(false);
+    }, SORT_DEFER_MS);
+  }, []);
 
   useEffect(() => {
     Animated.parallel([
@@ -581,6 +781,11 @@ export default function HomeScreen() {
         useNativeDriver: true,
       }),
     ]).start();
+
+    return () => {
+      if (sortTimerRef.current) clearTimeout(sortTimerRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
   }, []);
 
   const mergeAppsRules = useCallback(
@@ -758,11 +963,17 @@ export default function HomeScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
+    // On manual refresh, always apply the full sort immediately
+    setPendingSort(false);
+    if (sortTimerRef.current) clearTimeout(sortTimerRef.current);
     AppListService.invalidateCache();
     await Promise.all([loadInitial(), checkFocus(), checkTimer()]);
     setRefreshing(false);
   }, []);
 
+  // ── filteredApps ─────────────────────────────────────────────────────────────
+  // When pendingSort is true we skip the blocked-first reorder so the card
+  // the user just toggled stays visible at its original position.
   const filteredApps = useMemo(() => {
     let list = [...apps];
     if (filters.scope === "user") list = list.filter((a) => !a.isSystemApp);
@@ -780,13 +991,19 @@ export default function HomeScreen() {
       list = list.filter((a) => a.rule?.isBlocked === true);
     if (filters.state === "allowed")
       list = list.filter((a) => !a.rule?.isBlocked);
+
     return list.sort((a, b) => {
+      // While a sort is pending (user just blocked something) keep current
+      // relative ordering so cards don't jump, only sort alphabetically.
+      if (pendingSort) {
+        return a.appName.localeCompare(b.appName);
+      }
       const aB = a.rule?.isBlocked ? 1 : 0,
         bB = b.rule?.isBlocked ? 1 : 0;
       if (bB !== aB) return bB - aB;
       return a.appName.localeCompare(b.appName);
     });
-  }, [apps, query, filters]);
+  }, [apps, query, filters, pendingSort]);
 
   const handleFocusPress = useCallback(() => {
     if (focusActive) setFocusExpanded(true);
@@ -823,6 +1040,18 @@ export default function HomeScreen() {
         ),
       );
       setBlockedCount((c) => c + (nowBlocked ? 1 : -1));
+
+      // ── UX: deferred sort + toast ──────────────────────────────────────────
+      if (nowBlocked) {
+        // Keep the card in place for SORT_DEFER_MS before floating it to the top
+        armSortTimer();
+        // Show a toast telling the user the app moved to the top of the list
+        showBlockedToast(item.appName);
+      } else {
+        // Unblocking: also defer so the card doesn't snap downward immediately
+        armSortTimer();
+      }
+
       if (nowBlocked && !vpnActive && !vpnPopupShown.current) {
         vpnPopupShown.current = true;
         setVpnPopupAppName(item.appName);
@@ -839,7 +1068,14 @@ export default function HomeScreen() {
         setBlockedCount((c) => c + (nowBlocked ? -1 : 1));
       }
     },
-    [anyActive, isPremium, blockedCount, vpnActive],
+    [
+      anyActive,
+      isPremium,
+      blockedCount,
+      vpnActive,
+      armSortTimer,
+      showBlockedToast,
+    ],
   );
 
   const handleAppPress = useCallback(
@@ -873,7 +1109,7 @@ export default function HomeScreen() {
       ? Math.round((blockedInList / filteredApps.length) * 100)
       : 0;
 
-  // ─── ListHeaderComponent — search + meta ────────────────────────────────────
+  // ─── ListHeaderComponent ─────────────────────────────────────────────────────
   const ListHeader = (
     <View style={g.listHeader}>
       <SearchAndFilters
@@ -1093,6 +1329,7 @@ export default function HomeScreen() {
 
       {/* ── Liste ── */}
       <FlatList
+        ref={flatListRef}
         data={filteredApps}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
@@ -1141,6 +1378,15 @@ export default function HomeScreen() {
             </Text>
           </View>
         }
+      />
+
+      {/* ── Blocked Toast ── */}
+      <BlockedToast
+        appName={toastAppName}
+        visible={toastVisible}
+        onScrollTop={scrollToTop}
+        onDismiss={dismissToast}
+        bottomInset={insets.bottom}
       />
 
       {/* ── Modals ── */}
