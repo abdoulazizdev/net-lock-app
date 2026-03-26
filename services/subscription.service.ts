@@ -16,7 +16,7 @@ export interface SubscriptionState {
 }
 
 export const FREE_LIMITS = {
-  MAX_BLOCKED_APPS: 9,
+  MAX_BLOCKED_APPS: 3,
   MAX_PROFILES: 2,
   MAX_SCHEDULES: 1,
   FOCUS_PRESETS_FREE: [25, 45] as number[],
