@@ -475,8 +475,7 @@ const AppCard = React.memo(
     p.limitReached === n.limitReached,
 );
 
-// ─── StatGroup ─────────────────────────────────────────────────────────────────
-// Affiche nombre + label sur une seule ligne tronquée avec "…" si manque d'espace
+// ─── StatGroup ────────────────────────────────────────────────────────────────
 const StatGroup = React.memo(function StatGroup({
   value,
   label,
@@ -1097,6 +1096,11 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, []);
 
+  // ── FIX : tri bloquées en tête + suppression getItemLayout ──────────────────
+  // Les cartes bloquées affichent un tag supplémentaire ("● Bloquée") qui les
+  // rend plus hautes que les cartes normales. getItemLayout supposait une
+  // hauteur uniforme → décalages de scroll. On le supprime et on laisse
+  // FlatList mesurer chaque item naturellement.
   const filteredApps = useMemo(() => {
     let list = [...apps];
     if (filters.scope === "user") list = list.filter((a) => !a.isSystemApp);
@@ -1114,7 +1118,13 @@ export default function HomeScreen() {
       list = list.filter((a) => a.rule?.isBlocked === true);
     if (filters.state === "allowed")
       list = list.filter((a) => !a.rule?.isBlocked);
-    return list;
+    // Apps bloquées toujours en tête, ordre alphabétique dans chaque groupe
+    return list.sort((a, b) => {
+      const aBlocked = a.rule?.isBlocked ? 1 : 0;
+      const bBlocked = b.rule?.isBlocked ? 1 : 0;
+      if (bBlocked !== aBlocked) return bBlocked - aBlocked;
+      return a.appName.localeCompare(b.appName);
+    });
   }, [apps, query, filters]);
 
   const toggleVpn = useCallback(async () => {
@@ -1192,15 +1202,11 @@ export default function HomeScreen() {
       }),
     [],
   );
+
   const keyExtractor = useCallback((i: AppItem) => i.packageName, []);
-  const getItemLayout = useCallback(
-    (_: unknown, i: number) => ({
-      length: CARD_H + 5,
-      offset: (CARD_H + 5) * i,
-      index: i,
-    }),
-    [],
-  );
+
+  // getItemLayout supprimé — hauteurs variables selon état bloqué / badge SYS
+
   const renderItem = useCallback(
     ({ item }: { item: AppItem }) => (
       <AppCard
@@ -1305,7 +1311,6 @@ export default function HomeScreen() {
         </View>
 
         <View style={g.headerBottomRow}>
-          {/* Stats band avec StatGroup — tronqué, pluriel adaptatif */}
           <View
             style={[
               g.statsBand,
@@ -1458,7 +1463,7 @@ export default function HomeScreen() {
           data={filteredApps}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
-          getItemLayout={getItemLayout}
+          // getItemLayout supprimé : hauteurs variables (tag bloquée, badge SYS)
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={false}
           windowSize={15}
@@ -1700,7 +1705,7 @@ const g = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     gap: 1,
-    minWidth: 0, // permet la troncature dans flex
+    minWidth: 0,
   },
   statBig: {
     fontSize: 19,
@@ -1716,7 +1721,6 @@ const g = StyleSheet.create({
     fontWeight: "600",
     color: "rgba(255,255,255,0.3)",
     letterSpacing: 0.3,
-    // Tronqué proprement si espace insuffisant
     maxWidth: "100%",
   },
   statDivider: {
