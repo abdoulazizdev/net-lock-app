@@ -340,7 +340,6 @@ const AppCard = React.memo(
     const scaleAnim = useRef(new Animated.Value(1)).current;
     const hue = pkgHue(item.packageName);
     const iconColor = `hsl(${hue}, 60%, 62%)`;
-
     const pressIn = () =>
       Animated.spring(scaleAnim, {
         toValue: 0.972,
@@ -355,7 +354,6 @@ const AppCard = React.memo(
         friction: 18,
         useNativeDriver: true,
       }).start();
-
     return (
       <Animated.View
         style={[{ transform: [{ scale: scaleAnim }] }, { marginBottom: 5 }]}
@@ -491,7 +489,6 @@ const VpnWarningBanner = React.memo(function VpnWarningBanner({
 }) {
   const slideAnim = useRef(new Animated.Value(-8)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     Animated.parallel([
       Animated.timing(opacityAnim, {
@@ -508,7 +505,6 @@ const VpnWarningBanner = React.memo(function VpnWarningBanner({
       }),
     ]).start();
   }, []);
-
   return (
     <Animated.View
       style={[
@@ -586,7 +582,6 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.88)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     if (visible) {
       backdropOpacity.setValue(0);
@@ -613,7 +608,6 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
       ]).start();
     }
   }, [visible]);
-
   const animateOut = (cb: () => void) => {
     Animated.parallel([
       Animated.timing(backdropOpacity, {
@@ -633,16 +627,14 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
       }),
     ]).start(() => cb());
   };
-
   if (!visible) return null;
-
   return (
     <TouchableWithoutFeedback onPress={() => animateOut(onDismiss)}>
-      <Animated.View style={[p.backdrop, { opacity: backdropOpacity }]}>
+      <Animated.View style={[pm.backdrop, { opacity: backdropOpacity }]}>
         <TouchableWithoutFeedback>
           <Animated.View
             style={[
-              p.card,
+              pm.card,
               {
                 backgroundColor: t.bg.card,
                 borderColor: t.border.light,
@@ -651,48 +643,40 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
               },
             ]}
           >
-            <View style={p.iconArea}>
-              <View style={p.haloOuter} />
-              <View style={p.haloMid} />
-              <View style={p.iconBox}>
-                <Text style={p.iconEmoji}>🛡️</Text>
+            <View style={pm.iconArea}>
+              <View style={pm.haloOuter} />
+              <View style={pm.haloMid} />
+              <View style={pm.iconBox}>
+                <Text style={pm.iconEmoji}>🛡️</Text>
               </View>
             </View>
-
-            <Text style={[p.title, { color: t.text.primary }]}>
+            <Text style={[pm.title, { color: t.text.primary }]}>
               VPN désactivé
             </Text>
-
-            <Text style={[p.subtitle, { color: t.text.secondary }]}>
+            <Text style={[pm.subtitle, { color: t.text.secondary }]}>
               Vous venez de bloquer{" "}
-              <Text style={[p.subtitleAccent, { color: t.text.primary }]}>
+              <Text style={[pm.subtitleAccent, { color: t.text.primary }]}>
                 {appName}
               </Text>
               , mais le VPN est éteint.
             </Text>
-
             <View
               style={[
-                p.infoBox,
-                {
-                  backgroundColor: t.bg.accent,
-                  borderColor: t.border.strong,
-                },
+                pm.infoBox,
+                { backgroundColor: t.bg.accent, borderColor: t.border.strong },
               ]}
             >
-              <Text style={p.infoIcon}>ℹ️</Text>
-              <Text style={[p.infoText, { color: t.text.muted }]}>
+              <Text style={pm.infoIcon}>ℹ️</Text>
+              <Text style={[pm.infoText, { color: t.text.muted }]}>
                 Sans VPN actif, les règles de blocage ne sont pas appliquées et
                 l'application peut toujours accéder au réseau.
               </Text>
             </View>
-
-            <View style={[p.sep, { backgroundColor: t.border.light }]} />
-
-            <View style={p.actions}>
+            <View style={[pm.sep, { backgroundColor: t.border.light }]} />
+            <View style={pm.actions}>
               <TouchableOpacity
                 style={[
-                  p.btnSecondary,
+                  pm.btnSecondary,
                   {
                     backgroundColor: t.bg.cardAlt,
                     borderColor: t.border.normal,
@@ -701,18 +685,19 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
                 onPress={() => animateOut(onDismiss)}
                 activeOpacity={0.75}
               >
-                <Text style={[p.btnSecondaryText, { color: t.text.secondary }]}>
+                <Text
+                  style={[pm.btnSecondaryText, { color: t.text.secondary }]}
+                >
                   Pas maintenant
                 </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
-                style={p.btnPrimary}
+                style={pm.btnPrimary}
                 onPress={() => animateOut(onActivate)}
                 activeOpacity={0.82}
               >
-                <Text style={p.btnPrimaryIcon}>⚡</Text>
-                <Text style={p.btnPrimaryText}>Activer maintenant</Text>
+                <Text style={pm.btnPrimaryIcon}>⚡</Text>
+                <Text style={pm.btnPrimaryText}>Activer maintenant</Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -722,7 +707,7 @@ const VpnActivationModal = React.memo(function VpnActivationModal({
   );
 });
 
-const p = StyleSheet.create({
+const pm = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(4,13,30,0.74)",
@@ -808,11 +793,7 @@ const p = StyleSheet.create({
   },
   infoIcon: { fontSize: 13, lineHeight: 18, flexShrink: 0, marginTop: 1 },
   infoText: { flex: 1, fontSize: 11, lineHeight: 16, fontWeight: "500" },
-  sep: {
-    width: "100%",
-    height: StyleSheet.hairlineWidth,
-    marginVertical: 20,
-  },
+  sep: { width: "100%", height: StyleSheet.hairlineWidth, marginVertical: 20 },
   actions: { width: "100%", gap: 10 },
   btnSecondary: {
     height: 46,
@@ -870,24 +851,27 @@ export default function HomeScreen() {
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<any>("general");
   const [menuVisible, setMenuVisible] = useState(false);
-
   const [vpnWarningDismissed, setVpnWarningDismissed] = useState(false);
-
   const vpnPopupShown = useRef(false);
   const [vpnPopupVisible, setVpnPopupVisible] = useState(false);
   const [vpnPopupAppName, setVpnPopupAppName] = useState("");
 
   const appStateRef = useRef(AppState.currentState);
+
+  const mountFade = useRef(new Animated.Value(0)).current;
+  const mountSlide = useRef(new Animated.Value(18)).current;
+
   const focusActive = focusStatus?.isActive ?? false;
   const timerActive = timerStatus?.isActive ?? false;
   const anyActive = focusActive || timerActive;
   const limitReached =
     !isPremium && blockedCount >= FREE_LIMITS.MAX_BLOCKED_APPS;
+
   const showVpnWarning =
     !vpnActive && blockedCount > 0 && !anyActive && !vpnWarningDismissed;
+  const hasBanners =
+    showVpnWarning || focusActive || timerActive || limitReached;
 
-  const mountFade = useRef(new Animated.Value(0)).current;
-  const mountSlide = useRef(new Animated.Value(18)).current;
   useEffect(() => {
     Animated.parallel([
       Animated.timing(mountFade, {
@@ -992,7 +976,6 @@ export default function HomeScreen() {
     checkFocus();
     checkTimer();
     TimerService.rescheduleIfNeeded();
-
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active" && appStateRef.current !== "active") {
         refreshRules();
@@ -1132,7 +1115,6 @@ export default function HomeScreen() {
         showPaywall("blocked_apps");
         return;
       }
-
       const patch = (b: boolean) => ({
         ...item,
         rule: {
@@ -1140,20 +1122,17 @@ export default function HomeScreen() {
           isBlocked: b,
         } as AppRule,
       });
-
       setApps((prev) =>
         prev.map((a) =>
           a.packageName === item.packageName ? patch(nowBlocked) : a,
         ),
       );
       setBlockedCount((c) => c + (nowBlocked ? 1 : -1));
-
       if (nowBlocked && !vpnActive && !vpnPopupShown.current) {
         vpnPopupShown.current = true;
         setVpnPopupAppName(item.appName);
         setVpnPopupVisible(true);
       }
-
       try {
         await VpnService.setRule(item.packageName, nowBlocked);
       } catch {
@@ -1206,6 +1185,22 @@ export default function HomeScreen() {
     filteredApps.length > 0
       ? Math.round((blockedInList / filteredApps.length) * 100)
       : 0;
+
+  const ListHeader = (
+    <View style={g.listMeta}>
+      <Text style={[g.listCount, { color: t.text.muted }]}>
+        {filteredApps.length} APPLICATION{filteredApps.length > 1 ? "S" : ""}
+      </Text>
+      {blockedInList > 0 && (
+        <View style={g.blockedChip}>
+          <View style={g.blockedChipDot} />
+          <Text style={g.blockedChipText}>
+            {blockedInList} bloquée{blockedInList > 1 ? "s" : ""}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <View style={[g.root, { backgroundColor: t.bg.page }]}>
@@ -1324,134 +1319,130 @@ export default function HomeScreen() {
         </View>
       </Animated.View>
 
-      {/* ── Sub-header ── */}
-      <View
-        style={[
-          g.subHeader,
-          { backgroundColor: t.bg.card, borderBottomColor: t.border.light },
-        ]}
-      >
-        {showVpnWarning && (
-          <VpnWarningBanner
-            blockedCount={blockedCount}
-            onActivate={toggleVpn}
-            onDismiss={() => setVpnWarningDismissed(true)}
-            t={t}
-          />
-        )}
-
-        {focusActive && focusStatus && (
-          <FocusBanner
-            status={focusStatus}
-            onStopped={() => {
-              setFocusStatus(null);
-              setFocusExpanded(false);
-              refreshRules();
-              AppEvents.emit("focus:changed", false);
-            }}
-            expanded={focusExpanded}
-            onToggleExpand={() => setFocusExpanded((v) => !v)}
-          />
-        )}
-
-        {timerActive && timerStatus && (
-          <TimerBanner
-            status={timerStatus}
-            onStopped={() => {
-              setTimerStatus(null);
-              refreshRules();
-              AppEvents.emit("timer:changed" as any, false);
-            }}
-          />
-        )}
-
-        {limitReached && (
-          <TouchableOpacity
-            style={[
-              g.limitBanner,
-              { backgroundColor: t.warning.bg, borderColor: t.warning.border },
-            ]}
-            onPress={() => showPaywall("blocked_apps")}
-            activeOpacity={0.85}
-          >
-            <Text style={[g.limitText, { color: t.warning.text }]}>
-              🔒 Limite {blockedCount}/{FREE_LIMITS.MAX_BLOCKED_APPS} atteinte
-            </Text>
-            <View style={[g.limitCta, { borderColor: t.text.link + "55" }]}>
-              <Text style={[g.limitCtaText, { color: t.text.link }]}>
-                Passer Pro →
+      {/* ── Banners ── */}
+      {hasBanners && (
+        <View
+          style={[
+            g.bannersBar,
+            { backgroundColor: t.bg.card, borderBottomColor: t.border.light },
+          ]}
+        >
+          {showVpnWarning && (
+            <VpnWarningBanner
+              blockedCount={blockedCount}
+              onActivate={toggleVpn}
+              onDismiss={() => setVpnWarningDismissed(true)}
+              t={t}
+            />
+          )}
+          {focusActive && focusStatus && (
+            <FocusBanner
+              status={focusStatus}
+              onStopped={() => {
+                setFocusStatus(null);
+                setFocusExpanded(false);
+                refreshRules();
+                AppEvents.emit("focus:changed", false);
+              }}
+              expanded={focusExpanded}
+              onToggleExpand={() => setFocusExpanded((v) => !v)}
+            />
+          )}
+          {timerActive && timerStatus && (
+            <TimerBanner
+              status={timerStatus}
+              onStopped={() => {
+                setTimerStatus(null);
+                refreshRules();
+                AppEvents.emit("timer:changed" as any, false);
+              }}
+            />
+          )}
+          {limitReached && (
+            <TouchableOpacity
+              style={[
+                g.limitBanner,
+                {
+                  backgroundColor: t.warning.bg,
+                  borderColor: t.warning.border,
+                },
+              ]}
+              onPress={() => showPaywall("blocked_apps")}
+              activeOpacity={0.85}
+            >
+              <Text style={[g.limitText, { color: t.warning.text }]}>
+                🔒 Limite {blockedCount}/{FREE_LIMITS.MAX_BLOCKED_APPS} atteinte
               </Text>
-            </View>
-          </TouchableOpacity>
-        )}
-
-        <SearchAndFilters
-          query={query}
-          onQueryChange={setQuery}
-          filters={filters}
-          onFiltersChange={setFilters}
-          systemAppsLoaded={sysLoaded}
-          systemAppsLoading={sysLoading}
-        />
-      </View>
-
-      {/* ── Liste apps ── */}
-      <FlatList
-        data={filteredApps}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        getItemLayout={getItemLayout}
-        showsVerticalScrollIndicator={false}
-        removeClippedSubviews={false}
-        windowSize={15}
-        contentContainerStyle={[
-          g.listContent,
-          { paddingBottom: insets.bottom + 88 },
-        ]}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={t.refreshTint}
-            colors={[t.refreshTint]}
-            progressBackgroundColor={t.bg.card}
-          />
-        }
-        ListHeaderComponent={
-          <View style={g.listHeader}>
-            <Text style={[g.listCount, { color: t.text.muted }]}>
-              {filteredApps.length} APPLICATION
-              {filteredApps.length > 1 ? "S" : ""}
-            </Text>
-            {blockedInList > 0 && (
-              <View style={g.blockedChip}>
-                <View style={g.blockedChipDot} />
-                <Text style={g.blockedChipText}>
-                  {blockedInList} bloquée{blockedInList > 1 ? "s" : ""}
+              <View style={[g.limitCta, { borderColor: t.text.link + "55" }]}>
+                <Text style={[g.limitCtaText, { color: t.text.link }]}>
+                  Passer Pro →
                 </Text>
               </View>
-            )}
-          </View>
-        }
-        ListEmptyComponent={
-          <View style={g.empty}>
-            <View
-              style={[
-                g.emptyIconWrap,
-                { backgroundColor: t.bg.accent, borderColor: t.border.strong },
-              ]}
-            >
-              <Text style={[g.emptyIcon, { color: t.text.link }]}>◈</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* ── Search bar sticky + liste ── */}
+      <View style={g.listWrapper}>
+        {/* Barre de recherche — toujours visible, jamais masquée */}
+        <View style={[g.searchBarFixed, { backgroundColor: t.bg.page }]}>
+          <SearchAndFilters
+            query={query}
+            onQueryChange={setQuery}
+            filters={filters}
+            onFiltersChange={setFilters}
+            systemAppsLoaded={sysLoaded}
+            systemAppsLoading={sysLoading}
+          />
+        </View>
+
+        <FlatList
+          data={filteredApps}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          getItemLayout={getItemLayout}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={false}
+          windowSize={15}
+          scrollEventThrottle={16}
+          contentContainerStyle={[
+            g.listContent,
+            { paddingBottom: insets.bottom + 88 },
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={t.refreshTint}
+              colors={[t.refreshTint]}
+              progressBackgroundColor={t.bg.card}
+            />
+          }
+          ListHeaderComponent={ListHeader}
+          ListEmptyComponent={
+            <View style={g.empty}>
+              <View
+                style={[
+                  g.emptyIconWrap,
+                  {
+                    backgroundColor: t.bg.accent,
+                    borderColor: t.border.strong,
+                  },
+                ]}
+              >
+                <Text style={[g.emptyIcon, { color: t.text.link }]}>◈</Text>
+              </View>
+              <Text style={[g.emptyTitle, { color: t.text.secondary }]}>
+                Aucune application
+              </Text>
+              <Text style={[g.emptySub, { color: t.text.muted }]}>
+                Modifiez la recherche ou les filtres
+              </Text>
             </View>
-            <Text style={[g.emptyTitle, { color: t.text.secondary }]}>
-              Aucune application
-            </Text>
-            <Text style={[g.emptySub, { color: t.text.muted }]}>
-              Modifiez la recherche ou les filtres
-            </Text>
-          </View>
-        }
-      />
+          }
+        />
+      </View>
 
       {/* ── Modals ── */}
       <FocusModal
@@ -1464,7 +1455,6 @@ export default function HomeScreen() {
           AppEvents.emit("focus:changed", true);
         }}
       />
-
       <QuickTimerModal
         visible={timerVisible}
         onClose={() => setTimerVisible(false)}
@@ -1474,7 +1464,6 @@ export default function HomeScreen() {
           AppEvents.emit("timer:changed" as any, true);
         }}
       />
-
       <PaywallModal
         visible={paywallVisible}
         reason={paywallReason}
@@ -1486,14 +1475,12 @@ export default function HomeScreen() {
           AppEvents.emit("premium:changed", true);
         }}
       />
-
       <MoreMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
         onSettings={() => router.push("/settings")}
         onTimer={() => setTimerVisible(true)}
       />
-
       <VpnActivationModal
         visible={vpnPopupVisible}
         appName={vpnPopupAppName}
@@ -1504,7 +1491,6 @@ export default function HomeScreen() {
         onDismiss={() => setVpnPopupVisible(false)}
         t={t}
       />
-
       {focusActive && focusStatus && (
         <FocusFullScreen
           status={focusStatus}
@@ -1525,7 +1511,8 @@ export default function HomeScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const g = StyleSheet.create({
   root: { flex: 1 },
-  // Header
+
+  // ── Header ──
   header: {
     paddingHorizontal: 16,
     paddingBottom: 14,
@@ -1630,7 +1617,8 @@ const g = StyleSheet.create({
     borderRadius: 1.75,
     backgroundColor: "rgba(255,255,255,0.65)",
   },
-  // Stats + controls row
+
+  // ── Stats + controls ──
   headerBottomRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   statsBand: {
     flex: 1,
@@ -1685,7 +1673,8 @@ const g = StyleSheet.create({
     height: 14,
     backgroundColor: "rgba(255,255,255,0.12)",
   },
-  // Progress bar
+
+  // ── Progress ──
   progressTrack: {
     height: 22,
     borderRadius: 8,
@@ -1709,7 +1698,8 @@ const g = StyleSheet.create({
     letterSpacing: 0.4,
     zIndex: 1,
   },
-  // PulseDot
+
+  // ── PulseDot ──
   dotWrap: {
     width: 10,
     height: 10,
@@ -1718,8 +1708,9 @@ const g = StyleSheet.create({
   },
   dotCore: { width: 6, height: 6, borderRadius: 3, position: "absolute" },
   dotRing: { width: 10, height: 10, borderRadius: 5, position: "absolute" },
-  // Sub-header
-  subHeader: {
+
+  // ── Banners bar ──
+  bannersBar: {
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 8,
@@ -1731,7 +1722,8 @@ const g = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  // VPN warning banner
+
+  // ── VPN warning banner ──
   vpnWarningBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1762,7 +1754,8 @@ const g = StyleSheet.create({
   vpnWarningCtaText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.1 },
   vpnWarningDismiss: { flexShrink: 0, paddingLeft: 2 },
   vpnWarningDismissText: { fontSize: 13, fontWeight: "500", opacity: 0.45 },
-  // Limit banner
+
+  // ── Limit banner ──
   limitBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1780,14 +1773,34 @@ const g = StyleSheet.create({
     borderWidth: 1,
   },
   limitCtaText: { fontSize: 11, fontWeight: "700" },
-  // List
-  listContent: { paddingHorizontal: 14, paddingTop: 10 },
-  listHeader: {
+
+  // ── Search bar — sticky, jamais masquée ──
+  searchBarFixed: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    elevation: 4,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+  },
+  listWrapper: { flex: 1, position: "relative" },
+  // paddingTop = hauteur de la barre (input 44 + paddingTop 10 + paddingBottom 8 = 62, arrondi à 70)
+  listContent: { paddingHorizontal: 14, paddingTop: 70 },
+
+  // ── List meta ──
+  listMeta: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
     paddingHorizontal: 2,
+    marginBottom: 6,
   },
   listCount: {
     fontSize: 9,
@@ -1813,7 +1826,8 @@ const g = StyleSheet.create({
     backgroundColor: "#f87171",
   },
   blockedChipText: { fontSize: 10, fontWeight: "700", color: "#f87171" },
-  // App card
+
+  // ── App card ──
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -1876,7 +1890,8 @@ const g = StyleSheet.create({
     marginLeft: 8,
   },
   cardChevron: { fontSize: 18, fontWeight: "200" },
-  // Empty state
+
+  // ── Empty state ──
   empty: { alignItems: "center", paddingTop: 80, gap: 8 },
   emptyIconWrap: {
     width: 66,

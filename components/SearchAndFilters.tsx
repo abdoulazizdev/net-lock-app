@@ -4,17 +4,18 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
-  ScrollView,
+  Modal,
+  Pressable,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { Text } from "react-native-paper";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export type ScopeKey = "all" | "user" | "system";
 export type StateKey = "any" | "allowed" | "blocked";
-export type FilterKey = ScopeKey | StateKey;
 export interface Filters {
   scope: ScopeKey;
   state: StateKey;
@@ -30,47 +31,31 @@ interface Props {
   systemAppsLoading?: boolean;
 }
 
-interface ChipDef {
-  key: ScopeKey | StateKey;
-  label: string;
-  icon: string;
-  group: "scope" | "state";
-}
-
-const CHIPS: ChipDef[] = [
-  { key: "all", label: "Toutes", icon: "◉", group: "scope" },
-  { key: "user", label: "Installées", icon: "⬇", group: "scope" },
-  { key: "system", label: "Système", icon: "⚙", group: "scope" },
-  { key: "blocked", label: "Bloquées", icon: "⊘", group: "state" },
-  { key: "allowed", label: "Autorisées", icon: "✓", group: "state" },
-];
-
 // ─── Chip ──────────────────────────────────────────────────────────────────────
 function Chip({
   label,
   icon,
-  chipKey,
   active,
   onPress,
-  loading,
-  spinDeg,
+  variant = "neutral",
+  disabled = false,
 }: {
   label: string;
   icon: string;
-  chipKey: ScopeKey | StateKey;
   active: boolean;
   onPress: () => void;
-  loading?: boolean;
-  spinDeg?: Animated.AnimatedInterpolation<string>;
+  variant?: "neutral" | "blocked" | "allowed";
+  disabled?: boolean;
 }) {
   const { t } = useTheme();
   const sc = useRef(new Animated.Value(1)).current;
 
   const press = () => {
+    if (disabled) return;
     Animated.sequence([
       Animated.timing(sc, {
-        toValue: 0.88,
-        duration: 65,
+        toValue: 0.9,
+        duration: 60,
         useNativeDriver: true,
       }),
       Animated.spring(sc, {
@@ -84,37 +69,37 @@ function Chip({
     onPress();
   };
 
-  const isBlocked = chipKey === "blocked";
-  const isAllowed = chipKey === "allowed";
-
   const bgColor = active
-    ? isBlocked
+    ? variant === "blocked"
       ? t.blocked.bg
-      : isAllowed
+      : variant === "allowed"
         ? t.allowed.bg
         : t.bg.accent
-    : "transparent";
+    : t.bg.cardAlt;
+
   const borderColor = active
-    ? isBlocked
+    ? variant === "blocked"
       ? t.blocked.border
-      : isAllowed
+      : variant === "allowed"
         ? t.allowed.border
         : t.border.strong
     : t.border.normal;
-  const textColor = active
-    ? isBlocked
-      ? t.blocked.text
-      : isAllowed
-        ? t.allowed.text
-        : t.text.link
-    : t.text.secondary;
+
   const iconColor = active
-    ? isBlocked
+    ? variant === "blocked"
       ? t.blocked.accent
-      : isAllowed
+      : variant === "allowed"
         ? t.allowed.accent
         : t.text.link
     : t.text.muted;
+
+  const labelColor = active
+    ? variant === "blocked"
+      ? t.blocked.accent
+      : variant === "allowed"
+        ? t.allowed.accent
+        : t.text.link
+    : t.text.secondary;
 
   return (
     <TouchableOpacity
@@ -122,54 +107,230 @@ function Chip({
       activeOpacity={1}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
+      disabled={disabled}
     >
       <Animated.View
         style={[
-          st.chip,
+          sh.chip,
           { backgroundColor: bgColor, borderColor },
-          active && st.chipActive,
+          disabled && { opacity: 0.45 },
           { transform: [{ scale: sc }] },
         ]}
       >
-        {loading && spinDeg ? (
-          <Animated.Text
-            style={[
-              st.chipIcon,
-              { color: t.text.link, transform: [{ rotate: spinDeg }] },
-            ]}
-          >
-            ◌
-          </Animated.Text>
-        ) : (
-          <Text style={[st.chipIcon, { color: iconColor }]}>{icon}</Text>
-        )}
+        <Text style={[sh.chipIcon, { color: iconColor }]}>{icon}</Text>
         <Text
           style={[
-            st.chipLabel,
-            { color: textColor },
+            sh.chipLabel,
+            { color: labelColor },
             active && { fontWeight: "700" },
           ]}
         >
-          {loading ? "…" : label}
+          {label}
         </Text>
+        {active && (
+          <View style={[sh.chipCheck, { backgroundColor: borderColor }]}>
+            <Text style={sh.chipCheckText}>✓</Text>
+          </View>
+        )}
       </Animated.View>
     </TouchableOpacity>
   );
 }
 
-// ─── Section label ─────────────────────────────────────────────────────────────
-function SectionLabel({ label }: { label: string }) {
+// ─── FiltersModal ──────────────────────────────────────────────────────────────
+function FiltersModal({
+  visible,
+  filters,
+  onFiltersChange,
+  onClose,
+  systemAppsLoading,
+}: {
+  visible: boolean;
+  filters: Filters;
+  onFiltersChange: (f: Filters) => void;
+  onClose: () => void;
+  systemAppsLoading?: boolean;
+}) {
   const { t } = useTheme();
+  const insets = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(500)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  // Inner visibility drives the Modal's `visible` prop so we can animate out
+  const [rendered, setRendered] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setRendered(true);
+      // Small tick so the modal is mounted before we animate
+      requestAnimationFrame(() => {
+        Animated.parallel([
+          Animated.timing(backdropOpacity, {
+            toValue: 1,
+            duration: 240,
+            useNativeDriver: true,
+          }),
+          Animated.spring(translateY, {
+            toValue: 0,
+            tension: 280,
+            friction: 28,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    } else {
+      // Animate out then unmount
+      Animated.parallel([
+        Animated.timing(backdropOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 500,
+          duration: 220,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setRendered(false);
+        translateY.setValue(500);
+        backdropOpacity.setValue(0);
+      });
+    }
+  }, [visible]);
+
+  const handleScope = (scope: ScopeKey) => {
+    onFiltersChange({ ...filters, scope });
+    onClose();
+  };
+
+  const handleState = (state: StateKey) => {
+    const next: StateKey = filters.state === state ? "any" : state;
+    onFiltersChange({ ...filters, state: next });
+    onClose();
+  };
+
+  const handleReset = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {},
+    );
+    onFiltersChange(DEFAULT_FILTERS);
+    onClose();
+  };
+
+  const activeCount =
+    (filters.scope !== "all" ? 1 : 0) + (filters.state !== "any" ? 1 : 0);
+
+  if (!rendered) return null;
+
   return (
-    <View style={st.sectionLabel}>
-      <Text style={[st.sectionLabelText, { color: t.text.muted }]}>
-        {label}
-      </Text>
-    </View>
+    <Modal
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      {/* Backdrop */}
+      <Animated.View style={[sh.backdrop, { opacity: backdropOpacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+
+      {/* Sheet */}
+      <Animated.View
+        style={[
+          sh.sheet,
+          {
+            backgroundColor: t.bg.card,
+            paddingBottom: Math.max(insets.bottom, 16) + 8,
+            transform: [{ translateY }],
+          },
+        ]}
+      >
+        {/* Handle */}
+        <View style={[sh.handle, { backgroundColor: t.border.normal }]} />
+
+        {/* Header */}
+        <View style={sh.sheetHeader}>
+          <Text style={[sh.sheetTitle, { color: t.text.primary }]}>
+            Filtres avancés
+          </Text>
+          {activeCount > 0 && (
+            <TouchableOpacity
+              onPress={handleReset}
+              activeOpacity={0.7}
+              style={[
+                sh.resetBtn,
+                { borderColor: t.border.normal, backgroundColor: t.bg.cardAlt },
+              ]}
+            >
+              <Text style={[sh.resetBtnText, { color: t.text.secondary }]}>
+                Réinitialiser
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Section : Portée */}
+        <View style={sh.section}>
+          <Text style={[sh.sectionTitle, { color: t.text.muted }]}>PORTÉE</Text>
+          <View style={sh.chipRow}>
+            <Chip
+              label="Toutes"
+              icon="◉"
+              active={filters.scope === "all"}
+              onPress={() => handleScope("all")}
+            />
+            <Chip
+              label="Installées"
+              icon="⬇"
+              active={filters.scope === "user"}
+              onPress={() => handleScope("user")}
+            />
+            <Chip
+              label={systemAppsLoading ? "Chargement…" : "Système"}
+              icon={systemAppsLoading ? "◌" : "⚙"}
+              active={filters.scope === "system"}
+              onPress={() => handleScope("system")}
+              disabled={!!systemAppsLoading}
+            />
+          </View>
+        </View>
+
+        {/* Divider */}
+        <View style={[sh.divider, { backgroundColor: t.border.light }]} />
+
+        {/* Section : État */}
+        <View style={sh.section}>
+          <Text style={[sh.sectionTitle, { color: t.text.muted }]}>ÉTAT</Text>
+          <View style={sh.chipRow}>
+            <Chip
+              label="Toutes"
+              icon="◎"
+              active={filters.state === "any"}
+              onPress={() => handleState("any")}
+            />
+            <Chip
+              label="Bloquées"
+              icon="⊘"
+              active={filters.state === "blocked"}
+              onPress={() => handleState("blocked")}
+              variant="blocked"
+            />
+            <Chip
+              label="Autorisées"
+              icon="✓"
+              active={filters.state === "allowed"}
+              onPress={() => handleState("allowed")}
+              variant="allowed"
+            />
+          </View>
+        </View>
+      </Animated.View>
+    </Modal>
   );
 }
 
-// ─── Main ──────────────────────────────────────────────────────────────────────
+// ─── SearchAndFilters (main export) ───────────────────────────────────────────
 export default function SearchAndFilters({
   query,
   onQueryChange,
@@ -180,28 +341,13 @@ export default function SearchAndFilters({
 }: Props) {
   const { t } = useTheme();
   const [focused, setFocused] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
   const focusAnim = useRef(new Animated.Value(0)).current;
-  const spinAnim = useRef(new Animated.Value(0)).current;
-  const spinLoop = useRef<Animated.CompositeAnimation | null>(null);
+  const filterBtnScale = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    if (systemAppsLoading) {
-      spinLoop.current = Animated.loop(
-        Animated.timing(spinAnim, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-      );
-      spinLoop.current.start();
-    } else {
-      spinLoop.current?.stop();
-      spinAnim.setValue(0);
-    }
-    return () => {
-      spinLoop.current?.stop();
-    };
-  }, [systemAppsLoading]);
+  const activeCount =
+    (filters.scope !== "all" ? 1 : 0) + (filters.state !== "any" ? 1 : 0);
+  const hasActive = activeCount > 0;
 
   useEffect(() => {
     Animated.timing(focusAnim, {
@@ -212,155 +358,168 @@ export default function SearchAndFilters({
     }).start();
   }, [focused]);
 
-  const borderColor = focusAnim.interpolate({
+  const openModal = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Animated.sequence([
+      Animated.timing(filterBtnScale, {
+        toValue: 0.88,
+        duration: 80,
+        useNativeDriver: true,
+      }),
+      Animated.spring(filterBtnScale, {
+        toValue: 1,
+        tension: 340,
+        friction: 14,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setModalVisible(true);
+  };
+
+  const inputBorder = focusAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [t.border.light, t.border.focus],
   });
-  const shadowOpacity = focusAnim.interpolate({
+  const inputShadow = focusAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 0.08],
   });
-  const spinDeg = spinAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
-
-  const handleChip = (c: ChipDef) => {
-    if (c.group === "scope") {
-      onFiltersChange({ ...filters, scope: c.key as ScopeKey });
-    } else {
-      const next = filters.state === c.key ? "any" : (c.key as StateKey);
-      onFiltersChange({ ...filters, state: next });
-    }
-  };
-
-  const isActive = (c: ChipDef) =>
-    c.group === "scope" ? filters.scope === c.key : filters.state === c.key;
-
-  const scopeChips = CHIPS.filter((c) => c.group === "scope");
-  const stateChips = CHIPS.filter((c) => c.group === "state");
-
-  // Compteur de filtres actifs (hors defaults)
-  const activeFilterCount =
-    (filters.scope !== "all" ? 1 : 0) + (filters.state !== "any" ? 1 : 0);
 
   return (
-    <View style={st.wrap}>
-      {/* ── Search bar ── */}
-      <Animated.View
-        style={[
-          st.searchBox,
-          { backgroundColor: t.bg.cardAlt, borderColor },
-          {
-            shadowOpacity,
-            shadowColor: t.border.focus,
-            shadowOffset: { width: 0, height: 3 },
-            shadowRadius: 10,
-          },
-        ]}
-      >
-        <Text
+    <>
+      <View style={sh.row}>
+        {/* ── Search input ── */}
+        <Animated.View
           style={[
-            st.searchIcon,
-            { color: focused ? t.text.link : t.text.muted },
+            sh.searchBox,
+            {
+              backgroundColor: t.bg.cardAlt,
+              borderColor: inputBorder,
+              shadowOpacity: inputShadow,
+              shadowColor: t.border.focus,
+              shadowOffset: { width: 0, height: 3 },
+              shadowRadius: 10,
+            },
           ]}
         >
-          ⌕
-        </Text>
-        <TextInput
-          style={[st.input, { color: t.text.primary }]}
-          placeholder="Rechercher une application…"
-          placeholderTextColor={t.text.muted}
-          value={query}
-          onChangeText={onQueryChange}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          returnKeyType="search"
-          autoCorrect={false}
-          autoCapitalize="none"
-        />
-        {query.length > 0 && (
-          <TouchableOpacity
-            onPress={() => {
-              onQueryChange("");
-              Haptics.selectionAsync().catch(() => {});
-            }}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          <Text
+            style={[
+              sh.searchIcon,
+              { color: focused ? t.text.link : t.text.muted },
+            ]}
           >
-            <View style={[st.clearBtn, { backgroundColor: t.bg.card }]}>
-              <Text style={[st.clearBtnText, { color: t.text.muted }]}>✕</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-      </Animated.View>
-
-      {/* ── Filters row ── */}
-      <View style={st.filtersRow}>
-        {/* Label with active badge */}
-        <View style={st.filtersLabel}>
-          <Text style={[st.filtersLabelText, { color: t.text.muted }]}>
-            Filtres
+            ⌕
           </Text>
-          {activeFilterCount > 0 && (
-            <View
-              style={[
-                st.filtersBadge,
-                { backgroundColor: t.bg.accent, borderColor: t.border.strong },
-              ]}
+          <TextInput
+            style={[sh.input, { color: t.text.primary }]}
+            placeholder="Rechercher une application…"
+            placeholderTextColor={t.text.muted}
+            value={query}
+            onChangeText={onQueryChange}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity
+              onPress={() => {
+                onQueryChange("");
+                Haptics.selectionAsync().catch(() => {});
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={[st.filtersBadgeText, { color: t.text.link }]}>
-                {activeFilterCount}
-              </Text>
-            </View>
+              <View
+                style={[
+                  sh.clearBtn,
+                  { backgroundColor: t.border.normal + "66" },
+                ]}
+              >
+                <Text style={[sh.clearBtnText, { color: t.text.muted }]}>
+                  ✕
+                </Text>
+              </View>
+            </TouchableOpacity>
           )}
-        </View>
+        </Animated.View>
 
-        {/* Chips scrollable */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={st.chipScroll}
-          contentContainerStyle={st.chipRow}
-        >
-          {/* Scope group */}
-          {scopeChips.map((c) => (
-            <Chip
-              key={c.key}
-              label={c.label}
-              icon={c.icon}
-              chipKey={c.key}
-              active={isActive(c)}
-              onPress={() => handleChip(c)}
-              loading={c.key === "system" && !!systemAppsLoading}
-              spinDeg={spinDeg}
-            />
-          ))}
-
-          {/* Separator */}
-          <View style={[st.sep, { backgroundColor: t.border.normal }]} />
-
-          {/* State group */}
-          {stateChips.map((c) => (
-            <Chip
-              key={c.key}
-              label={c.label}
-              icon={c.icon}
-              chipKey={c.key}
-              active={isActive(c)}
-              onPress={() => handleChip(c)}
-            />
-          ))}
-        </ScrollView>
+        {/* ── Filters button ── */}
+        <Animated.View style={{ transform: [{ scale: filterBtnScale }] }}>
+          <TouchableOpacity
+            onPress={openModal}
+            activeOpacity={1}
+            style={[
+              sh.filterBtn,
+              {
+                backgroundColor: hasActive ? t.bg.accent : t.bg.cardAlt,
+                borderColor: hasActive ? t.border.strong : t.border.light,
+              },
+            ]}
+            accessibilityLabel="Ouvrir les filtres"
+            accessibilityRole="button"
+          >
+            {/* Sliders icon */}
+            <View style={sh.sliderIcon}>
+              <View
+                style={[
+                  sh.sliderLine,
+                  {
+                    width: 14,
+                    backgroundColor: hasActive ? t.text.link : t.text.muted,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  sh.sliderLine,
+                  {
+                    width: 10,
+                    backgroundColor: hasActive ? t.text.link : t.text.muted,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  sh.sliderLine,
+                  {
+                    width: 6,
+                    backgroundColor: hasActive ? t.text.link : t.text.muted,
+                  },
+                ]}
+              />
+            </View>
+            {/* Active badge */}
+            {hasActive && (
+              <View style={[sh.badge, { backgroundColor: t.text.link }]}>
+                <Text style={sh.badgeText}>{activeCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       </View>
-    </View>
+
+      <FiltersModal
+        visible={modalVisible}
+        filters={filters}
+        onFiltersChange={onFiltersChange}
+        onClose={() => setModalVisible(false)}
+        systemAppsLoading={systemAppsLoading}
+      />
+    </>
   );
 }
 
-const st = StyleSheet.create({
-  wrap: { gap: 8 },
-
-  // ── Search ──
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const sh = StyleSheet.create({
+  // ── Search row ──
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   searchBox: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 12,
@@ -380,83 +539,147 @@ const st = StyleSheet.create({
   },
   clearBtnText: { fontSize: 8, fontWeight: "700" },
 
-  // ── Filters row ──
-  filtersRow: {
+  // ── Filter button ──
+  filterBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sliderIcon: {
+    gap: 3.5,
+    alignItems: "flex-end",
+  },
+  sliderLine: {
+    height: 1.5,
+    borderRadius: 1,
+  },
+  badge: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#fff",
+    lineHeight: 11,
+  },
+
+  // ── Backdrop ──
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(4,13,30,0.55)",
+  },
+
+  // ── Bottom sheet ──
+  sheet: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 24,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+
+  // ── Sheet header ──
+  sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    marginBottom: 24,
   },
-  filtersLabel: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingLeft: 2,
+  sheetTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.4,
   },
-  filtersLabelText: {
+  resetBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  resetBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // ── Sections ──
+  section: {
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    gap: 12,
+  },
+  sectionTitle: {
     fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 1.8,
   },
-  filtersBadge: {
-    width: 15,
-    height: 15,
-    borderRadius: 7.5,
-    borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
-  filtersBadgeText: {
-    fontSize: 8,
-    fontWeight: "800",
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 20,
+    marginBottom: 20,
   },
 
   // ── Chips ──
-  chipScroll: { flex: 1, marginRight: -14 },
-  chipRow: {
-    flexDirection: "row",
-    gap: 5,
-    alignItems: "center",
-    paddingRight: 14,
-    paddingVertical: 2,
-  },
   chip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 100,
     borderWidth: 1,
   },
-  chipActive: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
   chipIcon: {
-    fontSize: 9,
-    lineHeight: 13,
+    fontSize: 12,
+    lineHeight: 16,
   },
-  chipLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.1 },
-  sep: {
-    width: StyleSheet.hairlineWidth,
-    height: 14,
-    marginHorizontal: 2,
-    opacity: 0.5,
-    borderRadius: 1,
+  chipLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: -0.1,
   },
-
-  // ── Section label (unused but exported for potential reuse) ──
-  sectionLabel: {
-    paddingHorizontal: 2,
-    marginBottom: 2,
+  chipCheck: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
   },
-  sectionLabelText: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
+  chipCheckText: {
+    fontSize: 8,
+    fontWeight: "800",
+    color: "#fff",
+    lineHeight: 11,
   },
 });
