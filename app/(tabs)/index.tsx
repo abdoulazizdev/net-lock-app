@@ -475,6 +475,38 @@ const AppCard = React.memo(
     p.limitReached === n.limitReached,
 );
 
+// ─── StatGroup ─────────────────────────────────────────────────────────────────
+// Affiche nombre + label sur une seule ligne tronquée avec "…" si manque d'espace
+const StatGroup = React.memo(function StatGroup({
+  value,
+  label,
+  labelPlural,
+  valueStyle,
+}: {
+  value: number;
+  label: string;
+  labelPlural?: string;
+  valueStyle?: object;
+}) {
+  const displayLabel = value > 1 && labelPlural ? labelPlural : label;
+  return (
+    <View style={g.statGroup}>
+      <Text
+        style={[g.statBig, valueStyle]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {value}
+      </Text>
+      <Text style={g.statTiny} numberOfLines={1} ellipsizeMode="tail">
+        {displayLabel}
+      </Text>
+    </View>
+  );
+});
+
 // ─── VpnWarningBanner ─────────────────────────────────────────────────────────
 const VpnWarningBanner = React.memo(function VpnWarningBanner({
   blockedCount,
@@ -521,19 +553,21 @@ const VpnWarningBanner = React.memo(function VpnWarningBanner({
       >
         <Text style={g.vpnWarningIconText}>⚠️</Text>
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ flex: 1, gap: 2, overflow: "hidden" }}>
         <Text
           style={[g.vpnWarningTitle, { color: t.warning.text }]}
           numberOfLines={1}
+          ellipsizeMode="tail"
         >
           VPN désactivé — blocages inactifs
         </Text>
         <Text
           style={[g.vpnWarningDesc, { color: t.warning.text }]}
           numberOfLines={1}
+          ellipsizeMode="tail"
         >
           {blockedCount} app{blockedCount > 1 ? "s" : ""} bloquée
-          {blockedCount > 1 ? "s" : ""} mais le réseau n'est pas filtré
+          {blockedCount > 1 ? "s" : ""} — réseau non filtré
         </Text>
       </View>
       <TouchableOpacity
@@ -547,7 +581,10 @@ const VpnWarningBanner = React.memo(function VpnWarningBanner({
         onPress={onActivate}
         activeOpacity={0.75}
       >
-        <Text style={[g.vpnWarningCtaText, { color: t.warning.text }]}>
+        <Text
+          style={[g.vpnWarningCtaText, { color: t.warning.text }]}
+          numberOfLines={1}
+        >
           Activer →
         </Text>
       </TouchableOpacity>
@@ -1188,13 +1225,21 @@ export default function HomeScreen() {
 
   const ListHeader = (
     <View style={g.listMeta}>
-      <Text style={[g.listCount, { color: t.text.muted }]}>
-        {filteredApps.length} APPLICATION{filteredApps.length > 1 ? "S" : ""}
+      <Text
+        style={[g.listCount, { color: t.text.muted }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
+        {filteredApps.length} APP{filteredApps.length > 1 ? "S" : ""}
       </Text>
       {blockedInList > 0 && (
         <View style={g.blockedChip}>
           <View style={g.blockedChipDot} />
-          <Text style={g.blockedChipText}>
+          <Text
+            style={g.blockedChipText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {blockedInList} bloquée{blockedInList > 1 ? "s" : ""}
           </Text>
         </View>
@@ -1240,7 +1285,9 @@ export default function HomeScreen() {
                 activeOpacity={0.78}
               >
                 <Text style={g.upgradeBtnIcon}>⚡</Text>
-                <Text style={g.upgradeBtnText}>Passer à Pro</Text>
+                <Text style={g.upgradeBtnText} numberOfLines={1}>
+                  Passer Pro
+                </Text>
               </TouchableOpacity>
             )}
             <View style={g.actionSep} />
@@ -1258,6 +1305,7 @@ export default function HomeScreen() {
         </View>
 
         <View style={g.headerBottomRow}>
+          {/* Stats band avec StatGroup — tronqué, pluriel adaptatif */}
           <View
             style={[
               g.statsBand,
@@ -1267,22 +1315,25 @@ export default function HomeScreen() {
               },
             ]}
           >
-            <View style={g.statGroup}>
-              <Text style={g.statBig}>{filteredApps.length}</Text>
-              <Text style={g.statTiny}>apps</Text>
-            </View>
+            <StatGroup
+              value={filteredApps.length}
+              label="app"
+              labelPlural="apps"
+            />
             <View style={g.statDivider} />
-            <View style={g.statGroup}>
-              <Text style={[g.statBig, blockedInList > 0 && g.statRed]}>
-                {blockedInList}
-              </Text>
-              <Text style={g.statTiny}>bloquées</Text>
-            </View>
+            <StatGroup
+              value={blockedInList}
+              label="bloquée"
+              labelPlural="bloquées"
+              valueStyle={blockedInList > 0 ? g.statRed : undefined}
+            />
             <View style={g.statDivider} />
-            <View style={g.statGroup}>
-              <Text style={[g.statBig, g.statGreen]}>{allowedCount}</Text>
-              <Text style={g.statTiny}>actives</Text>
-            </View>
+            <StatGroup
+              value={allowedCount}
+              label="active"
+              labelPlural="actives"
+              valueStyle={g.statGreen}
+            />
           </View>
           <View style={g.headerMidSep} />
           <View style={g.controlsBlock}>
@@ -1302,19 +1353,19 @@ export default function HomeScreen() {
             { backgroundColor: "rgba(255,255,255,0.08)" },
           ]}
         >
-          <View
+          <Animated.View
             style={[
               g.progressFill,
               {
-                width: `${blockedPct}%`,
+                width: `${blockedPct}%` as any,
                 backgroundColor: blockedInList > 0 ? "#f87171" : "#34d399",
               },
             ]}
           />
-          <Text style={g.progressLabel}>
+          <Text style={g.progressLabel} numberOfLines={1} ellipsizeMode="tail">
             {blockedInList > 0
               ? `${blockedPct}% du trafic filtré`
-              : "Aucune app bloquée pour l'instant"}
+              : "Aucune app bloquée"}
           </Text>
         </View>
       </Animated.View>
@@ -1370,11 +1421,18 @@ export default function HomeScreen() {
               onPress={() => showPaywall("blocked_apps")}
               activeOpacity={0.85}
             >
-              <Text style={[g.limitText, { color: t.warning.text }]}>
+              <Text
+                style={[g.limitText, { color: t.warning.text }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 🔒 Limite {blockedCount}/{FREE_LIMITS.MAX_BLOCKED_APPS} atteinte
               </Text>
               <View style={[g.limitCta, { borderColor: t.text.link + "55" }]}>
-                <Text style={[g.limitCtaText, { color: t.text.link }]}>
+                <Text
+                  style={[g.limitCtaText, { color: t.text.link }]}
+                  numberOfLines={1}
+                >
                   Passer Pro →
                 </Text>
               </View>
@@ -1385,7 +1443,6 @@ export default function HomeScreen() {
 
       {/* ── Search bar sticky + liste ── */}
       <View style={g.listWrapper}>
-        {/* Barre de recherche — toujours visible, jamais masquée */}
         <View style={[g.searchBarFixed, { backgroundColor: t.bg.page }]}>
           <SearchAndFilters
             query={query}
@@ -1433,10 +1490,17 @@ export default function HomeScreen() {
               >
                 <Text style={[g.emptyIcon, { color: t.text.link }]}>◈</Text>
               </View>
-              <Text style={[g.emptyTitle, { color: t.text.secondary }]}>
+              <Text
+                style={[g.emptyTitle, { color: t.text.secondary }]}
+                numberOfLines={1}
+              >
                 Aucune application
               </Text>
-              <Text style={[g.emptySub, { color: t.text.muted }]}>
+              <Text
+                style={[g.emptySub, { color: t.text.muted }]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
                 Modifiez la recherche ou les filtres
               </Text>
             </View>
@@ -1583,13 +1647,15 @@ const g = StyleSheet.create({
     backgroundColor: "rgba(251,191,36,0.14)",
     borderWidth: 1,
     borderColor: "rgba(251,191,36,0.38)",
+    maxWidth: 120,
   },
-  upgradeBtnIcon: { fontSize: 10, lineHeight: 14 },
+  upgradeBtnIcon: { fontSize: 10, lineHeight: 14, flexShrink: 0 },
   upgradeBtnText: {
     fontSize: 11,
     fontWeight: "700",
     color: "#fbbf24",
     letterSpacing: 0.1,
+    flexShrink: 1,
   },
   actionSep: {
     width: 1,
@@ -1628,8 +1694,14 @@ const g = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 8,
+    overflow: "hidden",
   },
-  statGroup: { flex: 1, alignItems: "center", gap: 1 },
+  statGroup: {
+    flex: 1,
+    alignItems: "center",
+    gap: 1,
+    minWidth: 0, // permet la troncature dans flex
+  },
   statBig: {
     fontSize: 19,
     fontWeight: "800",
@@ -1643,7 +1715,9 @@ const g = StyleSheet.create({
     fontSize: 8,
     fontWeight: "600",
     color: "rgba(255,255,255,0.3)",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
+    // Tronqué proprement si espace insuffisant
+    maxWidth: "100%",
   },
   statDivider: {
     width: StyleSheet.hairlineWidth,
@@ -1697,6 +1771,7 @@ const g = StyleSheet.create({
     textAlign: "center",
     letterSpacing: 0.4,
     zIndex: 1,
+    paddingHorizontal: 6,
   },
 
   // ── PulseDot ──
@@ -1764,17 +1839,19 @@ const g = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     paddingVertical: 9,
+    gap: 8,
   },
-  limitText: { fontSize: 12, fontWeight: "600" },
+  limitText: { fontSize: 12, fontWeight: "600", flex: 1 },
   limitCta: {
     borderRadius: 7,
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderWidth: 1,
+    flexShrink: 0,
   },
   limitCtaText: { fontSize: 11, fontWeight: "700" },
 
-  // ── Search bar — sticky, jamais masquée ──
+  // ── Search bar — sticky ──
   searchBarFixed: {
     position: "absolute",
     top: 0,
@@ -1791,7 +1868,6 @@ const g = StyleSheet.create({
     shadowRadius: 8,
   },
   listWrapper: { flex: 1, position: "relative" },
-  // paddingTop = hauteur de la barre (input 44 + paddingTop 10 + paddingBottom 8 = 62, arrondi à 70)
   listContent: { paddingHorizontal: 14, paddingTop: 70 },
 
   // ── List meta ──
@@ -1807,6 +1883,7 @@ const g = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 2.2,
     opacity: 0.55,
+    flexShrink: 1,
   },
   blockedChip: {
     flexDirection: "row",
@@ -1818,14 +1895,21 @@ const g = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: "rgba(248,113,113,0.12)",
     borderColor: "rgba(248,113,113,0.28)",
+    flexShrink: 0,
   },
   blockedChipDot: {
     width: 5,
     height: 5,
     borderRadius: 2.5,
     backgroundColor: "#f87171",
+    flexShrink: 0,
   },
-  blockedChipText: { fontSize: 10, fontWeight: "700", color: "#f87171" },
+  blockedChipText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#f87171",
+    maxWidth: 120,
+  },
 
   // ── App card ──
   card: {
@@ -1871,7 +1955,7 @@ const g = StyleSheet.create({
     borderWidth: 1,
   },
   sysBadgeText: { fontSize: 6, fontWeight: "700", letterSpacing: 0.3 },
-  cardInfo: { flex: 1, gap: 2 },
+  cardInfo: { flex: 1, gap: 2, minWidth: 0 },
   appName: { fontSize: 13, fontWeight: "600", letterSpacing: -0.15 },
   appPkg: { fontSize: 10, fontFamily: "monospace", opacity: 0.55 },
   blockedTag: {
@@ -1888,6 +1972,7 @@ const g = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginLeft: 8,
+    flexShrink: 0,
   },
   cardChevron: { fontSize: 18, fontWeight: "200" },
 
@@ -1904,5 +1989,10 @@ const g = StyleSheet.create({
   },
   emptyIcon: { fontSize: 30 },
   emptyTitle: { fontSize: 15, fontWeight: "700", letterSpacing: -0.3 },
-  emptySub: { fontSize: 12, opacity: 0.65 },
+  emptySub: {
+    fontSize: 12,
+    opacity: 0.65,
+    textAlign: "center",
+    paddingHorizontal: 24,
+  },
 });
