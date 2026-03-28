@@ -6,15 +6,26 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.*
 import java.util.concurrent.TimeUnit
 
-// ─── WatchdogWorker ───────────────────────────────────────────────────────────
-// Vérifie toutes les 15 min que le VPN est actif si il devrait l'être.
-// WorkManager survive aux redémarrages et aux kills agressifs OEM.
+/**
+ * WatchdogWorker — Vérifie toutes les 15 min que le VPN tourne.
+ *
+ * IMPORTANT : On ne vérifie PAS NetLockVpnService.isVpnEstablished (variable
+ * statique remise à false à chaque kill du process). On vérifie les
+ * SharedPreferences persistantes et on tente de joindre le service.
+ *
+ * Stratégie :
+ *   1. Lire vpn_was_active dans les prefs → si false, rien à faire
+ *   2. Vérifier isVpnEstablished (si le process tourne encore)
+ *   3. Si false, redémarrer le service → il se lancera en foreground
+ *      et retiendra les règles depuis ses propres prefs
+ */
 class WatchdogWorker(
     private val context: Context,
     params: WorkerParameters,
@@ -25,43 +36,46 @@ class WatchdogWorker(
         val shouldBeActive = prefs.getBoolean(NetLockVpnService.KEY_ACTIVE, false)
 
         if (!shouldBeActive) return Result.success()
-
-        // Focus actif → ne pas interférer
         if (NetLockVpnService.isFocusActive(context)) return Result.success()
 
-        val isEstablished = NetLockVpnService.isVpnEstablished
+        // isVpnEstablished = true uniquement si le process est vivant ET le tunnel ouvert.
+        // Si le process a été tué (swipe ou OEM), c'est false → on relance.
+        val isRunning = NetLockVpnService.isVpnEstablished
 
-        if (!isEstablished) {
-            Log.w(TAG, "Watchdog: VPN devrait être actif mais ne l'est pas — redémarrage")
+        if (!isRunning) {
+            Log.w(TAG, "Watchdog: VPN devrait être actif → redémarrage")
             notifyVpnRestarted()
-            restartVpn()
+            restartVpn(prefs.getBoolean(NetLockVpnService.KEY_ALLOW_MODE, false))
         } else {
             Log.d(TAG, "Watchdog: VPN OK")
         }
         return Result.success()
     }
 
-    private fun restartVpn() {
+    private fun restartVpn(allowlistMode: Boolean) {
         val intent = Intent(context, NetLockVpnService::class.java).apply {
             action = "START"
+            putExtra("allowlist_mode", allowlistMode)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            context.startForegroundService(intent)
-        else
-            context.startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                context.startForegroundService(intent)
+            else
+                context.startService(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "restartVpn: ${e.message}")
+        }
     }
 
     private fun notifyVpnRestarted() {
         val channelId = "netoff_watchdog"
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
                 NotificationChannel(channelId, "Watchdog NetOff", NotificationManager.IMPORTANCE_LOW)
                     .apply { description = "Surveillance du VPN" }
             )
         }
-
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         else PendingIntent.FLAG_UPDATE_CURRENT
@@ -71,21 +85,19 @@ class WatchdogWorker(
             context.packageManager.getLaunchIntentForPackage(context.packageName),
             flags
         )
-
         val notif = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setContentTitle("🛡 NetOff — VPN redémarré")
-            .setContentText("Le VPN a été relancé automatiquement après une interruption.")
+            .setContentText("Le VPN a été relancé automatiquement.")
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openIntent)
             .build()
-
         nm.notify(NOTIF_ID, notif)
     }
 
     companion object {
-        const val TAG     = "WatchdogWorker"
+        const val TAG      = "WatchdogWorker"
         const val NOTIF_ID = 2001
         const val WORK_NAME = "netoff_watchdog"
 
@@ -93,16 +105,14 @@ class WatchdogWorker(
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
                 .build()
-
             val request = PeriodicWorkRequestBuilder<WatchdogWorker>(
                 15, TimeUnit.MINUTES,
-                5,  TimeUnit.MINUTES   // flex — Android peut décaler dans cette fenêtre
+                5,  TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                 .addTag(WORK_NAME)
                 .build()
-
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
@@ -113,7 +123,6 @@ class WatchdogWorker(
 
         fun cancel(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
-            Log.d(TAG, "Watchdog annulé")
         }
 
         fun scheduleIfNeeded(context: Context) {

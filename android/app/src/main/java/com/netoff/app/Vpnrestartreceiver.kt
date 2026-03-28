@@ -9,15 +9,14 @@ import android.os.Build
 import android.util.Log
 
 /**
- * VpnRestartReceiver — Redémarre le VPN sur les événements réseau.
+ * VpnRestartReceiver — Relance le VPN après interruption.
  *
- * Certains OEM (Huawei, Xiaomi) coupe le VPN lors :
- *  - d'un changement réseau (Wifi → 4G, avion → normal)
- *  - d'un retour en veille profonde
- *  - d'un déverrouillage de l'écran après inactivité prolongée
+ * Déclenché par :
+ *   - USER_PRESENT / SCREEN_ON  → déverrouillage (Huawei tue le VPN en veille)
+ *   - CONNECTIVITY_CHANGE       → changement Wi-Fi/4G (EMUI coupe parfois le VPN)
+ *   - ACTION_POWER_CONNECTED    → branchement chargeur
  *
- * Ce receiver écoute ces événements et relance si nécessaire.
- * Enregistré dans AndroidManifest.xml.
+ * Ne fait rien si vpn_was_active = false ou si Focus est actif.
  */
 class VpnRestartReceiver : BroadcastReceiver() {
 
@@ -25,41 +24,31 @@ class VpnRestartReceiver : BroadcastReceiver() {
         val prefs = context.getSharedPreferences(NetLockVpnService.PREFS, Context.MODE_PRIVATE)
         val shouldBeActive = prefs.getBoolean(NetLockVpnService.KEY_ACTIVE, false)
 
-        Log.d(TAG, "onReceive: ${intent.action} — shouldBeActive=$shouldBeActive, isEstablished=${NetLockVpnService.isVpnEstablished}")
-
         if (!shouldBeActive) return
         if (NetLockVpnService.isFocusActive(context)) return
 
-        when (intent.action) {
-            // Écran déverrouillé → vérifier que le VPN tourne encore
+        Log.d(TAG, "onReceive: ${intent.action} — isEstablished=${NetLockVpnService.isVpnEstablished}")
+
+        val needsRestart = when (intent.action) {
             Intent.ACTION_USER_PRESENT,
-            Intent.ACTION_SCREEN_ON -> {
-                if (!NetLockVpnService.isVpnEstablished) {
-                    Log.w(TAG, "VPN absent après déverrouillage → redémarrage")
-                    restartVpn(context)
-                }
-            }
+            Intent.ACTION_SCREEN_ON -> !NetLockVpnService.isVpnEstablished
+            ConnectivityManager.CONNECTIVITY_ACTION ->
+                !NetLockVpnService.isVpnEstablished && isNetworkAvailable(context)
+            Intent.ACTION_POWER_CONNECTED -> !NetLockVpnService.isVpnEstablished
+            else -> false
+        }
 
-            // Changement de connectivité → certains OEM coupent le VPN à ce moment
-            ConnectivityManager.CONNECTIVITY_ACTION -> {
-                if (!NetLockVpnService.isVpnEstablished && isNetworkAvailable(context)) {
-                    Log.w(TAG, "VPN absent après changement réseau → redémarrage")
-                    restartVpn(context)
-                }
-            }
-
-            // Batterie rechargée / branchée — Huawei peut réactiver des process tués
-            Intent.ACTION_POWER_CONNECTED -> {
-                if (!NetLockVpnService.isVpnEstablished) {
-                    Log.d(TAG, "Chargeur branché — revérification VPN")
-                    restartVpn(context)
-                }
-            }
+        if (needsRestart) {
+            Log.w(TAG, "VPN absent — redémarrage (${intent.action})")
+            restartVpn(context, prefs.getBoolean(NetLockVpnService.KEY_ALLOW_MODE, false))
         }
     }
 
-    private fun restartVpn(context: Context) {
-        val intent = Intent(context, NetLockVpnService::class.java).apply { action = "START" }
+    private fun restartVpn(context: Context, allowlistMode: Boolean) {
+        val intent = Intent(context, NetLockVpnService::class.java).apply {
+            action = "START"
+            putExtra("allowlist_mode", allowlistMode)
+        }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 context.startForegroundService(intent)
@@ -73,7 +62,7 @@ class VpnRestartReceiver : BroadcastReceiver() {
     private fun isNetworkAvailable(context: Context): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val net = cm.activeNetwork ?: return false
+            val net  = cm.activeNetwork ?: return false
             val caps = cm.getNetworkCapabilities(net) ?: return false
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } else {

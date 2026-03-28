@@ -1,19 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
   <uses-permission android:name="android.permission.BIND_VPN_SERVICE"/>
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
   <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
   <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+  <!-- Pour VpnRestartReceiver : écoute les changements réseau -->
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -21,18 +24,55 @@
       <data android:scheme="https"/>
     </intent>
   </queries>
-  <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false" android:fullBackupContent="@xml/secure_store_backup_rules" android:dataExtractionRules="@xml/secure_store_data_extraction_rules">
+
+  <application
+      android:name=".MainApplication"
+      android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher"
+      android:roundIcon="@mipmap/ic_launcher_round"
+      android:allowBackup="true"
+      android:theme="@style/AppTheme"
+      android:supportsRtl="true"
+      android:enableOnBackInvokedCallback="false"
+      android:fullBackupContent="@xml/secure_store_backup_rules"
+      android:dataExtractionRules="@xml/secure_store_data_extraction_rules">
+
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
-    <meta-data android:name="expo.modules.updates.EXPO_RUNTIME_VERSION" android:value="@string/expo_runtime_version"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
-    <service android:name=".NetLockVpnService" android:exported="false" android:foregroundServiceType="specialUse" android:permission="android.permission.BIND_VPN_SERVICE" android:stopWithTask="false">
+
+    <!--
+      NetLockVpnService
+      CRITIQUE : android:stopWithTask="false"
+        → Le service continue même quand l'utilisateur swipe l'app du gestionnaire de tâches.
+        Sans cette ligne, Android tue le service à chaque fermeture de l'app,
+        peu importe START_STICKY ou startForeground.
+
+      android:exported="false"
+        → Pas accessible depuis d'autres apps.
+    -->
+    <service
+        android:name=".NetLockVpnService"
+        android:permission="android.permission.BIND_VPN_SERVICE"
+        android:exported="false"
+        android:stopWithTask="false"
+        android:foregroundServiceType="specialUse">
       <intent-filter>
         <action android:name="android.net.VpnService"/>
       </intent-filter>
-      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="VPN local pour bloquer le trafic réseau par application"/>
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="VPN internet control"/>
     </service>
-    <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
+
+    <activity
+        android:name=".MainActivity"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
+        android:launchMode="singleTask"
+        android:windowSoftInputMode="adjustResize"
+        android:theme="@style/Theme.App.SplashScreen"
+        android:exported="true"
+        android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
@@ -44,44 +84,35 @@
         <data android:scheme="netlockapp"/>
         <data android:scheme="netoff"/>
       </intent-filter>
-      <intent-filter android:autoVerify="true" data-generated="true">
-        <action android:name="android.intent.action.VIEW"/>
-        <data android:scheme="netoff"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-      </intent-filter>
     </activity>
-    <receiver android:name=".BootReceiver" android:exported="false" android:directBootAware="true">
+
+    <!--
+      BootReceiver
+      directBootAware="true" → démarre même en démarrage chiffré (avant le déverrouillage)
+      QUICKBOOT_POWERON      → Huawei/Honor spécifique
+      Priority 999           → exécuté avant les autres receivers
+    -->
+    <receiver
+        android:name=".BootReceiver"
+        android:exported="false"
+        android:directBootAware="true">
       <intent-filter android:priority="999">
         <action android:name="android.intent.action.BOOT_COMPLETED"/>
         <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
+        <!-- Huawei quick boot -->
         <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
         <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
       </intent-filter>
     </receiver>
-    <receiver android:name=".ScheduleReceiver" android:exported="false">
-      <intent-filter>
-        <action android:name="android.intent.action.BOOT_COMPLETED"/>
-        <action android:name="com.netoff.app.SCHEDULE_TRIGGER"/>
-      </intent-filter>
-    </receiver>
-    <receiver android:name=".FocusReceiver" android:exported="false">
-      <intent-filter>
-        <action android:name="com.netoff.app.FOCUS_END"/>
-      </intent-filter>
-    </receiver>
-    <receiver android:name=".WidgetToggleReceiver" android:exported="false">
-      <intent-filter>
-        <action android:name="com.netoff.app.WIDGET_TOGGLE_VPN"/>
-      </intent-filter>
-    </receiver>
-    <receiver android:name=".NetOffWidget" android:exported="true" android:label="NetOff">
-      <intent-filter>
-        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
-      </intent-filter>
-      <meta-data android:name="android.appwidget.provider" android:resource="@xml/netoff_widget_info"/>
-    </receiver>
-    <receiver android:name=".VpnRestartReceiver" android:exported="false">
+
+    <!--
+      VpnRestartReceiver
+      Relance le VPN sur déverrouillage, changement réseau, branchement chargeur.
+      Couvre le cas Huawei où le VPN est tué en veille profonde.
+    -->
+    <receiver
+        android:name=".VpnRestartReceiver"
+        android:exported="false">
       <intent-filter>
         <action android:name="android.intent.action.USER_PRESENT"/>
         <action android:name="android.intent.action.SCREEN_ON"/>
@@ -89,5 +120,32 @@
         <action android:name="android.intent.action.ACTION_POWER_CONNECTED"/>
       </intent-filter>
     </receiver>
+
+    <receiver android:name=".ScheduleReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+        <action android:name="com.netoff.app.SCHEDULE_TRIGGER"/>
+      </intent-filter>
+    </receiver>
+
+    <receiver android:name=".FocusReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="com.netoff.app.FOCUS_END"/>
+      </intent-filter>
+    </receiver>
+
+    <receiver android:name=".WidgetToggleReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="com.netoff.app.WIDGET_TOGGLE_VPN"/>
+      </intent-filter>
+    </receiver>
+
+    <receiver android:name=".NetOffWidget" android:exported="true" android:label="NetOff">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+      </intent-filter>
+      <meta-data android:name="android.appwidget.provider" android:resource="@xml/netoff_widget_info"/>
+    </receiver>
+
   </application>
 </manifest>

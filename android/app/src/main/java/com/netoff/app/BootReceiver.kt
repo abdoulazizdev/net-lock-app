@@ -6,58 +6,49 @@ import android.content.Intent
 import android.os.Build
 
 /**
- * Redémarre le VPN et la session Focus après un reboot du téléphone.
- * Déclenché par android.intent.action.BOOT_COMPLETED.
- * Les alarmes de planification sont gérées par ScheduleReceiver (déjà enregistré).
+ * BootReceiver — Redémarre le VPN et la session Focus après un reboot.
+ * directBootAware="true" dans le manifest → s'exécute même avant le déverrouillage.
  */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        val intentAction = intent.action
+        if (intentAction != Intent.ACTION_BOOT_COMPLETED &&
+            intentAction != Intent.ACTION_LOCKED_BOOT_COMPLETED &&
+            intentAction != "android.intent.action.QUICKBOOT_POWERON" &&
+            intentAction != "com.htc.intent.action.QUICKBOOT_POWERON") return
 
-        val vpnPrefs = context.getSharedPreferences("netoff_vpn", Context.MODE_PRIVATE)
+        val vpnPrefs   = context.getSharedPreferences(NetLockVpnService.PREFS, Context.MODE_PRIVATE)
         val focusPrefs = context.getSharedPreferences("netoff_focus", Context.MODE_PRIVATE)
 
-        // ── 1. Redémarrer le VPN si actif avant le reboot ────────────────────
-        val vpnWasActive = vpnPrefs.getBoolean("vpn_was_active", false)
+        // ── 1. Redémarrer le VPN ───────────────────────────────────────────
+        val vpnWasActive  = vpnPrefs.getBoolean(NetLockVpnService.KEY_ACTIVE, false)
+        val allowlistMode = vpnPrefs.getBoolean(NetLockVpnService.KEY_ALLOW_MODE, false)
+
         if (vpnWasActive) {
             val vpnIntent = Intent(context, NetLockVpnService::class.java).apply {
                 action = "START"
+                putExtra("allowlist_mode", allowlistMode)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(vpnIntent)
-            } else {
-                context.startService(vpnIntent)
-            }
+            startService(context, vpnIntent)
         }
 
-        // ── 2. Reprendre la session Focus si elle n'est pas expirée ──────────
-        val focusActive = focusPrefs.getBoolean(FocusModule.KEY_ACTIVE, false)
+        // ── 2. Reprendre la session Focus ──────────────────────────────────
+        val focusActive  = focusPrefs.getBoolean(FocusModule.KEY_ACTIVE, false)
         val focusEndTime = focusPrefs.getLong(FocusModule.KEY_END_TIME, 0L)
-        val now = System.currentTimeMillis()
+        val now          = System.currentTimeMillis()
 
         if (focusActive && focusEndTime > now) {
-            // Reprogrammer l'alarme de fin (elle a été perdue au reboot)
             val packagesJson = focusPrefs.getString(FocusModule.KEY_PACKAGES, "[]") ?: "[]"
-
-            // Réappliquer les règles VPN du focus
             try {
                 val arr = org.json.JSONArray(packagesJson)
                 val set = HashSet<String>()
                 for (i in 0 until arr.length()) set.add(arr.getString(i))
                 NetLockVpnService.blockedPackages = set
-
-                val updateIntent = Intent(context, NetLockVpnService::class.java).apply { action = "UPDATE_RULES" }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    context.startForegroundService(updateIntent)
-                else
-                    context.startService(updateIntent)
+                startService(context, Intent(context, NetLockVpnService::class.java).apply { action = "UPDATE_RULES" })
             } catch (_: Exception) {}
-
-            // Reprogrammer l'alarme de fin Focus
             scheduleFocusEndAlarm(context, focusEndTime)
-
-        } else if (focusActive && focusEndTime <= now) {
+        } else if (focusActive) {
             // Session expirée pendant le reboot → nettoyer
             focusPrefs.edit()
                 .putBoolean(FocusModule.KEY_ACTIVE, false)
@@ -66,19 +57,30 @@ class BootReceiver : BroadcastReceiver() {
                 .apply()
         }
 
-        // ── 3. Mettre à jour le widget ────────────────────────────────────────
+        // ── 3. Watchdog ────────────────────────────────────────────────────
+        WatchdogWorker.scheduleIfNeeded(context)
+
+        // ── 4. Widget ──────────────────────────────────────────────────────
         NetOffWidget.forceUpdate(context)
     }
 
+    private fun startService(context: Context, intent: Intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            context.startForegroundService(intent)
+        else
+            context.startService(intent)
+    }
+
     private fun scheduleFocusEndAlarm(context: Context, endTime: Long) {
-        val am = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val am    = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         else android.app.PendingIntent.FLAG_UPDATE_CURRENT
-
-        val intent = Intent(context, FocusReceiver::class.java).apply { action = FocusModule.ACTION_FOCUS_END }
-        val pi = android.app.PendingIntent.getBroadcast(context, FocusModule.REQUEST_CODE, intent, flags)
-
+        val pi = android.app.PendingIntent.getBroadcast(
+            context, FocusModule.REQUEST_CODE,
+            Intent(context, FocusReceiver::class.java).apply { action = FocusModule.ACTION_FOCUS_END },
+            flags
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, endTime, pi)
         else

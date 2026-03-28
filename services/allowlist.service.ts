@@ -1,58 +1,80 @@
+/**
+ * allowlist.service.ts
+ *
+ * MODE ALLOWLIST = liste blanche = "tout bloquer sauf ces apps"
+ *
+ * Implémentation au niveau VPN :
+ *   Mode normal (blocklist) : addAllowedApplication(blockedApp)
+ *     → apps bloquées entrent dans le tunnel → drainées
+ *     → EMUI peut bypasser via ses propres chemins réseau ← PROBLÈME HUAWEI
+ *
+ *   Mode allowlist : addDisallowedApplication(allowedApp)
+ *     → TOUT entre dans le tunnel par défaut → drainé
+ *     → apps autorisées sont explicitement exclues du tunnel
+ *     → EMUI ne peut pas bypasser car il n'y a pas de chemin alternatif
+ *       à exploiter — c'est le comportement par défaut du VPN Android
+ */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import AppListService from "./app-list.service";
+import { NativeModules } from "react-native";
 import VpnService from "./vpn.service";
 
-const KEY_ALLOWLIST_MODE = "@netoff_allowlist_mode";
-const KEY_ALLOWLIST_PACKAGES = "@netoff_allowlist_packages";
+const { VpnModule } = NativeModules;
+
+const KEY_MODE = "@netoff_allowlist_mode";
+const KEY_PACKAGES = "@netoff_allowlist_packages";
 
 export interface AllowlistState {
   enabled: boolean;
-  packages: string[]; // packages AUTORISÉS (tous les autres sont bloqués)
+  packages: string[]; // packages autorisés (internet ok)
 }
 
-/**
- * MODE ALLOWLIST (liste blanche) — l'inverse du mode normal.
- * En mode normal : on bloque explicitement certaines apps.
- * En mode allowlist : TOUT est bloqué SAUF les apps de la liste blanche.
- *
- * Techniquement : on génère des règles isBlocked=true pour toutes les apps
- * SAUF celles dans la whitelist, puis on syncRules() avec le VPN.
- */
 class AllowlistService {
   async getState(): Promise<AllowlistState> {
-    const [enabled, pkgsRaw] = await Promise.all([
-      AsyncStorage.getItem(KEY_ALLOWLIST_MODE),
-      AsyncStorage.getItem(KEY_ALLOWLIST_PACKAGES),
+    const [mode, pkgsRaw] = await Promise.all([
+      AsyncStorage.getItem(KEY_MODE),
+      AsyncStorage.getItem(KEY_PACKAGES),
     ]);
     return {
-      enabled: enabled === "true",
+      enabled: mode === "true",
       packages: pkgsRaw ? JSON.parse(pkgsRaw) : [],
     };
   }
 
+  /**
+   * Active le mode liste blanche.
+   * Utilise VpnModule.setAllowlistMode() → addDisallowedApplication dans le service.
+   * Plus robuste sur Huawei/EMUI que le mode blocklist.
+   */
   async enable(allowedPackages: string[]): Promise<void> {
-    await AsyncStorage.setItem(KEY_ALLOWLIST_MODE, "true");
-    await AsyncStorage.setItem(
-      KEY_ALLOWLIST_PACKAGES,
-      JSON.stringify(allowedPackages),
-    );
-    await this.applyAllowlist(allowedPackages);
+    await AsyncStorage.multiSet([
+      [KEY_MODE, "true"],
+      [KEY_PACKAGES, JSON.stringify(allowedPackages)],
+    ]);
+    await this._applyAllowlist(allowedPackages);
   }
 
+  /**
+   * Désactive le mode liste blanche.
+   * Revient au mode blocklist normal (règles StorageService).
+   */
   async disable(): Promise<void> {
-    await AsyncStorage.setItem(KEY_ALLOWLIST_MODE, "false");
-    // Restaurer les règles normales depuis StorageService
+    await AsyncStorage.multiSet([
+      [KEY_MODE, "false"],
+      [KEY_PACKAGES, "[]"],
+    ]);
+    // Désactiver au niveau VPN et revenir aux règles normales
+    if (VpnModule?.disableAllowlistMode) {
+      await VpnModule.disableAllowlistMode();
+    }
     await VpnService.syncRules();
   }
 
+  /** Met à jour la liste blanche (mode déjà actif). */
   async updateAllowedPackages(packages: string[]): Promise<void> {
     const state = await this.getState();
     if (!state.enabled) return;
-    await AsyncStorage.setItem(
-      KEY_ALLOWLIST_PACKAGES,
-      JSON.stringify(packages),
-    );
-    await this.applyAllowlist(packages);
+    await AsyncStorage.setItem(KEY_PACKAGES, JSON.stringify(packages));
+    await this._applyAllowlist(packages);
   }
 
   async addToAllowlist(packageName: string): Promise<void> {
@@ -69,22 +91,35 @@ class AllowlistService {
     );
   }
 
-  /** Génère et applique les règles de blocage pour toutes les apps sauf la whitelist */
-  private async applyAllowlist(allowedPackages: string[]): Promise<void> {
-    const allowed = new Set(allowedPackages);
-    const allApps = await AppListService.getNonSystemApps();
-
-    // Créer une règle blocked=true pour chaque app non-autorisée
-    const rulesToBlock = allApps
-      .filter((app) => !allowed.has(app.packageName))
-      .map((app) => app.packageName);
-
-    // Passer directement les packages bloqués au module VPN
-    const { NativeModules } = require("react-native");
-    if (NativeModules.VpnModule) {
-      await NativeModules.VpnModule.setBlockedApps(rulesToBlock);
+  /**
+   * Applique le mode allowlist au niveau VPN natif.
+   * Utilise setAllowlistMode() → addDisallowedApplication() dans NetLockVpnService.
+   * Ce mode route TOUT dans le tunnel sauf les apps autorisées.
+   */
+  private async _applyAllowlist(allowedPackages: string[]): Promise<void> {
+    if (VpnModule?.setAllowlistMode) {
+      // Passer directement au module natif — il gère le tunnel en mode ALLOWLIST
+      await VpnModule.setAllowlistMode(allowedPackages);
+    } else {
+      // Fallback si module non disponible : mode blocklist avec toutes les apps
+      console.warn(
+        "AllowlistService: VpnModule.setAllowlistMode non disponible — fallback blocklist",
+      );
+      const { default: AppListService } = await import("./app-list.service");
+      const allApps = await AppListService.getNonSystemApps();
+      const allowed = new Set(allowedPackages);
+      const toBlock = allApps
+        .filter((app) => !allowed.has(app.packageName))
+        .map((app) => app.packageName);
+      await VpnModule.setBlockedApps(toBlock);
     }
   }
 }
 
 export default new AllowlistService();
+
+// ─── Note iOS ─────────────────────────────────────────────────────────────────
+// Cette implémentation est 100% Android.
+// iOS n'expose pas d'API permettant à une app tierce de bloquer le trafic
+// d'autres apps sans entitlements spéciaux Apple (MDM/enterprise uniquement).
+// → NetOff ne peut pas fonctionner sur iOS.
