@@ -861,10 +861,23 @@ export default function HomeScreen() {
     }
   }, []);
 
-  const toggleVpn = useCallback(() => {
-    if (anyActive) return;
-    if (vpnActive) VpnService.stopVpn();
-    else VpnService.startVpn();
+  // const toggleVpn = useCallback(() => {
+  //   if (anyActive) return;
+  //   if (vpnActive) VpnService.stopVpn();
+  //   else VpnService.startVpn();
+  // }, [vpnActive, anyActive]);
+
+  const toggleVpn = useCallback(async () => {
+    if (anyActive) return; // VPN locked si Focus OU Minuterie actif
+    if (vpnActive) {
+      await VpnService.stopVpn();
+      setVpnActive(false);
+      return;
+    }
+    // startVpn() gère la permission Android automatiquement.
+    // Si needs_permission → dialog → VpnService émet vpn:changed après accord.
+    // Ne pas setVpnActive(true) ici — attendre l'event vpn:changed.
+    await VpnService.startVpn();
   }, [vpnActive, anyActive]);
 
   // ── Disable allowlist from Home ────────────────────────────────────────────

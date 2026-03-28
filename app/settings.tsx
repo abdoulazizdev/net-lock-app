@@ -811,17 +811,29 @@ export default function SettingsScreen() {
     }
   };
 
+  // // ── VPN ───────────────────────────────────────────────────────────────────
+  // const toggleVpn = async () => {
+  //   const next = !vpnActive;
+  //   setVpnActive(next);
+  //   try {
+  //     if (next) await VpnService.startVpn();
+  //     else await VpnService.stopVpn();
+  //   } catch {
+  //     setVpnActive(!next);
+  //   }
+  //   await loadAll();
+  // };
+
   // ── VPN ───────────────────────────────────────────────────────────────────
   const toggleVpn = async () => {
-    const next = !vpnActive;
-    setVpnActive(next);
-    try {
-      if (next) await VpnService.startVpn();
-      else await VpnService.stopVpn();
-    } catch {
-      setVpnActive(!next);
+    if (vpnActive) {
+      await VpnService.stopVpn();
+      setVpnActive(false);
+      return;
     }
-    await loadAll();
+    // startVpn() gère la permission automatiquement.
+    // Si needs_permission → dialog Android → VpnService émet vpn:changed après accord.
+    await VpnService.startVpn();
   };
 
   // ── Export / Import ────────────────────────────────────────────────────────
