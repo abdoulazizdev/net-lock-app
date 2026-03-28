@@ -9,6 +9,7 @@ type EventMap = {
   "profile:changed": void;
   "premium:changed": boolean;
   "stats:refresh": void;
+  "allowlist:changed": boolean;
 };
 
 type EventKey = keyof EventMap;

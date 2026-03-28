@@ -1,4 +1,3 @@
-import AllowlistModal from "@/components/AllowlistModal";
 import PaywallModal from "@/components/PaywallModal";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAppInfo } from "@/hooks/useAppInfo";
@@ -13,7 +12,7 @@ import VpnService from "@/services/vpn.service";
 import { Colors, Semantic, useTheme } from "@/theme";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -168,6 +167,7 @@ function SectionLabel({ label }: { label: string }) {
   const { t } = useTheme();
   return <Text style={[s.sectionLabel, { color: t.text.muted }]}>{label}</Text>;
 }
+
 function Divider() {
   const { t } = useTheme();
   return <View style={[s.sep, { backgroundColor: t.border.light }]} />;
@@ -593,8 +593,8 @@ export default function SettingsScreen() {
     enabled: false,
     packages: [],
   });
-  const [allowlistModal, setAllowlistModal] = useState(false);
   const [allowlistLoading, setAllowlistLoading] = useState(false);
+
   // Animation du toggle allowlist
   const allowlistAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -619,6 +619,7 @@ export default function SettingsScreen() {
   const modalSlide = useRef(new Animated.Value(300)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
 
+  // ── Un seul useEffect — plus de double return ──────────────────────────────
   useEffect(() => {
     loadAll();
     Animated.parallel([
@@ -634,8 +635,22 @@ export default function SettingsScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-    const unsub = AppEvents.on("vpn:changed", (active) => setVpnActive(active));
-    return () => unsub();
+
+    const unsubVpn = AppEvents.on("vpn:changed", (active) =>
+      setVpnActive(active),
+    );
+    const unsubAllowlist = AppEvents.on(
+      "allowlist:changed" as any,
+      async () => {
+        const alState = await AllowlistService.getState();
+        setAllowlistState(alState);
+      },
+    );
+
+    return () => {
+      unsubVpn();
+      unsubAllowlist();
+    };
   }, []);
 
   useEffect(() => {
@@ -690,10 +705,8 @@ export default function SettingsScreen() {
       StorageService.getProfiles(),
     ]);
     setStats({ rules: rules.length, profiles: profiles.length });
-    // Allowlist
     const alState = await AllowlistService.getState();
     setAllowlistState(alState);
-    // OEM (non bloquant)
     OemCompatService.getDeviceInfo()
       .then(setOemInfo)
       .catch(() => {});
@@ -702,53 +715,34 @@ export default function SettingsScreen() {
   // ── Allowlist handlers ─────────────────────────────────────────────────────
   const handleAllowlistToggle = async () => {
     if (allowlistLoading) return;
-    setAllowlistLoading(true);
-    try {
-      if (allowlistState.enabled) {
-        Alert.alert(
-          "Désactiver le mode Liste blanche ?",
-          "Le blocage reviendra en mode normal (les apps cochées dans l'accueil seront bloquées).",
-          [
-            { text: "Annuler", style: "cancel" },
-            {
-              text: "Désactiver",
-              style: "destructive",
-              onPress: async () => {
+    if (allowlistState.enabled) {
+      Alert.alert(
+        "Désactiver le mode Liste blanche ?",
+        "Le blocage reviendra en mode normal.",
+        [
+          { text: "Annuler", style: "cancel" },
+          {
+            text: "Désactiver",
+            style: "destructive",
+            onPress: async () => {
+              setAllowlistLoading(true);
+              try {
                 await AllowlistService.disable();
                 setAllowlistState(await AllowlistService.getState());
+                AppEvents.emit("allowlist:changed", false);
                 AppEvents.emit("rules:changed", undefined);
-              },
+              } finally {
+                setAllowlistLoading(false);
+              }
             },
-          ],
-        );
-      } else {
-        // Ouvrir le sélecteur d'apps avant d'activer
-        setAllowlistModal(true);
-      }
-    } finally {
-      setAllowlistLoading(false);
+          },
+        ],
+      );
+    } else {
+      // Naviguer vers la page de configuration
+      router.push("/screens/allowlist");
     }
   };
-
-  const handleAllowlistSave = useCallback(
-    async (pkgs: string[]) => {
-      setAllowlistLoading(true);
-      try {
-        if (allowlistState.enabled) {
-          // Mise à jour de la liste existante
-          await AllowlistService.updateAllowedPackages(pkgs);
-        } else {
-          // Première activation
-          await AllowlistService.enable(pkgs);
-        }
-        setAllowlistState(await AllowlistService.getState());
-        AppEvents.emit("rules:changed", undefined);
-      } finally {
-        setAllowlistLoading(false);
-      }
-    },
-    [allowlistState.enabled],
-  );
 
   // ── PIN / Bio ──────────────────────────────────────────────────────────────
   const handlePinToggle = () => {
@@ -1091,7 +1085,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── Mode Allowlist (Liste blanche) ── */}
+        {/* ── Mode Liste blanche ── */}
         <SectionLabel label="MODE LISTE BLANCHE" />
         <Animated.View
           style={[
@@ -1202,7 +1196,7 @@ export default function SettingsScreen() {
                     borderColor: Colors.green[200],
                   },
                 ]}
-                onPress={() => setAllowlistModal(true)}
+                onPress={() => router.push("/screens/allowlist")}
                 activeOpacity={0.8}
               >
                 <Text
@@ -1624,14 +1618,6 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* ── Allowlist Modal ── */}
-      <AllowlistModal
-        visible={allowlistModal}
-        onClose={() => setAllowlistModal(false)}
-        allowedPackages={allowlistState.packages}
-        onSave={handleAllowlistSave}
-      />
-
       <PinChangeModal
         visible={pinModalVisible}
         onClose={handlePinModalClose}
@@ -1723,8 +1709,6 @@ const s = StyleSheet.create({
     marginBottom: 10,
     marginTop: 8,
   },
-
-  // VPN
   vpnBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1774,8 +1758,6 @@ const s = StyleSheet.create({
   statNum: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   statDot: { width: 12, height: 12, borderRadius: 6 },
   statLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1.5 },
-
-  // Allowlist
   allowlistCard: {
     borderRadius: 18,
     borderWidth: 1,
@@ -1819,8 +1801,6 @@ const s = StyleSheet.create({
     paddingVertical: 6,
     marginBottom: 8,
   },
-
-  // Sécurité
   lockStatusBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1853,8 +1833,6 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 4,
   },
-
-  // Cards
   card: {
     borderRadius: 18,
     borderWidth: 1,
@@ -1891,8 +1869,6 @@ const s = StyleSheet.create({
     borderWidth: 1,
   },
   toggleThumb: { width: 18, height: 18, borderRadius: 9, position: "absolute" },
-
-  // OEM
   oemWarnBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1947,6 +1923,7 @@ const pp = StyleSheet.create({
   },
   submitText: { color: Colors.gray[0], fontSize: 16, fontWeight: "800" },
 });
+
 const cpm = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
@@ -1984,6 +1961,7 @@ const cpm = StyleSheet.create({
     lineHeight: 20,
   },
 });
+
 const pcm = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "center" },
   container: { alignItems: "center", paddingHorizontal: 32 },
@@ -2023,6 +2001,7 @@ const pcm = StyleSheet.create({
     lineHeight: 20,
   },
 });
+
 const em = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -2080,6 +2059,7 @@ const em = StyleSheet.create({
   },
   cancelBtnText: { fontSize: 14, fontWeight: "600" },
 });
+
 const ccm = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -2127,125 +2107,4 @@ const ccm = StyleSheet.create({
     borderWidth: 1,
   },
   cancelBtnText: { fontSize: 14, fontWeight: "600" },
-});
-// ── Allowlist Modal Styles ────────────────────────────────────────────────────
-const alm = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,.5)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 0,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 16,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
-  headerIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  title: { fontSize: 16, fontWeight: "800", letterSpacing: -0.3 },
-  sub: { fontSize: 11, marginTop: 2 },
-  closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  infoBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  infoText: { fontSize: 12, lineHeight: 17, flex: 1 },
-  searchBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginBottom: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  searchPlaceholder: { fontSize: 13 },
-  quickBtns: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    marginBottom: 10,
-  },
-  quickBtn: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: 10,
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  quickBtnText: { fontSize: 12, fontWeight: "700" },
-  loadingWrap: { paddingVertical: 32, alignItems: "center" },
-  appRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 6,
-  },
-  appIcon: { width: 40, height: 40, borderRadius: 11 },
-  appIconFallback: {
-    width: 40,
-    height: 40,
-    borderRadius: 11,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  appIconLetter: { fontSize: 16, fontWeight: "800" },
-  appName: { fontSize: 13, fontWeight: "600", marginBottom: 2 },
-  appPkg: { fontSize: 10, fontFamily: "monospace", opacity: 0.6 },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    borderWidth: 1.5,
-    borderColor: "#CBD5E0",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  checkboxText: { fontSize: 11, color: "#fff", fontWeight: "800" },
-  footer: { paddingHorizontal: 16, paddingTop: 10, gap: 6 },
-  saveBtn: { borderRadius: 16, paddingVertical: 15, alignItems: "center" },
-  saveBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  emptyHint: { fontSize: 11, textAlign: "center" },
 });

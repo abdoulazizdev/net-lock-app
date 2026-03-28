@@ -1,27 +1,18 @@
-// ─── More menu — version corrigée & améliorée ─────────────────────────────────
-// Fixes :
-//   • Suppression de overflow:"hidden" qui coupait le 2e item sur certains appareils
-//   • Modal avec visible={visible} explicite (pas de guard if (!visible) return null)
-//   • setTimeout 80ms avant onPress pour laisser l'animation de fermeture se lancer
-//   • Séparateur rendu avec Fragment + View au lieu de borderBottom conditionnel
-// Améliorations :
-//   • Scale + slide + fade à l'ouverture
-//   • Icônes colorées distinctes (ambre pour timer, slate pour settings)
-//   • Badge "PRO pour +" si non-premium
-//   • minWidth 240, borderRadius 18
-
+// components/MoreMenu.tsx
 import { usePremium } from "@/hooks/usePremium";
+import AllowlistService from "@/services/allowlist.service";
+import AppEvents from "@/services/app-events";
 import { FREE_LIMITS } from "@/services/subscription.service";
 import { Colors, useTheme } from "@/theme";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Easing,
-    Modal,
-    StyleSheet,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  Animated,
+  Easing,
+  Modal,
+  StyleSheet,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { Text } from "react-native-paper";
 
@@ -30,6 +21,7 @@ interface MoreMenuProps {
   onClose: () => void;
   onSettings: () => void;
   onTimer: () => void;
+  onAllowlist: () => void;
 }
 
 export const MoreMenu = React.memo(function MoreMenu({
@@ -37,6 +29,7 @@ export const MoreMenu = React.memo(function MoreMenu({
   onClose,
   onSettings,
   onTimer,
+  onAllowlist,
 }: MoreMenuProps) {
   const { t } = useTheme();
   const { isPremium } = usePremium();
@@ -44,8 +37,25 @@ export const MoreMenu = React.memo(function MoreMenu({
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.94)).current;
 
+  const [allowlistEnabled, setAllowlistEnabled] = useState(false);
+  const [allowlistCount, setAllowlistCount] = useState(0);
+
+  // Sync with allowlist:changed event
+  useEffect(() => {
+    const unsub = AppEvents.on("allowlist:changed" as any, async () => {
+      const state = await AllowlistService.getState();
+      setAllowlistEnabled(state.enabled);
+      setAllowlistCount(state.packages.length);
+    });
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     if (visible) {
+      AllowlistService.getState().then((state) => {
+        setAllowlistEnabled(state.enabled);
+        setAllowlistCount(state.packages.length);
+      });
       slideAnim.setValue(-12);
       opacityAnim.setValue(0);
       scaleAnim.setValue(0.94);
@@ -72,8 +82,8 @@ export const MoreMenu = React.memo(function MoreMenu({
   }, [visible]);
 
   const freeTimerPresets = FREE_LIMITS.TIMER_PRESETS_FREE.map(
-    (m: number) => `${m} min`,
-  ).join(", ");
+    (m: number) => `${m}min`,
+  ).join(" · ");
 
   const items = [
     {
@@ -82,18 +92,33 @@ export const MoreMenu = React.memo(function MoreMenu({
       iconBg: "rgba(251,191,36,0.15)",
       iconBorder: "rgba(251,191,36,0.32)",
       label: "Minuterie",
-      sub: isPremium
-        ? "Blocage jusqu'à 4h · Stop en 1 tap"
-        : `Gratuit : ${freeTimerPresets} · Stop en 1 tap`,
-      badge: !isPremium
-        ? {
-            label: "PRO pour +",
-            color: Colors.amber[600],
-            bg: Colors.amber[50],
-            border: Colors.amber[200],
-          }
-        : null,
+      sub: isPremium ? "Jusqu'à 4h · Stop en 1 tap" : freeTimerPresets,
+      rightLabel: !isPremium ? "PRO" : null,
+      rightColor: Colors.amber[600],
+      rightBg: "rgba(251,191,36,0.15)",
+      rightBorder: "rgba(251,191,36,0.32)",
+      active: false,
       onPress: onTimer,
+    },
+    {
+      key: "allowlist",
+      icon: allowlistEnabled ? "✅" : "○",
+      iconBg: allowlistEnabled
+        ? "rgba(52,211,153,0.15)"
+        : "rgba(100,116,139,0.12)",
+      iconBorder: allowlistEnabled
+        ? "rgba(52,211,153,0.35)"
+        : "rgba(100,116,139,0.25)",
+      label: "Liste blanche",
+      sub: allowlistEnabled
+        ? `${allowlistCount} app${allowlistCount > 1 ? "s" : ""} autorisée${allowlistCount > 1 ? "s" : ""}`
+        : "Bloquer tout sauf exceptions",
+      rightLabel: allowlistEnabled ? "ON" : null,
+      rightColor: "#34d399",
+      rightBg: "rgba(52,211,153,0.15)",
+      rightBorder: "rgba(52,211,153,0.32)",
+      active: allowlistEnabled,
+      onPress: onAllowlist,
     },
     {
       key: "settings",
@@ -101,8 +126,12 @@ export const MoreMenu = React.memo(function MoreMenu({
       iconBg: "rgba(100,116,139,0.15)",
       iconBorder: "rgba(100,116,139,0.30)",
       label: "Paramètres",
-      sub: "VPN · Sécurité · Profils · Thème",
-      badge: null,
+      sub: "VPN · Sécurité · Thème",
+      rightLabel: null,
+      rightColor: null,
+      rightBg: null,
+      rightBorder: null,
+      active: false,
       onPress: onSettings,
     },
   ];
@@ -132,14 +161,18 @@ export const MoreMenu = React.memo(function MoreMenu({
               {items.map((item, i) => (
                 <React.Fragment key={item.key}>
                   <TouchableOpacity
-                    style={mm.item}
+                    style={[
+                      mm.item,
+                      item.active && {
+                        backgroundColor: "rgba(52,211,153,0.05)",
+                      },
+                    ]}
                     onPress={() => {
                       onClose();
                       setTimeout(() => item.onPress(), 80);
                     }}
                     activeOpacity={0.68}
                   >
-                    {/* Icône colorée */}
                     <View
                       style={[
                         mm.iconWrap,
@@ -151,34 +184,13 @@ export const MoreMenu = React.memo(function MoreMenu({
                     >
                       <Text style={mm.iconText}>{item.icon}</Text>
                     </View>
-
-                    {/* Texte */}
                     <View style={mm.textBlock}>
-                      <View style={mm.labelRow}>
-                        <Text style={[mm.label, { color: t.text.primary }]}>
-                          {item.label}
-                        </Text>
-                        {item.badge && (
-                          <View
-                            style={[
-                              mm.badge,
-                              {
-                                backgroundColor: item.badge.bg,
-                                borderColor: item.badge.border,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                mm.badgeText,
-                                { color: item.badge.color },
-                              ]}
-                            >
-                              {item.badge.label}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
+                      <Text
+                        style={[mm.label, { color: t.text.primary }]}
+                        numberOfLines={1}
+                      >
+                        {item.label}
+                      </Text>
                       <Text
                         style={[mm.sub, { color: t.text.muted }]}
                         numberOfLines={1}
@@ -186,20 +198,31 @@ export const MoreMenu = React.memo(function MoreMenu({
                         {item.sub}
                       </Text>
                     </View>
-
-                    {/* Chevron */}
-                    <Text style={[mm.chevron, { color: t.border.normal }]}>
-                      ›
-                    </Text>
+                    {item.rightLabel ? (
+                      <View
+                        style={[
+                          mm.badge,
+                          {
+                            backgroundColor: item.rightBg!,
+                            borderColor: item.rightBorder!,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[mm.badgeText, { color: item.rightColor! }]}
+                        >
+                          {item.rightLabel}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={[mm.chevron, { color: t.border.normal }]}>
+                        ›
+                      </Text>
+                    )}
                   </TouchableOpacity>
-
-                  {/* Séparateur entre les items */}
                   {i < items.length - 1 && (
                     <View
-                      style={[
-                        mm.separator,
-                        { backgroundColor: t.border.light },
-                      ]}
+                      style={[mm.sep, { backgroundColor: t.border.light }]}
                     />
                   )}
                 </React.Fragment>
@@ -217,10 +240,9 @@ const mm = StyleSheet.create({
     position: "absolute",
     top: 96,
     right: 16,
-    minWidth: 240,
+    width: 252,
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
-    // ⚠️ PAS de overflow:"hidden" — c'est lui qui coupait le 2e item
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.28,
@@ -230,39 +252,31 @@ const mm = StyleSheet.create({
   item: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    gap: 11,
+    paddingHorizontal: 13,
+    paddingVertical: 13,
   },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: 14,
-  },
+  sep: { height: StyleSheet.hairlineWidth, marginHorizontal: 13 },
   iconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 11,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
     flexShrink: 0,
   },
-  iconText: { fontSize: 16, lineHeight: 20 },
-  textBlock: { flex: 1, gap: 3 },
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flexWrap: "wrap",
-  },
-  label: { fontSize: 14, fontWeight: "700", letterSpacing: -0.2 },
+  iconText: { fontSize: 15, lineHeight: 19 },
+  textBlock: { flex: 1, minWidth: 0, gap: 2 },
+  label: { fontSize: 13, fontWeight: "700", letterSpacing: -0.2 },
   sub: { fontSize: 11, lineHeight: 15 },
   badge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
+    flexShrink: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
     borderWidth: 1,
   },
-  badgeText: { fontSize: 8, fontWeight: "800", letterSpacing: 0.5 },
+  badgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.6 },
   chevron: { fontSize: 20, fontWeight: "300", flexShrink: 0 },
 });

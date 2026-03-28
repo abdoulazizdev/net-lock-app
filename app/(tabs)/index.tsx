@@ -12,6 +12,7 @@ import TimerBanner from "@/components/TimerBanner";
 import { VpnActivationModal } from "@/components/VpnActivationModal";
 import { VpnWarningBanner } from "@/components/VpnWarningBanner";
 import { usePremium } from "@/hooks/usePremium";
+import AllowlistService, { AllowlistState } from "@/services/allowlist.service";
 import AppEvents from "@/services/app-events";
 import AppListService from "@/services/app-list.service";
 import FocusService, { FocusStatus } from "@/services/focus.service";
@@ -30,6 +31,7 @@ import React, {
   useState,
 } from "react";
 import {
+  Alert,
   Animated,
   AppState,
   Easing,
@@ -47,8 +49,6 @@ import FocusFullScreen from "../Focusfullscreen";
 
 type AppItem = InstalledApp & { rule?: AppRule };
 const CARD_H = 72;
-// Delay (ms) before the list re-sorts after a block action.
-// This keeps the card in place so the user doesn't lose context.
 const SORT_DEFER_MS = 1500;
 
 function pkgHue(pkg: string) {
@@ -56,9 +56,6 @@ function pkgHue(pkg: string) {
 }
 
 // ─── BlockedToast ──────────────────────────────────────────────────────────────
-// Shows a brief notification at the bottom after blocking an app.
-// The "Voir ↑" button scrolls the FlatList back to the top so the user can
-// find the newly-blocked app without confusion.
 const BlockedToast = React.memo(function BlockedToast({
   appName,
   visible,
@@ -112,11 +109,7 @@ const BlockedToast = React.memo(function BlockedToast({
       pointerEvents={visible ? "auto" : "none"}
       style={[
         toast.wrap,
-        {
-          bottom: bottomInset + 100,
-          transform: [{ translateY }],
-          opacity,
-        },
+        { bottom: bottomInset + 100, transform: [{ translateY }], opacity },
       ]}
     >
       <View style={toast.inner}>
@@ -181,15 +174,8 @@ const toast = StyleSheet.create({
     backgroundColor: "#f87171",
     flexShrink: 0,
   },
-  label: {
-    flex: 1,
-    fontSize: 13,
-    color: "rgba(255,255,255,0.75)",
-  },
-  appName: {
-    fontWeight: "700",
-    color: "#fff",
-  },
+  label: { flex: 1, fontSize: 13, color: "rgba(255,255,255,0.75)" },
+  appName: { fontWeight: "700", color: "#fff" },
   cta: {
     paddingHorizontal: 9,
     paddingVertical: 4,
@@ -198,16 +184,8 @@ const toast = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(248,113,113,0.35)",
   },
-  ctaText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#f87171",
-  },
-  close: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.35)",
-    paddingLeft: 2,
-  },
+  ctaText: { fontSize: 11, fontWeight: "700", color: "#f87171" },
+  close: { fontSize: 11, color: "rgba(255,255,255,0.35)", paddingLeft: 2 },
 });
 
 // ─── PulseDot ─────────────────────────────────────────────────────────────────
@@ -259,6 +237,57 @@ const PulseDot = React.memo(function PulseDot({ color }: { color: string }) {
   );
 });
 
+// ─── MoreButton ───────────────────────────────────────────────────────────────
+const MoreButton = React.memo(function MoreButton({
+  active: menuActive,
+  allowlistActive,
+  onPress,
+}: {
+  active: boolean;
+  allowlistActive: boolean;
+  onPress: () => void;
+}) {
+  const borderAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(borderAnim, {
+      toValue: allowlistActive ? 1 : 0,
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [allowlistActive]);
+  const borderColor = borderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [
+      menuActive ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.15)",
+      "rgba(52,211,153,0.55)",
+    ],
+  });
+  const bgColor = borderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [
+      menuActive ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)",
+      "rgba(52,211,153,0.12)",
+    ],
+  });
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Animated.View
+        style={[g.moreBtn, { backgroundColor: bgColor, borderColor }]}
+      >
+        <View style={g.moreDot} />
+        <View style={g.moreDot} />
+        <View style={g.moreDot} />
+        {allowlistActive && <View style={g.moreBtnIndicator} />}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+});
+
 // ─── VpnToggle ────────────────────────────────────────────────────────────────
 const VpnToggle = React.memo(function VpnToggle({
   active,
@@ -280,7 +309,6 @@ const VpnToggle = React.memo(function VpnToggle({
       useNativeDriver: false,
     }).start();
   }, [active]);
-
   const bg = anim.interpolate({
     inputRange: [0, 1],
     outputRange: [
@@ -295,7 +323,6 @@ const VpnToggle = React.memo(function VpnToggle({
       "rgba(52,211,153,0.42)",
     ],
   });
-
   const dotColor = locked
     ? "rgba(255,255,255,0.2)"
     : active
@@ -303,7 +330,6 @@ const VpnToggle = React.memo(function VpnToggle({
       : danger
         ? "#f87171"
         : "rgba(255,255,255,0.28)";
-
   const textColor = locked
     ? "rgba(255,255,255,0.28)"
     : active
@@ -311,7 +337,6 @@ const VpnToggle = React.memo(function VpnToggle({
       : danger
         ? "#f87171"
         : "rgba(255,255,255,0.5)";
-
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -709,18 +734,21 @@ export default function HomeScreen() {
   const mountFade = useRef(new Animated.Value(0)).current;
   const mountSlide = useRef(new Animated.Value(18)).current;
 
-  // ── Deferred-sort state ────────────────────────────────────────────────────
-  // When true, filteredApps skips the blocked-first sort so cards stay in place.
-  // A timer resets it after SORT_DEFER_MS, triggering a smooth re-sort.
+  // ── Allowlist ──────────────────────────────────────────────────────────────
+  const [allowlistState, setAllowlistState] = useState<AllowlistState>({
+    enabled: false,
+    packages: [],
+  });
+
+  // ── Deferred-sort ──────────────────────────────────────────────────────────
   const [pendingSort, setPendingSort] = useState(false);
   const sortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Toast state ────────────────────────────────────────────────────────────
+  // ── Toast ──────────────────────────────────────────────────────────────────
   const [toastVisible, setToastVisible] = useState(false);
   const [toastAppName, setToastAppName] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── FlatList ref for programmatic scroll ──────────────────────────────────
   const flatListRef = useRef<FlatList<AppItem>>(null);
 
   const focusActive = focusStatus?.isActive ?? false;
@@ -732,10 +760,8 @@ export default function HomeScreen() {
     !vpnActive && blockedCount > 0 && !anyActive && !vpnWarningDismissed;
   const hasBanners =
     showVpnWarning || focusActive || timerActive || limitReached;
-
   const vpnDanger = !vpnActive && blockedCount > 0 && !anyActive;
 
-  // Show toast for TOAST_DURATION_MS then auto-dismiss
   const TOAST_DURATION_MS = 4000;
 
   const showBlockedToast = useCallback((name: string) => {
@@ -757,13 +783,13 @@ export default function HomeScreen() {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
 
-  // Arm the deferred sort. Every new block action resets the timer.
   const armSortTimer = useCallback(() => {
     if (sortTimerRef.current) clearTimeout(sortTimerRef.current);
     setPendingSort(true);
-    sortTimerRef.current = setTimeout(() => {
-      setPendingSort(false);
-    }, SORT_DEFER_MS);
+    sortTimerRef.current = setTimeout(
+      () => setPendingSort(false),
+      SORT_DEFER_MS,
+    );
   }, []);
 
   useEffect(() => {
@@ -781,7 +807,6 @@ export default function HomeScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-
     return () => {
       if (sortTimerRef.current) clearTimeout(sortTimerRef.current);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -813,6 +838,11 @@ export default function HomeScreen() {
     setApps((prev) => mergeAppsRules(prev, rules, prev));
   }, [mergeAppsRules]);
 
+  const refreshAllowlist = useCallback(async () => {
+    const state = await AllowlistService.getState();
+    setAllowlistState(state);
+  }, []);
+
   const checkFocus = useCallback(async () => {
     try {
       const s = await FocusService.getStatus();
@@ -833,12 +863,36 @@ export default function HomeScreen() {
 
   const toggleVpn = useCallback(() => {
     if (anyActive) return;
-    if (vpnActive) {
-      VpnService.stopVpn();
-    } else {
-      VpnService.startVpn();
-    }
+    if (vpnActive) VpnService.stopVpn();
+    else VpnService.startVpn();
   }, [vpnActive, anyActive]);
+
+  // ── Disable allowlist from Home ────────────────────────────────────────────
+  const handleDisableAllowlist = useCallback(() => {
+    Alert.alert(
+      "Désactiver la liste blanche ?",
+      "Le blocage reviendra en mode normal (les apps cochées seront bloquées).",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Désactiver",
+          style: "destructive",
+          onPress: async () => {
+            await AllowlistService.disable();
+            const newState = await AllowlistService.getState();
+            setAllowlistState(newState);
+            AppEvents.emit("allowlist:changed", false);
+            AppEvents.emit("rules:changed", undefined);
+          },
+        },
+      ],
+    );
+  }, []);
+
+  // ── Navigate to allowlist page ─────────────────────────────────────────────
+  const handleOpenAllowlist = useCallback(() => {
+    router.push("/screens/allowlist");
+  }, []);
 
   useEffect(() => {
     const unsubVpn = AppEvents.on("vpn:changed", (active) => {
@@ -868,20 +922,26 @@ export default function HomeScreen() {
     const unsubPremium = AppEvents.on("premium:changed", () =>
       refreshPremium(),
     );
+    // ← Écouter les changements allowlist depuis n'importe quelle page
+    const unsubAllowlist = AppEvents.on("allowlist:changed" as any, () =>
+      refreshAllowlist(),
+    );
     return () => {
       unsubVpn();
       unsubRules();
       unsubFocus();
       unsubTimer();
       unsubPremium();
+      unsubAllowlist();
     };
-  }, [refreshRules, checkFocus, checkTimer, refreshPremium]);
+  }, [refreshRules, checkFocus, checkTimer, refreshPremium, refreshAllowlist]);
 
   useEffect(() => {
     VpnService.isVpnActive().then(setVpnActive);
     loadInitial();
     checkFocus();
     checkTimer();
+    refreshAllowlist();
     TimerService.rescheduleIfNeeded();
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active" && appStateRef.current !== "active") {
@@ -889,6 +949,7 @@ export default function HomeScreen() {
         refreshRules();
         checkFocus();
         checkTimer();
+        refreshAllowlist();
       }
       appStateRef.current = s;
     });
@@ -963,17 +1024,18 @@ export default function HomeScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    // On manual refresh, always apply the full sort immediately
     setPendingSort(false);
     if (sortTimerRef.current) clearTimeout(sortTimerRef.current);
     AppListService.invalidateCache();
-    await Promise.all([loadInitial(), checkFocus(), checkTimer()]);
+    await Promise.all([
+      loadInitial(),
+      checkFocus(),
+      checkTimer(),
+      refreshAllowlist(),
+    ]);
     setRefreshing(false);
   }, []);
 
-  // ── filteredApps ─────────────────────────────────────────────────────────────
-  // When pendingSort is true we skip the blocked-first reorder so the card
-  // the user just toggled stays visible at its original position.
   const filteredApps = useMemo(() => {
     let list = [...apps];
     if (filters.scope === "user") list = list.filter((a) => !a.isSystemApp);
@@ -991,13 +1053,8 @@ export default function HomeScreen() {
       list = list.filter((a) => a.rule?.isBlocked === true);
     if (filters.state === "allowed")
       list = list.filter((a) => !a.rule?.isBlocked);
-
     return list.sort((a, b) => {
-      // While a sort is pending (user just blocked something) keep current
-      // relative ordering so cards don't jump, only sort alphabetically.
-      if (pendingSort) {
-        return a.appName.localeCompare(b.appName);
-      }
+      if (pendingSort) return a.appName.localeCompare(b.appName);
       const aB = a.rule?.isBlocked ? 1 : 0,
         bB = b.rule?.isBlocked ? 1 : 0;
       if (bB !== aB) return bB - aB;
@@ -1040,18 +1097,12 @@ export default function HomeScreen() {
         ),
       );
       setBlockedCount((c) => c + (nowBlocked ? 1 : -1));
-
-      // ── UX: deferred sort + toast ──────────────────────────────────────────
       if (nowBlocked) {
-        // Keep the card in place for SORT_DEFER_MS before floating it to the top
         armSortTimer();
-        // Show a toast telling the user the app moved to the top of the list
         showBlockedToast(item.appName);
       } else {
-        // Unblocking: also defer so the card doesn't snap downward immediately
         armSortTimer();
       }
-
       if (nowBlocked && !vpnActive && !vpnPopupShown.current) {
         vpnPopupShown.current = true;
         setVpnPopupAppName(item.appName);
@@ -1109,9 +1160,39 @@ export default function HomeScreen() {
       ? Math.round((blockedInList / filteredApps.length) * 100)
       : 0;
 
-  // ─── ListHeaderComponent ─────────────────────────────────────────────────────
   const ListHeader = (
     <View style={g.listHeader}>
+      {/* ── Bannière allowlist — avec bouton désactiver et modifier ── */}
+      {allowlistState.enabled && (
+        <View style={g.allowlistBanner}>
+          <View style={g.allowlistBannerDot} />
+          <Text style={g.allowlistBannerText} numberOfLines={1}>
+            Liste blanche ·{" "}
+            <Text style={g.allowlistBannerCount}>
+              {allowlistState.packages.length} app
+              {allowlistState.packages.length > 1 ? "s" : ""}
+            </Text>
+          </Text>
+          {/* Bouton Modifier → ouvre la page allowlist */}
+          <TouchableOpacity
+            onPress={handleOpenAllowlist}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.75}
+          >
+            <Text style={g.allowlistBannerEdit}>Modifier ›</Text>
+          </TouchableOpacity>
+          {/* Séparateur */}
+          <View style={g.allowlistBannerSep} />
+          {/* Bouton Désactiver */}
+          <TouchableOpacity
+            onPress={handleDisableAllowlist}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.75}
+          >
+            <Text style={g.allowlistBannerOff}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <SearchAndFilters
         query={query}
         onQueryChange={setQuery}
@@ -1162,6 +1243,7 @@ export default function HomeScreen() {
               <Text style={g.brandTagline}>contrôle réseau · local</Text>
             </View>
           </View>
+
           <View style={g.headerActions}>
             {isPremium ? (
               <View style={g.proBadge}>
@@ -1180,18 +1262,14 @@ export default function HomeScreen() {
               </TouchableOpacity>
             )}
             <View style={g.actionSep} />
-            <TouchableOpacity
-              style={[g.moreBtn, menuVisible && g.moreBtnActive]}
+            <MoreButton
+              active={menuVisible}
+              allowlistActive={allowlistState.enabled}
               onPress={() => setMenuVisible((v) => !v)}
-              activeOpacity={0.75}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <View style={g.moreDot} />
-              <View style={g.moreDot} />
-              <View style={g.moreDot} />
-            </TouchableOpacity>
+            />
           </View>
         </View>
+
         <View style={g.headerBottomRow}>
           <View
             style={[
@@ -1234,6 +1312,7 @@ export default function HomeScreen() {
             <FocusToggle active={focusActive} onPress={handleFocusPress} />
           </View>
         </View>
+
         <View
           style={[
             g.progressTrack,
@@ -1356,10 +1435,7 @@ export default function HomeScreen() {
             <View
               style={[
                 g.emptyIconWrap,
-                {
-                  backgroundColor: t.bg.accent,
-                  borderColor: t.border.strong,
-                },
+                { backgroundColor: t.bg.accent, borderColor: t.border.strong },
               ]}
             >
               <Text style={[g.emptyIcon, { color: t.text.link }]}>◈</Text>
@@ -1380,7 +1456,7 @@ export default function HomeScreen() {
         }
       />
 
-      {/* ── Blocked Toast ── */}
+      {/* ── Toast ── */}
       <BlockedToast
         appName={toastAppName}
         visible={toastVisible}
@@ -1425,13 +1501,12 @@ export default function HomeScreen() {
         onClose={() => setMenuVisible(false)}
         onSettings={() => router.push("/settings")}
         onTimer={() => setTimerVisible(true)}
+        onAllowlist={handleOpenAllowlist}
       />
       <VpnActivationModal
         visible={vpnPopupVisible}
         appName={vpnPopupAppName}
-        onActivate={() => {
-          toggleVpn();
-        }}
+        onActivate={toggleVpn}
         onDismiss={() => setVpnPopupVisible(false)}
       />
       {focusActive && focusStatus && (
@@ -1544,21 +1619,26 @@ const g = StyleSheet.create({
     height: 32,
     borderRadius: 9,
     borderWidth: 1,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderColor: "rgba(255,255,255,0.15)",
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
-  },
-  moreBtnActive: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderColor: "rgba(255,255,255,0.32)",
   },
   moreDot: {
     width: 3.5,
     height: 3.5,
     borderRadius: 1.75,
     backgroundColor: "rgba(255,255,255,0.65)",
+  },
+  moreBtnIndicator: {
+    position: "absolute",
+    top: -3,
+    right: -3,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: "#34d399",
+    borderWidth: 1.5,
+    borderColor: Semantic.bg.header,
   },
   headerBottomRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   statsBand: {
@@ -1679,9 +1759,55 @@ const g = StyleSheet.create({
     flexShrink: 0,
   },
   limitCtaText: { fontSize: 11, fontWeight: "700" },
-  // ── List ──
   listContent: { paddingHorizontal: 14 },
   listHeader: { gap: 10, paddingTop: 14, paddingBottom: 6 },
+
+  // ── Bannière allowlist enrichie ──
+  allowlistBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: "rgba(52,211,153,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(52,211,153,0.28)",
+  },
+  allowlistBannerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#34d399",
+    flexShrink: 0,
+  },
+  allowlistBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: "rgba(52,211,153,0.75)",
+    fontWeight: "500",
+  },
+  allowlistBannerCount: { fontWeight: "700", color: "#34d399" },
+  allowlistBannerEdit: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#34d399",
+    flexShrink: 0,
+  },
+  allowlistBannerSep: {
+    width: 1,
+    height: 14,
+    backgroundColor: "rgba(52,211,153,0.3)",
+    marginHorizontal: 2,
+  },
+  allowlistBannerOff: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(248,113,113,0.75)",
+    flexShrink: 0,
+    paddingLeft: 2,
+  },
+
   listMeta: {
     flexDirection: "row",
     alignItems: "center",
