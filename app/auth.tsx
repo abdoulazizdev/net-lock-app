@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
+  Image,
   StatusBar,
   StyleSheet,
   TouchableOpacity,
@@ -182,7 +183,11 @@ export default function AuthScreen({ onAuthenticated }: Props) {
       <Animated.View style={[st.content, { opacity: fadeAnim }]}>
         <View style={st.logo}>
           <View style={st.logoWrap}>
-            <Text style={st.logoEmoji}>🛡️</Text>
+            <Image
+              source={require("@/assets/images/netoff-logo.png")}
+              style={st.logoImg}
+              resizeMode="contain"
+            />
           </View>
           <Text style={st.logoTitle}>NetOff</Text>
         </View>
@@ -356,6 +361,7 @@ const st = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
+  logoImg: { width: 42, height: 42 },
   logoEmoji: { fontSize: 34 },
   logoTitle: {
     fontSize: 26,

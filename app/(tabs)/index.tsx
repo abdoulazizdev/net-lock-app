@@ -1249,7 +1249,11 @@ export default function HomeScreen() {
         <View style={g.headerTopRow}>
           <View style={g.brandBlock}>
             <View style={g.logoMark}>
-              <Text style={g.logoMarkText}>N</Text>
+              <Image
+                source={require("@/assets/images/netoff-logo.png")}
+                style={g.logoMarkImg}
+                resizeMode="contain"
+              />
             </View>
             <View>
               <Text style={g.brandName}>NetOff</Text>
@@ -1567,12 +1571,12 @@ const g = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
     justifyContent: "center",
     alignItems: "center",
+    overflow: "hidden", // ← ajouter pour que le logo respecte le borderRadius
   },
-  logoMarkText: {
-    fontSize: 17,
-    fontWeight: "900",
-    color: "#fff",
-    letterSpacing: -0.8,
+
+  logoMarkImg: {
+    width: 24,
+    height: 24,
   },
   brandName: {
     fontSize: 18,
