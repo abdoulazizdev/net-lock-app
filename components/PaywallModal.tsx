@@ -64,7 +64,6 @@ interface Props {
     | "general";
 }
 
-// Plan enrichi : données RevenueCat + métadonnées UI
 interface DynamicPlan {
   id: string;
   label: string;
@@ -74,7 +73,7 @@ interface DynamicPlan {
   rcPackage: PurchasesPackage | null;
 }
 
-// Plans statiques de fallback
+// Plans statiques de fallback — affichés immédiatement sans attendre RC
 const FALLBACK_PLANS: DynamicPlan[] = [
   {
     id: "netoff_monthly",
@@ -127,7 +126,6 @@ const REASON_MESSAGES: Record<
     title: "Focus Premium",
     sub: "Les durées personnalisées et les sessions longues nécessitent Premium.",
   },
-  // ── Nouveau contexte Minuterie ─────────────────────────────────────────────
   timer: {
     icon: "⏱",
     title: "Minuteries longues",
@@ -155,7 +153,6 @@ const REASON_MESSAGES: Record<
   },
 };
 
-// Table de comparaison construite à partir de FREE_LIMITS
 const plural = (n: number, singular: string, pluralForm: string) =>
   n > 1 ? `${n} ${pluralForm}` : `${n} ${singular}`;
 
@@ -215,7 +212,6 @@ const buildFeatures = () => [
   { icon: "◎", label: "VPN persistant", free: "✓", premium: "✓" },
 ];
 
-// ─── Mapping package identifier → métadonnées UI ─────────────────────────────
 const PACKAGE_UI_META: Record<
   string,
   { label: string; period: string; badge: string | null }
@@ -277,21 +273,34 @@ function friendlyPromoError(code: string | undefined): string {
 }
 
 // ─── Hook : chargement dynamique des offres RevenueCat ───────────────────────
+// SDK_READY est évalué une seule fois au chargement du module JS, hors du
+// cycle React. Les useState reçoivent leur état final dès l'initialisation :
+// → SDK absent : aucun re-render, aucun skeleton, FALLBACK_PLANS immédiats.
+// → SDK prêt   : skeleton affiché le temps de l'appel réseau, puis vrais prix.
+type SdkStatus = "not_configured" | "no_offerings" | "ok" | "error";
+
+const SDK_READY = SubscriptionService.isSdkReady();
+
 function useDynamicPlans() {
   const [plans, setPlans] = useState<DynamicPlan[]>(FALLBACK_PLANS);
   const [loading, setLoading] = useState(false);
   const [isFallback, setIsFallback] = useState(true);
+  const [sdkStatus, setSdkStatus] = useState<SdkStatus>(
+    SDK_READY ? "ok" : "not_configured",
+  );
 
   const load = useCallback(async () => {
-    setIsFallback(false);
+    // Guard synchrone — aucun setState si SDK absent → reload() est un no-op
+    if (!SDK_READY) return;
+
+    setLoading(true);
     try {
       const offerings = await Purchases.getOfferings();
       const packages = offerings.current?.availablePackages ?? [];
 
       if (packages.length === 0) {
-        console.warn(
-          "[PaywallModal] getOfferings: aucun package disponible, fallback statique",
-        );
+        console.warn("[PaywallModal] Aucun package disponible");
+        setSdkStatus("no_offerings");
         setPlans(FALLBACK_PLANS);
         setIsFallback(true);
         return;
@@ -314,14 +323,22 @@ function useDynamicPlans() {
       });
 
       setPlans(sortPlans(dynamic));
+      setSdkStatus("ok");
+      setIsFallback(false);
     } catch (e) {
-      console.error("[PaywallModal] getOfferings:", e);
+      console.warn(
+        "[PaywallModal] getOfferings silenced:",
+        (e as Error).message,
+      );
+      setSdkStatus("error");
       setPlans(FALLBACK_PLANS);
       setIsFallback(true);
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, []); // SDK_READY est une constante module — pas de dépendance
 
-  return { plans, loading, isFallback, reload: load };
+  return { plans, loading, isFallback, sdkStatus, reload: load };
 }
 
 // ─── Squelette de chargement des plans ───────────────────────────────────────
@@ -505,22 +522,16 @@ function CodeTab({
 }
 
 // ─── Bannière contexte Minuterie ──────────────────────────────────────────────
-// Affichée uniquement quand reason === "timer" pour rappeler visuellement
-// les limites de la minuterie et les présets débloqués avec Premium.
 function TimerContextBanner() {
   const { t } = useTheme();
   return (
     <View
       style={[
         tcb.wrap,
-        {
-          backgroundColor: Colors.amber[50],
-          borderColor: Colors.amber[100],
-        },
+        { backgroundColor: Colors.amber[50], borderColor: Colors.amber[100] },
       ]}
     >
       <View style={tcb.row}>
-        {/* Gratuit */}
         <View style={[tcb.col, { borderColor: t.border.light }]}>
           <Text style={[tcb.colTitle, { color: t.text.muted }]}>GRATUIT</Text>
           {FREE_LIMITS.TIMER_PRESETS_FREE.map((m) => (
@@ -535,7 +546,6 @@ function TimerContextBanner() {
 
         <Text style={[tcb.arrow, { color: Colors.amber[400] }]}>›</Text>
 
-        {/* Premium */}
         <View style={tcb.col}>
           <Text style={[tcb.colTitle, { color: Colors.amber[600] }]}>
             PREMIUM ⭐
@@ -581,6 +591,7 @@ export default function PaywallModal({
     plans,
     loading: plansLoading,
     isFallback,
+    sdkStatus,
     reload,
   } = useDynamicPlans();
 
@@ -588,7 +599,6 @@ export default function PaywallModal({
     isPremium: false,
   });
   const [syncing, setSyncing] = useState(false);
-
   const [selectedPlan, setSelectedPlan] = useState<string>("netoff_yearly");
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -599,9 +609,7 @@ export default function PaywallModal({
   const slideAnim = useRef(new Animated.Value(600)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const msg = REASON_MESSAGES[reason] ?? REASON_MESSAGES.general;
-
   const FEATURES = buildFeatures();
-
   const isTimerContext = reason === "timer";
 
   useEffect(() => {
@@ -624,6 +632,7 @@ export default function PaywallModal({
         }),
       ]).start();
 
+      // No-op synchrone si SDK_READY === false → zéro setState, zéro re-render
       reload();
       syncState();
     } else {
@@ -766,6 +775,7 @@ export default function PaywallModal({
   };
 
   const renderPlans = () => {
+    // Skeleton uniquement si SDK prêt et appel réseau en cours
     if (plansLoading) return <PlansSkeleton />;
 
     return plans.map((plan) => (
@@ -932,7 +942,6 @@ export default function PaywallModal({
                     style={[
                       pw.heroIconWrap,
                       {
-                        // Couleur ambrée pour le contexte minuterie, bleue sinon
                         backgroundColor: isTimerContext
                           ? Colors.amber[400]
                           : Colors.blue[600],
@@ -975,7 +984,6 @@ export default function PaywallModal({
                   </Text>
                 </View>
 
-                {/* Bannière visuelle spécifique au contexte minuterie */}
                 {isTimerContext && <TimerContextBanner />}
 
                 {/* Table des fonctionnalités */}
@@ -1079,7 +1087,7 @@ export default function PaywallModal({
                   })}
                 </View>
 
-                {/* Plans dynamiques */}
+                {/* Plans */}
                 <Text style={[pw.plansTitle, { color: t.text.muted }]}>
                   CHOISIR UN PLAN
                 </Text>
@@ -1088,15 +1096,27 @@ export default function PaywallModal({
                     style={[
                       pw.fallbackBanner,
                       {
-                        backgroundColor: t.bg.cardAlt,
-                        borderColor: t.border.light,
+                        backgroundColor:
+                          sdkStatus === "not_configured" ||
+                          sdkStatus === "error"
+                            ? t.bg.cardAlt
+                            : Colors.amber[50],
+                        borderColor:
+                          sdkStatus === "not_configured" ||
+                          sdkStatus === "error"
+                            ? t.border.light
+                            : Colors.amber[100],
                       },
                     ]}
                   >
                     <Text
                       style={[pw.fallbackBannerText, { color: t.text.muted }]}
                     >
-                      ⚠ Prix indicatifs — connexion requise pour confirmer.
+                      {sdkStatus === "not_configured"
+                        ? "Prix indicatifs — contactez-nous pour finaliser votre achat."
+                        : sdkStatus === "no_offerings"
+                          ? "Aucune offre disponible pour le moment. Contactez-nous."
+                          : "⚠ Prix indicatifs — connexion requise pour confirmer."}
                     </Text>
                   </View>
                 )}
@@ -1175,40 +1195,18 @@ export default function PaywallModal({
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const tcb = StyleSheet.create({
-  wrap: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 16,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  col: {
-    flex: 1,
-    gap: 4,
-  },
+  wrap: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 16 },
+  row: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  col: { flex: 1, gap: 4 },
   colTitle: {
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 1.5,
     marginBottom: 4,
   },
-  presetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  dot: {
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  presetLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  presetRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  dot: { fontSize: 14, lineHeight: 18 },
+  presetLabel: { fontSize: 12, fontWeight: "600" },
   arrow: {
     fontSize: 22,
     fontWeight: "300",

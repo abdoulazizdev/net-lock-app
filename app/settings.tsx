@@ -1367,23 +1367,6 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* ── Productivité ── */}
-        <SectionLabel label="PRODUCTIVITÉ" />
-        <View
-          style={[
-            s.card,
-            { backgroundColor: t.bg.card, borderColor: t.border.light },
-          ]}
-        >
-          <SettingRow
-            icon="📊"
-            title="Statistiques de productivité"
-            subtitle="Streak, badges, score hebdomadaire"
-            onPress={() => router.push("/productivity")}
-            accent={Colors.blue[500]}
-          />
-        </View>
-
         {/* ── Données ── */}
         <SectionLabel label="DONNÉES" />
         <View

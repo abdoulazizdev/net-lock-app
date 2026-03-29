@@ -9,7 +9,6 @@ import ConnectionLogService, {
 import ProductivityService, {
   ProductivityStats,
 } from "@/services/productivity.service";
-import { FREE_LIMITS } from "@/services/subscription.service";
 import WeeklyReportService, {
   WeeklyReport,
 } from "@/services/weekly-report.service";
@@ -44,6 +43,18 @@ interface LogEntryWithName extends LogEntry {
 interface AppStatWithName extends AppLogStats {
   appName: string;
 }
+
+// ─── Définition des onglets avec leur accès ───────────────────────────────────
+// overview     → GRATUIT  (résumé chiffré, top 5)
+// productivity → GRATUIT  (streak, badges, score — viral & motivationnel)
+// history      → PRO      (liste complète des événements)
+// apps         → PRO      (stats détaillées par app)
+const TABS: { key: Tab; label: string; icon: string; free: boolean }[] = [
+  { key: "overview", label: "Résumé", icon: "◈", free: true },
+  { key: "productivity", label: "Prod.", icon: "🔥", free: true },
+  { key: "history", label: "Historique", icon: "◷", free: false },
+  { key: "apps", label: "Par app", icon: "◎", free: false },
+];
 
 // ─── ProgressBar ──────────────────────────────────────────────────────────────
 function ProgressBar({
@@ -87,7 +98,7 @@ function ProgressBar({
   );
 }
 
-// ─── Badge card (productivité) ────────────────────────────────────────────────
+// ─── BadgeChip ────────────────────────────────────────────────────────────────
 function BadgeChip({
   icon,
   name,
@@ -117,12 +128,221 @@ function BadgeChip({
   );
 }
 
-const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: "overview", label: "Résumé", icon: "◈" },
-  { key: "history", label: "Historique", icon: "◷" },
-  { key: "apps", label: "Par app", icon: "◎" },
-  { key: "productivity", label: "Prod.", icon: "🔥" },
-];
+// ─── ProBlurOverlay ───────────────────────────────────────────────────────────
+// Affiché par-dessus les onglets Pro quand l'utilisateur est gratuit.
+// Montre un aperçu flou + CTA "Débloquer".
+function ProBlurOverlay({
+  tab,
+  onUpgrade,
+}: {
+  tab: Tab;
+  onUpgrade: () => void;
+}) {
+  const { t } = useTheme();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [tab]);
+
+  const meta = {
+    history: {
+      icon: "◷",
+      title: "Historique complet",
+      sub: "Consultez chaque tentative de connexion bloquée ou autorisée, filtrée par date.",
+      preview: [
+        "14:32  Instagram  ● Bloqué",
+        "14:28  TikTok  ● Bloqué",
+        "13:55  Chrome  ○ Autorisé",
+        "13:40  Twitter  ● Bloqué",
+        "12:18  YouTube  ● Bloqué",
+      ],
+    },
+    apps: {
+      icon: "◎",
+      title: "Stats par application",
+      sub: "Découvrez quelles apps tentent le plus souvent d'accéder au réseau et leur taux de blocage.",
+      preview: [
+        "Instagram  · 184 bloquées · 92%",
+        "TikTok  · 97 bloquées · 88%",
+        "Twitter  · 61 bloquées · 100%",
+        "YouTube  · 44 bloquées · 71%",
+      ],
+    },
+  };
+
+  const m = meta[tab as keyof typeof meta];
+  if (!m) return null;
+
+  return (
+    <Animated.View style={[pbo.root, { opacity: fadeAnim }]}>
+      {/* Aperçu fantôme — derrière le flou */}
+      <View style={pbo.ghostList} pointerEvents="none">
+        {m.preview.map((line, i) => (
+          <View
+            key={i}
+            style={[
+              pbo.ghostRow,
+              {
+                backgroundColor: t.bg.card,
+                borderColor: t.border.light,
+                opacity: 1 - i * 0.18,
+              },
+            ]}
+          >
+            <View
+              style={[
+                pbo.ghostDot,
+                {
+                  backgroundColor: line.includes("Bloqué")
+                    ? "#f87171"
+                    : "#34d399",
+                },
+              ]}
+            />
+            <View style={{ flex: 1, gap: 4 }}>
+              <View
+                style={[
+                  pbo.ghostBar,
+                  { width: "65%", backgroundColor: t.border.normal },
+                ]}
+              />
+              <View
+                style={[
+                  pbo.ghostBar,
+                  { width: "40%", backgroundColor: t.border.light },
+                ]}
+              />
+            </View>
+            <View
+              style={[
+                pbo.ghostBadge,
+                {
+                  backgroundColor: line.includes("Bloqué")
+                    ? "rgba(248,113,113,0.12)"
+                    : "rgba(52,211,153,0.12)",
+                  borderColor: line.includes("Bloqué")
+                    ? "rgba(248,113,113,0.3)"
+                    : "rgba(52,211,153,0.3)",
+                },
+              ]}
+            >
+              <View
+                style={[
+                  pbo.ghostBadgeDot,
+                  {
+                    backgroundColor: line.includes("Bloqué")
+                      ? "#f87171"
+                      : "#34d399",
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  pbo.ghostBar,
+                  {
+                    width: 36,
+                    backgroundColor: line.includes("Bloqué")
+                      ? "rgba(248,113,113,0.4)"
+                      : "rgba(52,211,153,0.4)",
+                  },
+                ]}
+              />
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Overlay dégradé */}
+      <View style={pbo.gradient} pointerEvents="none" />
+
+      {/* Carte CTA centrale */}
+      <View
+        style={[
+          pbo.card,
+          { backgroundColor: t.bg.card, borderColor: t.border.light },
+        ]}
+      >
+        <View
+          style={[
+            pbo.iconWrap,
+            {
+              backgroundColor: Colors.purple[50],
+              borderColor: Colors.purple[100],
+            },
+          ]}
+        >
+          <Text style={{ fontSize: 24 }}>{m.icon}</Text>
+        </View>
+
+        <View
+          style={[
+            pbo.proBadge,
+            {
+              backgroundColor: Colors.purple[50],
+              borderColor: Colors.purple[100],
+            },
+          ]}
+        >
+          <Text style={[pbo.proBadgeText, { color: Colors.purple[600] }]}>
+            ◎ NETOFF PRO
+          </Text>
+        </View>
+
+        <Text style={[pbo.cardTitle, { color: t.text.primary }]}>
+          {m.title}
+        </Text>
+        <Text style={[pbo.cardSub, { color: t.text.secondary }]}>{m.sub}</Text>
+
+        {/* Mini aperçu texte */}
+        <View
+          style={[
+            pbo.previewBox,
+            { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+          ]}
+        >
+          {m.preview.slice(0, 3).map((line, i) => (
+            <View key={i} style={pbo.previewRow}>
+              <View
+                style={[
+                  pbo.previewDot,
+                  {
+                    backgroundColor:
+                      line.includes("Bloqué") || line.includes("bloquées")
+                        ? "#f87171"
+                        : "#34d399",
+                  },
+                ]}
+              />
+              <Text
+                style={[pbo.previewText, { color: t.text.muted }]}
+                numberOfLines={1}
+              >
+                {line}
+              </Text>
+            </View>
+          ))}
+          <Text style={[pbo.previewMore, { color: t.text.muted }]}>
+            + bien plus…
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={[pbo.ctaBtn, { backgroundColor: Colors.purple[600] }]}
+          onPress={onUpgrade}
+          activeOpacity={0.85}
+        >
+          <Text style={pbo.ctaBtnText}>Débloquer avec Pro ◎</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
 
 function EmptyState({
   icon,
@@ -150,6 +370,7 @@ function EmptyState({
   );
 }
 
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function StatsScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
@@ -167,6 +388,7 @@ export default function StatsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTab, setPaywallTab] = useState<Tab | null>(null);
   const { isPremium, refresh: refreshPremium } = usePremium();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const tabAnim = useRef(new Animated.Value(1)).current;
@@ -180,32 +402,27 @@ export default function StatsScreen() {
     }).start();
   }, []);
 
-  const switchTab = useCallback(
-    (next: Tab) => {
-      if (
-        !isPremium &&
-        !FREE_LIMITS.STATS_TABS_FREE.includes(next as any) &&
-        next !== "productivity"
-      ) {
-        setPaywallVisible(true);
-        return;
-      }
-      Animated.sequence([
-        Animated.timing(tabAnim, {
-          toValue: 0,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(tabAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-      setTab(next);
-    },
-    [isPremium],
-  );
+  const switchTab = useCallback((next: Tab) => {
+    Animated.sequence([
+      Animated.timing(tabAnim, {
+        toValue: 0,
+        duration: 90,
+        useNativeDriver: true,
+      }),
+      Animated.timing(tabAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setTab(next);
+    // Si non-premium tente d'aller sur un onglet pro → on navigue quand même
+    // mais on affiche le ProBlurOverlay par-dessus (voir rendu ci-dessous)
+  }, []);
+
+  const handlePaywallFromOverlay = useCallback(() => {
+    setPaywallVisible(true);
+  }, []);
 
   const displayName = useCallback(
     (pkg: string) => pkg.split(".").slice(-1)[0] || pkg,
@@ -215,25 +432,24 @@ export default function StatsScreen() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, l, prod, report] = await Promise.all([
+      const [sv, l, prod, report] = await Promise.all([
         ConnectionLogService.getStats(),
         ConnectionLogService.getLogs(300),
         ProductivityService.getStats(),
         WeeklyReportService.getLastReport(),
       ]);
-      setSummary(s);
+      setSummary(sv);
       setLogs(l.map((e) => ({ ...e, appName: displayName(e.packageName) })));
       setAppStats(
-        s.perApp.map((a) => ({ ...a, appName: displayName(a.packageName) })),
+        sv.perApp.map((a) => ({ ...a, appName: displayName(a.packageName) })),
       );
       setProdStats(prod);
       setWeekReport(report);
 
-      // Enrichir avec les noms réels en arrière-plan
       const pkgs = [
         ...new Set([
           ...l.map((e) => e.packageName),
-          ...s.perApp.map((a) => a.packageName),
+          ...sv.perApp.map((a) => a.packageName),
         ]),
       ];
       const map = new Map<string, string>();
@@ -252,7 +468,7 @@ export default function StatsScreen() {
         })),
       );
       setAppStats(
-        s.perApp.map((a) => ({
+        sv.perApp.map((a) => ({
           ...a,
           appName: map.get(a.packageName) ?? displayName(a.packageName),
         })),
@@ -267,6 +483,7 @@ export default function StatsScreen() {
     await loadAll();
     setRefreshing(false);
   }, [loadAll]);
+
   const handleClearLogs = useCallback(() => {
     Alert.alert(
       "Effacer l'historique ?",
@@ -296,7 +513,7 @@ export default function StatsScreen() {
     />
   );
 
-  // ── Onglet Overview ──────────────────────────────────────────────────────────
+  // ── Overview ──────────────────────────────────────────────────────────────
   const OverviewTab = useCallback(() => {
     const blockedPct =
       summary.totalEvents > 0
@@ -321,7 +538,6 @@ export default function StatsScreen() {
           />
         ) : (
           <>
-            {/* Mini rapport */}
             {weekReport && (
               <View
                 style={[
@@ -502,13 +718,55 @@ export default function StatsScreen() {
                   })}
               </>
             )}
+
+            {/* Teaser Pro discret en bas de l'overview */}
+            {!isPremium && (
+              <TouchableOpacity
+                style={[
+                  s.proTeaser,
+                  {
+                    backgroundColor: Colors.purple[50],
+                    borderColor: Colors.purple[100],
+                  },
+                ]}
+                onPress={() => setPaywallVisible(true)}
+                activeOpacity={0.82}
+              >
+                <Text style={{ fontSize: 15 }}>◎</Text>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[s.proTeaserTitle, { color: Colors.purple[700] }]}
+                  >
+                    Historique complet & Stats par app
+                  </Text>
+                  <Text style={[s.proTeaserSub, { color: Colors.purple[500] }]}>
+                    Passez à Pro pour débloquer ces 2 onglets
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    s.proTeaserBadge,
+                    { backgroundColor: Colors.purple[100] },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      s.proTeaserBadgeText,
+                      { color: Colors.purple[700] },
+                    ]}
+                  >
+                    Pro →
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
           </>
         )}
       </ScrollView>
     );
-  }, [summary, appStats, weekReport, refreshing, insets, t]);
+  }, [summary, appStats, weekReport, refreshing, insets, t, isPremium]);
 
-  // ── Onglet History ───────────────────────────────────────────────────────────
+  // ── History ───────────────────────────────────────────────────────────────
   const HistoryTab = useCallback(
     () => (
       <FlatList
@@ -610,7 +868,7 @@ export default function StatsScreen() {
     [grouped, refreshing, insets, t],
   );
 
-  // ── Onglet Apps ──────────────────────────────────────────────────────────────
+  // ── Apps ──────────────────────────────────────────────────────────────────
   const AppsTab = useCallback(
     () => (
       <FlatList
@@ -754,7 +1012,7 @@ export default function StatsScreen() {
     [appStats, refreshing, insets, t],
   );
 
-  // ── Onglet Productivité ───────────────────────────────────────────────────────
+  // ── Productivity ──────────────────────────────────────────────────────────
   const ProductivityTab = useCallback(() => {
     if (!prodStats)
       return (
@@ -966,12 +1224,17 @@ export default function StatsScreen() {
     );
   }, [prodStats, refreshing, insets, t]);
 
+  // Détermine si l'onglet courant est verrouillé pour l'utilisateur
+  const currentTabLocked = !isPremium && !TABS.find((t) => t.key === tab)?.free;
+
   return (
     <View style={[s.container, { backgroundColor: t.bg.page }]}>
       <StatusBar
         barStyle="light-content"
         backgroundColor={Semantic.bg.header}
       />
+
+      {/* ── Header ── */}
       <Animated.View
         style={[s.header, { paddingTop: insets.top + 14, opacity: fadeAnim }]}
       >
@@ -999,20 +1262,24 @@ export default function StatsScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {/* ── Tabs ── */}
         <View style={s.tabs}>
-          {TABS.map(({ key, label, icon }) => {
-            const locked =
-              !isPremium &&
-              !FREE_LIMITS.STATS_TABS_FREE.includes(key as any) &&
-              key !== "productivity";
+          {TABS.map(({ key, label, icon, free }) => {
+            const locked = !isPremium && !free;
             const active = tab === key;
             return (
               <TouchableOpacity
                 key={key}
-                style={[s.tab, active && s.tabActive]}
+                style={[s.tab, active && s.tabActive, locked && s.tabLocked]}
                 onPress={() => switchTab(key)}
                 activeOpacity={0.75}
               >
+                {locked && !active && (
+                  <View style={s.tabLockBadge}>
+                    <Text style={s.tabLockBadgeText}>PRO</Text>
+                  </View>
+                )}
                 <Text
                   style={[
                     s.tabIcon,
@@ -1020,17 +1287,23 @@ export default function StatsScreen() {
                       color: active
                         ? Colors.blue[100]
                         : locked
-                          ? "rgba(255,255,255,.3)"
+                          ? "rgba(255,255,255,.35)"
                           : "rgba(255,255,255,.6)",
                     },
                   ]}
                 >
-                  {locked ? "🔒" : icon}
+                  {icon}
                 </Text>
                 <Text
                   style={[
                     s.tabText,
-                    { color: active ? Colors.gray[0] : "rgba(255,255,255,.5)" },
+                    {
+                      color: active
+                        ? Colors.gray[0]
+                        : locked
+                          ? "rgba(255,255,255,.35)"
+                          : "rgba(255,255,255,.5)",
+                    },
                   ]}
                 >
                   {label}
@@ -1041,12 +1314,20 @@ export default function StatsScreen() {
         </View>
       </Animated.View>
 
-      <Animated.View style={[s.content, { opacity: tabAnim }]}>
-        {tab === "overview" && <OverviewTab />}
-        {tab === "history" && <HistoryTab />}
-        {tab === "apps" && <AppsTab />}
-        {tab === "productivity" && <ProductivityTab />}
-      </Animated.View>
+      {/* ── Contenu ── */}
+      <View style={s.contentWrapper}>
+        <Animated.View style={[s.content, { opacity: tabAnim }]}>
+          {tab === "overview" && <OverviewTab />}
+          {tab === "history" && <HistoryTab />}
+          {tab === "apps" && <AppsTab />}
+          {tab === "productivity" && <ProductivityTab />}
+        </Animated.View>
+
+        {/* Overlay Pro — monté par-dessus le contenu si onglet verrouillé */}
+        {currentTabLocked && (
+          <ProBlurOverlay tab={tab} onUpgrade={handlePaywallFromOverlay} />
+        )}
+      </View>
 
       <PaywallModal
         visible={paywallVisible}
@@ -1061,7 +1342,7 @@ export default function StatsScreen() {
   );
 }
 
-// ─── Styles stats ─────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
@@ -1115,6 +1396,8 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   clearBtnText: { fontSize: 16, color: Colors.gray[0] },
+
+  // Tabs
   tabs: { flexDirection: "row", gap: 4, paddingBottom: 16 },
   tab: {
     flex: 1,
@@ -1125,14 +1408,38 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,255,255,.15)",
     alignItems: "center",
     gap: 2,
+    position: "relative",
   },
   tabActive: {
     backgroundColor: "rgba(255,255,255,.25)",
     borderColor: "rgba(255,255,255,.35)",
   },
+  tabLocked: {
+    backgroundColor: "rgba(255,255,255,.05)",
+    borderColor: "rgba(255,255,255,.08)",
+  },
+  tabLockBadge: {
+    position: "absolute",
+    top: -5,
+    right: -3,
+    backgroundColor: Colors.purple[600],
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  tabLockBadgeText: {
+    fontSize: 7,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: 0.5,
+  },
   tabIcon: { fontSize: 12 },
   tabText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.2 },
+
+  // Layout
+  contentWrapper: { flex: 1, position: "relative" },
   content: { flex: 1, paddingHorizontal: 18, paddingTop: 18 },
+
   sectionLabel: {
     fontSize: 9,
     fontWeight: "700",
@@ -1140,8 +1447,6 @@ const s = StyleSheet.create({
     marginBottom: 12,
     marginTop: 4,
   },
-
-  // Report mini card
   reportCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1154,8 +1459,6 @@ const s = StyleSheet.create({
   reportEmoji: { fontSize: 24 },
   reportTitle: { fontSize: 13, fontWeight: "800", marginBottom: 3 },
   reportSub: { fontSize: 11, lineHeight: 16 },
-
-  // Overview
   statsGrid: { flexDirection: "row", gap: 10, marginBottom: 12 },
   statBig: {
     flex: 1,
@@ -1228,6 +1531,25 @@ const s = StyleSheet.create({
   topAppName: { fontSize: 13, fontWeight: "700", flex: 1 },
   topAppBlocked: { fontSize: 12, fontWeight: "700" },
   topAppPkg: { fontSize: 9, marginTop: 3 },
+
+  // Teaser Pro dans Overview
+  proTeaser: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 20,
+  },
+  proTeaserTitle: { fontSize: 13, fontWeight: "700", marginBottom: 2 },
+  proTeaserSub: { fontSize: 11 },
+  proTeaserBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  proTeaserBadgeText: { fontSize: 11, fontWeight: "800" },
 
   // History
   dateLabel: {
@@ -1345,6 +1667,116 @@ const s = StyleSheet.create({
   emptyIconText: { fontSize: 28 },
   emptyTitle: { fontSize: 16, fontWeight: "800", marginBottom: 8 },
   emptySub: { fontSize: 12, textAlign: "center", lineHeight: 18 },
+});
+
+// ─── Styles ProBlurOverlay ────────────────────────────────────────────────────
+const pbo = StyleSheet.create({
+  root: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  ghostList: {
+    position: "absolute",
+    top: 0,
+    left: 18,
+    right: 18,
+    gap: 6,
+    paddingTop: 8,
+  },
+  ghostRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+  },
+  ghostDot: { width: 7, height: 7, borderRadius: 3.5, flexShrink: 0 },
+  ghostBar: { height: 8, borderRadius: 4 },
+  ghostBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  ghostBadgeDot: { width: 5, height: 5, borderRadius: 2.5 },
+  gradient: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  card: {
+    width: "100%",
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    elevation: 18,
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  proBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  proBadgeText: { fontSize: 10, fontWeight: "800", letterSpacing: 1.5 },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    textAlign: "center",
+  },
+  cardSub: {
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 19,
+    paddingHorizontal: 4,
+  },
+  previewBox: {
+    width: "100%",
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+  },
+  previewRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  previewDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
+  previewText: { fontSize: 12, fontFamily: "monospace", flex: 1 },
+  previewMore: {
+    fontSize: 11,
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 2,
+  },
+  ctaBtn: {
+    width: "100%",
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  ctaBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
 });
 
 // ─── Styles productivité ──────────────────────────────────────────────────────
