@@ -2,7 +2,7 @@
   "expo": {
     "name": "NetOff",
     "slug": "netoff",
-    "version": "1.0.15",
+    "version": "1.0.16",
     "orientation": "portrait",
     "icon": "./assets/icons/netoff_icon.png",
     "scheme": "netoff",
@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.netoff.app",
       "icon": "./assets/icons/netoff_icon.png",
-      "buildNumber": "15",
+      "buildNumber": "16",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Utilisé pour sécuriser l'accès à l'application."
       }
@@ -21,7 +21,7 @@
 
     "android": {
       "package": "com.netoff.app",
-      "versionCode": 15,
+      "versionCode": 16,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
 
