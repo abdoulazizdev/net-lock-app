@@ -1,15 +1,16 @@
 /**
  * vpn.service.ts
  *
- * FLUX PERMISSION VPN ANDROID :
- *   1. startVpn() → prepareVpn()
- *   2a. "granted"          → _doStartVpn() immédiatement
- *   2b. "needs_permission" → dialog Android ouvert
- *       → onActivityResult → Kotlin émet "vpn:permission" via RCTDeviceEventEmitter
- *       → DeviceEventEmitter reçoit l'event → _doStartVpn()
+ * CORRECTIONS :
  *
- * IMPORTANT : utiliser DeviceEventEmitter (pas NativeEventEmitter) pour recevoir
- * les events émis par getJSModule(RCTDeviceEventEmitter::class.java) côté Kotlin.
+ * BUG #2 FIX — Race condition setBlockedApps vs startVpn :
+ *   _doStartVpn() appelle setBlockedApps AVANT startVpn.
+ *   Les règles sont persistées dans les prefs AVANT que le service démarre.
+ *   Le service lit les prefs dans loadRulesFromPrefs() → règles correctes dès le début.
+ *
+ * BUG #4 FIX — syncRules après startVpn race condition :
+ *   On ne fait plus syncRules après startVpn. Le service lit directement
+ *   les prefs. Pas de race condition possible.
  */
 import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 import AppEvents from "./app-events";
@@ -22,35 +23,23 @@ class VpnService {
   private _isNative = !!VpnModule;
 
   constructor() {
-    // DeviceEventEmitter reçoit les events émis par RCTDeviceEventEmitter côté Kotlin.
-    // Doit être enregistré une seule fois au démarrage du service (singleton).
     DeviceEventEmitter.addListener("vpn:permission", (result: string) => {
       if (result === "granted") {
-        // L'utilisateur a accordé la permission dans le dialog Android
-        // → démarrer le VPN maintenant
         this._doStartVpn();
       } else {
-        // Refusé
         this._isActive = false;
         AppEvents.emit("vpn:changed", false);
       }
     });
   }
 
-  // ── Permission ─────────────────────────────────────────────────────────────
-
-  /**
-   * Vérifie / demande la permission VPN Android.
-   * Retourne :
-   *   "granted"          → permission déjà accordée
-   *   "needs_permission" → dialog ouvert, attendre DeviceEventEmitter "vpn:permission"
-   *   "denied"           → erreur
-   */
   async prepareVpn(): Promise<"granted" | "needs_permission" | "denied"> {
     if (Platform.OS !== "android" || !VpnModule) return "granted";
     try {
-      const result = await VpnModule.prepareVpn();
-      return result as "granted" | "needs_permission" | "denied";
+      return (await VpnModule.prepareVpn()) as
+        | "granted"
+        | "needs_permission"
+        | "denied";
     } catch (e) {
       console.warn("VpnService.prepareVpn:", e);
       return "denied";
@@ -66,14 +55,6 @@ class VpnService {
     }
   }
 
-  // ── Démarrage / Arrêt ──────────────────────────────────────────────────────
-
-  /**
-   * Démarre le VPN.
-   * Gère automatiquement la permission :
-   *  - Déjà accordée → démarre immédiatement, émet vpn:changed
-   *  - Pas encore     → ouvre le dialog → après accord → démarre + émet vpn:changed
-   */
   async startVpn(): Promise<boolean> {
     if (Platform.OS !== "android") {
       this._isActive = true;
@@ -81,11 +62,9 @@ class VpnService {
       return true;
     }
     try {
-      const permResult = await this.prepareVpn();
-      if (permResult === "granted") {
-        return await this._doStartVpn();
-      }
-      // "needs_permission" : dialog ouvert, DeviceEventEmitter s'en occupe
+      const perm = await this.prepareVpn();
+      if (perm === "granted") return await this._doStartVpn();
+      // "needs_permission" → DeviceEventEmitter déclenchera _doStartVpn après accord
       return true;
     } catch (e) {
       console.warn("VpnService.startVpn:", e);
@@ -93,15 +72,27 @@ class VpnService {
     }
   }
 
-  /** Lance effectivement le service VPN natif */
+  /**
+   * Lance effectivement le service VPN.
+   *
+   * ORDRE CRITIQUE :
+   *   1. setBlockedApps() → persiste les règles dans les prefs
+   *   2. VpnModule.startVpn() → le service lit les prefs et applique les règles
+   *
+   * Sans cet ordre, le service démarre avec des règles vides (BUG #2).
+   */
   async _doStartVpn(): Promise<boolean> {
     try {
+      // 1. Persister les règles en premier
+      const pkgs = await this._getBlockedPackages();
+      if (VpnModule) await VpnModule.setBlockedApps(pkgs);
+
+      // 2. Démarrer le service (qui lira les règles depuis les prefs)
       if (VpnModule) await VpnModule.startVpn();
+
       this._isActive = true;
       this._isNative = true;
       AppEvents.emit("vpn:changed", true);
-      // Synchroniser les règles bloquées avec le service
-      await this.syncRules();
       return true;
     } catch (e) {
       console.warn("VpnService._doStartVpn:", e);
@@ -121,9 +112,6 @@ class VpnService {
     }
   }
 
-  // ── État ───────────────────────────────────────────────────────────────────
-
-  /** Interroge l'état réel du service natif */
   async isVpnActive(): Promise<boolean> {
     try {
       if (VpnModule) this._isActive = await VpnModule.isVpnActive();
@@ -137,8 +125,6 @@ class VpnService {
     return { isActive: this._isActive, isNative: this._isNative };
   }
 
-  // ── Règles ─────────────────────────────────────────────────────────────────
-
   async setRule(packageName: string, isBlocked: boolean): Promise<void> {
     const cleanPkg = packageName.split("@")[0].trim();
     await StorageService.saveRule({
@@ -147,9 +133,11 @@ class VpnService {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    // Mettre à jour les règles dans le service natif
+    // setBlockedApps persiste dans les prefs ET envoie UPDATE_RULES si VPN actif
     try {
-      if (VpnModule)
-        await VpnModule.setBlockedApps(await this._getBlockedPackages());
+      const pkgs = await this._getBlockedPackages();
+      if (VpnModule) await VpnModule.setBlockedApps(pkgs);
     } catch (e) {
       console.warn("VpnService.setRule:", e);
     }
@@ -181,8 +169,9 @@ class VpnService {
     packageName: string,
   ): Promise<"blocked" | "allowed"> {
     const rules = await StorageService.getRules();
-    const rule = rules.find((r) => r.packageName === packageName);
-    return rule?.isBlocked ? "blocked" : "allowed";
+    return rules.find((r) => r.packageName === packageName)?.isBlocked
+      ? "blocked"
+      : "allowed";
   }
 
   private async _getBlockedPackages(): Promise<string[]> {

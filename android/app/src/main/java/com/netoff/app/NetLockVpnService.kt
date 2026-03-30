@@ -10,31 +10,33 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import org.json.JSONArray
 import java.io.FileInputStream
 import java.io.IOException
 
 /**
- * NetLockVpnService — Service VPN local NetOff
+ * NetLockVpnService
  *
- * CAUSE DU BUG "apps débloquées après un moment" :
- *   Le drain thread lit le fd VPN. Quand Android ferme ce fd (changement de
- *   réseau, veille, autre VPN, révocation...), stream.read() retourne -1 ou
- *   lève une IOException. Le thread s'arrêtait silencieusement → le tunnel
- *   n'existait plus → les apps bypassaient → internet retrouvé.
- *   isVpnEstablished restait true donc rien ne relançait.
+ * CORRECTIONS :
  *
- * FIX :
- *   1. Le drain thread détecte sa propre mort (read = -1 ou IOException)
- *   2. Si l'arrêt n'est PAS intentionnel (stopRequested = false), il
- *      programme un redémarrage immédiat du tunnel via Handler(mainLooper)
- *   3. @Volatile stopRequested empêche la boucle de redémarrage infinie
- *      lors d'un arrêt voulu (STOP, STOP_FORCE)
+ * BUG #1 — blockedPackages perdues au redémarrage
+ *   FIX : loadRulesFromPrefs() relit les packages depuis SharedPreferences.
+ *   Appelé dans onStartCommand AVANT startVpnTunnel(), quelle que soit la source.
+ *
+ * BUG #2 — Race condition setBlockedApps vs startVpn
+ *   FIX : startVpnTunnel() appelle toujours loadRulesFromPrefs() en premier.
+ *   Le JS appelle setBlockedApps (persist les prefs) AVANT startVpn.
+ *   Les règles sont donc dans les prefs quand establish() est appelé.
+ *
+ * BUG #3 — Boucle de restart du drain thread
+ *   FIX : chaque tunnel a un ID unique (tunnelGeneration). Le drain thread
+ *   mémorise son generation à sa création. Il ne relance que si sa generation
+ *   correspond à la generation courante. Teardown incrémente la generation,
+ *   invalidant les threads précédents.
  */
 class NetLockVpnService : VpnService() {
 
@@ -42,26 +44,24 @@ class NetLockVpnService : VpnService() {
     private var drainThread:  Thread?               = null
     private var wakeLock:     PowerManager.WakeLock? = null
 
-    // Flag explicite : true uniquement quand l'arrêt est VOULU (STOP/STOP_FORCE)
-    // Empêche le drain thread de relancer le VPN lors d'un arrêt intentionnel
-    @Volatile private var stopRequested = false
-
-    // Handler sur le main thread pour relancer le VPN depuis le drain thread
-    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var stopRequested   = false
+    // Incrémenté à chaque teardown — invalide les drain threads précédents
+    @Volatile private var tunnelGeneration = 0
 
     companion object {
         const val TAG = "NetLockVpnService"
 
+        // Cache statique — utilisé comme fallback si les prefs ne sont pas encore lues
         var blockedPackages: HashSet<String> = hashSetOf()
         var allowlistMode:   Boolean         = false
         var allowedPackages: HashSet<String> = hashSetOf()
 
-        const val PREFS          = "netoff_vpn"
-        const val KEY_ACTIVE     = "vpn_was_active"
-        const val KEY_ALLOW_MODE = "allowlist_mode"
+        const val PREFS           = "netoff_vpn"
+        const val KEY_ACTIVE      = "vpn_was_active"
+        const val KEY_ALLOW_MODE  = "allowlist_mode"
 
-        var serviceRunning               = false
-        @Volatile var isVpnEstablished   = false
+        @Volatile var isVpnEstablished = false
+        var serviceRunning             = false
 
         const val NOTIF_CHANNEL = "netoff_vpn_channel"
         const val NOTIF_ID      = 1001
@@ -79,12 +79,15 @@ class NetLockVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundNotification()
 
+        // Toujours charger les règles depuis les prefs en premier
+        loadRulesFromPrefs()
+
         if (intent == null) {
-            // Relance START_STICKY par Android
+            // Relance START_STICKY — les règles viennent d'être chargées depuis les prefs
             val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (prefs.getBoolean(KEY_ACTIVE, false)) {
-                allowlistMode = prefs.getBoolean(KEY_ALLOW_MODE, false)
-                Log.d(TAG, "Relance système → redémarrage VPN")
+                Log.d(TAG, "Relance système → tunnel avec règles des prefs")
+                stopRequested = false
                 startVpnTunnel()
             }
             return START_STICKY
@@ -93,7 +96,9 @@ class NetLockVpnService : VpnService() {
         when (intent.action) {
             "START" -> {
                 stopRequested = false
-                allowlistMode = intent.getBooleanExtra("allowlist_mode", false)
+                // allowlist_mode peut être overridé par l'intent
+                val intentAllowlist = intent.getBooleanExtra("allowlist_mode", allowlistMode)
+                allowlistMode = intentAllowlist
                 startVpnTunnel()
                 getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                     .putBoolean(KEY_ACTIVE, true)
@@ -101,34 +106,65 @@ class NetLockVpnService : VpnService() {
                     .apply()
             }
             "STOP" -> {
-                if (isFocusActive(this)) {
-                    Log.w(TAG, "STOP ignoré — Focus actif")
-                    return START_STICKY
-                }
+                if (isFocusActive(this)) { Log.w(TAG, "STOP ignoré — Focus actif"); return START_STICKY }
                 stopRequested = true
                 stopVpnExplicit()
             }
-            "STOP_FORCE" -> {
-                stopRequested = true
-                stopVpnExplicit()
-            }
+            "STOP_FORCE" -> { stopRequested = true; stopVpnExplicit() }
             "UPDATE_RULES" -> {
                 if (isFocusActive(this)) return START_STICKY
+                // Les prefs ont déjà été rechargées en début de cette méthode
                 allowlistMode = intent.getBooleanExtra("allowlist_mode", allowlistMode)
-                // Relancer le tunnel avec les nouvelles règles
-                stopRequested = false
-                startVpnTunnel()
+                if (isVpnEstablished) {
+                    Log.d(TAG, "UPDATE_RULES → reconstruire tunnel")
+                    stopRequested = false
+                    startVpnTunnel()
+                } else {
+                    Log.d(TAG, "UPDATE_RULES ignoré — VPN inactif (règles mémorisées pour la prochaine activation)")
+                }
             }
             "UPDATE_RULES_FORCE" -> {
                 stopRequested = false
                 startVpnTunnel()
             }
-            "RESTART_TUNNEL" -> {
-                // Relance interne depuis le drain thread
-                if (!stopRequested) startVpnTunnel()
-            }
         }
         return START_STICKY
+    }
+
+    /**
+     * Relit les packages bloqués/autorisés depuis SharedPreferences.
+     * CRITIQUE : à appeler en début de chaque onStartCommand pour que le service
+     * ait toujours les bonnes règles, même après un kill/restart du process.
+     */
+    private fun loadRulesFromPrefs() {
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        // Recharger le mode
+        allowlistMode = prefs.getBoolean(KEY_ALLOW_MODE, false)
+
+        // Recharger les packages bloqués
+        val blockedJson  = prefs.getString(VpnModule.KEY_BLOCKED_PKGS, "[]") ?: "[]"
+        val allowedJson  = prefs.getString(VpnModule.KEY_ALLOWED_PKGS, "[]") ?: "[]"
+
+        blockedPackages = parseJsonToSet(blockedJson)
+        allowedPackages = parseJsonToSet(allowedJson)
+
+        Log.d(TAG, "Règles rechargées: mode=${if (allowlistMode) "ALLOWLIST" else "BLOCKLIST"}, " +
+                "blocked=${blockedPackages.size}, allowed=${allowedPackages.size}")
+    }
+
+    private fun parseJsonToSet(json: String): HashSet<String> {
+        val set = HashSet<String>()
+        try {
+            val arr = JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val pkg = arr.optString(i, "").trim()
+                if (pkg.isNotEmpty()) set.add(pkg)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "parseJsonToSet error: ${e.message}")
+        }
+        return set
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -136,12 +172,11 @@ class NetLockVpnService : VpnService() {
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(KEY_ACTIVE, false)) return
         Log.w(TAG, "onTaskRemoved → redémarrage dans 1s")
-        scheduleRestart(1000L)
+        scheduleAlarm("START", 1000L)
     }
 
     override fun onRevoke() {
-        // Android révoque la permission VPN (ex: l'utilisateur désactive depuis les paramètres)
-        Log.w(TAG, "onRevoke — permission VPN révoquée")
+        Log.w(TAG, "onRevoke — permission VPN révoquée par l'utilisateur")
         stopRequested = true
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_ACTIVE, false).apply()
@@ -152,8 +187,6 @@ class NetLockVpnService : VpnService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Annuler les restarts planifiés
-        mainHandler.removeCallbacksAndMessages(null)
         teardownTunnel()
         NetOffWidget.forceUpdate(this)
     }
@@ -161,12 +194,16 @@ class NetLockVpnService : VpnService() {
     // ── VPN ───────────────────────────────────────────────────────────────────
 
     /**
-     * Démarre ou redémarre le tunnel VPN.
-     * Appelé depuis onStartCommand (main thread) et depuis le drain thread
-     * via mainHandler.post() en cas de chute inattendue.
+     * Crée ou recrée le tunnel VPN avec les règles courantes.
+     * Doit toujours être précédé de loadRulesFromPrefs() ou d'une mise à jour
+     * des variables statiques.
      */
     private fun startVpnTunnel() {
-        // Arrêter proprement l'ancien tunnel avant d'en créer un nouveau
+        // Incrémenter la génération → invalide tout drain thread en cours
+        // Cela évite la boucle de restart (BUG #3)
+        tunnelGeneration++
+        val myGeneration = tunnelGeneration
+
         teardownTunnel()
 
         try {
@@ -175,27 +212,22 @@ class NetLockVpnService : VpnService() {
                 .addAddress("10.0.0.1", 32)
                 .addRoute("0.0.0.0", 0)
                 .addDnsServer("8.8.8.8")
-                // setBlocking(false) : read() retourne -1 immédiatement si pas de paquet
-                // → permet de détecter la fermeture du fd rapidement
-                // setBlocking(true) : read() bloque → moins de CPU mais moins réactif
-                // On garde true mais avec détection de chute dans le thread
                 .setBlocking(true)
 
             when {
-                allowlistMode          -> applyAllowlistMode(builder)
+                allowlistMode             -> applyAllowlistMode(builder)
                 blockedPackages.isEmpty() -> {
+                    // Sentinelle minimale — aucune règle, juste notre app
                     try { builder.addAllowedApplication(packageName) } catch (_: Exception) {}
+                    Log.d(TAG, "Tunnel sentinelle (aucune app à bloquer)")
                 }
-                else                   -> applyBlocklistMode(builder)
+                else -> applyBlocklistMode(builder)
             }
 
             val iface = builder.establish()
             if (iface == null) {
-                Log.e(TAG, "establish() → null (permission révoquée ou autre VPN actif)")
-                // Ne pas mettre KEY_ACTIVE = false ici — c'est peut-être transitoire
-                // Le watchdog / VpnRestartReceiver tentera de relancer
-                isVpnEstablished = false
-                serviceRunning   = false
+                Log.e(TAG, "establish() → null. Permission révoquée ou autre VPN actif.")
+                isVpnEstablished = false; serviceRunning = false
                 return
             }
 
@@ -204,84 +236,75 @@ class NetLockVpnService : VpnService() {
             serviceRunning   = true
             acquireWakeLock()
             startForegroundNotification()
-            Log.i(TAG, "Tunnel VPN établi — mode=${if (allowlistMode) "ALLOWLIST" else "BLOCKLIST"}")
+            Log.i(TAG, "Tunnel établi [gen=$myGeneration] — ${if (allowlistMode) "ALLOWLIST" else "BLOCKLIST(${blockedPackages.size})"}")
 
-            // Démarrer le drain thread avec auto-restart en cas de chute
-            startDrainThread(iface)
+            startDrainThread(iface, myGeneration)
 
         } catch (e: Exception) {
             Log.e(TAG, "startVpnTunnel error: ${e.message}", e)
-            isVpnEstablished = false
-            serviceRunning   = false
-            vpnInterface?.close()
-            vpnInterface = null
+            isVpnEstablished = false; serviceRunning = false
+            vpnInterface?.close(); vpnInterface = null
             releaseWakeLock()
-            // Réessayer dans 3s si l'arrêt n'est pas intentionnel
-            if (!stopRequested) scheduleRestartVia("RESTART_TUNNEL", 3000L)
+            // Réessayer dans 3s seulement si arrêt non intentionnel
+            if (!stopRequested && tunnelGeneration == myGeneration) {
+                scheduleAlarm("START", 3000L)
+            }
         }
         NetOffWidget.forceUpdate(this)
     }
 
     /**
-     * Thread qui vide le tunnel (les paquets drainés ne sont pas retransmis
-     * → les apps bloquées n'ont pas internet).
+     * Thread qui draine les paquets du tunnel.
      *
-     * CRITIQUE : quand read() retourne -1 ou lève IOException sans interruption
-     * explicite, c'est que le fd a été fermé par Android (changement réseau,
-     * veille, révocation...). Dans ce cas on relance le tunnel.
+     * FIX BUG #3 : chaque thread mémorise myGeneration.
+     * Si tunnelGeneration != myGeneration au moment de la sortie,
+     * c'est que teardown() a déjà créé un nouveau tunnel → ne pas relancer.
      */
-    private fun startDrainThread(iface: ParcelFileDescriptor) {
-        val fd     = iface.fileDescriptor
-        val stream = FileInputStream(fd)
+    private fun startDrainThread(iface: ParcelFileDescriptor, myGeneration: Int) {
+        val stream = FileInputStream(iface.fileDescriptor)
 
         drainThread = Thread {
             val buf = ByteArray(32768)
-            Log.d(TAG, "Drain thread démarré")
             var unexpectedExit = false
+            Log.d(TAG, "Drain thread démarré [gen=$myGeneration]")
 
             try {
                 while (!Thread.currentThread().isInterrupted) {
                     val len = stream.read(buf)
                     if (len < 0) {
-                        // fd fermé par Android — pas une interruption volontaire
-                        Log.w(TAG, "Drain: read()=$len → tunnel fermé par Android")
-                        unexpectedExit = !stopRequested
+                        // fd fermé par Android (changement réseau, veille, révocation...)
+                        unexpectedExit = !stopRequested && (tunnelGeneration == myGeneration)
+                        Log.w(TAG, "Drain: read()=$len [gen=$myGeneration] — inattendu=$unexpectedExit")
                         break
                     }
-                    // len == 0 : pas de paquet (ne devrait pas arriver avec setBlocking(true))
-                    // Paquets drainés : on ne fait rien → apps bloquées perdent internet
+                    // Paquets drainés → apps bloquées sans internet
                 }
             } catch (e: IOException) {
-                if (!Thread.currentThread().isInterrupted && !stopRequested) {
-                    Log.w(TAG, "Drain: IOException inattendue → ${e.message}")
-                    unexpectedExit = true
-                }
+                // IOException peut venir d'un interrupt() ou d'une fermeture du fd
+                val isOurInterrupt = Thread.currentThread().isInterrupted
+                unexpectedExit = !isOurInterrupt && !stopRequested && (tunnelGeneration == myGeneration)
+                if (unexpectedExit) Log.w(TAG, "Drain: IOException inattendue [gen=$myGeneration]: ${e.message}")
             } finally {
                 try { stream.close() } catch (_: Exception) {}
+                if (tunnelGeneration == myGeneration) {
+                    // Ce thread correspond encore au tunnel courant
+                    isVpnEstablished = false
+                    serviceRunning   = false
+                }
                 releaseWakeLock()
-                isVpnEstablished = false
-                serviceRunning   = false
-                Log.d(TAG, "Drain thread terminé (unexpectedExit=$unexpectedExit, stopRequested=$stopRequested)")
+                Log.d(TAG, "Drain thread terminé [gen=$myGeneration, unexpectedExit=$unexpectedExit]")
 
-                if (unexpectedExit && !stopRequested) {
-                    // Le tunnel est tombé de façon inattendue → relancer depuis le main thread
-                    Log.w(TAG, "Tunnel tombé → relance dans 500ms")
-                    mainHandler.postDelayed({
-                        if (!stopRequested) {
-                            Log.i(TAG, "Relance du tunnel VPN après chute inattendue")
-                            startVpnTunnel()
-                        }
-                    }, 500L)
+                if (unexpectedExit && !stopRequested && tunnelGeneration == myGeneration) {
+                    // Le tunnel est tombé de façon inattendue et aucun nouveau tunnel n'est en cours
+                    Log.w(TAG, "Tunnel tombé → relance dans 800ms [gen=$myGeneration]")
+                    // Utiliser une alarme AlarmManager plutôt que postDelayed
+                    // car le main thread peut lui-même être suspendu
+                    scheduleAlarmFromThread("START", 800L)
                 }
             }
-        }.also {
-            it.isDaemon = true
-            it.name     = "NetOff-VPN-Drain"
-            it.start()
-        }
+        }.also { it.isDaemon = true; it.name = "NetOff-VPN-Drain-$myGeneration"; it.start() }
     }
 
-    /** Applique le mode BLOCKLIST : seules les apps bloquées entrent dans le tunnel */
     private fun applyBlocklistMode(builder: Builder) {
         var ok = 0
         for (pkg in blockedPackages) {
@@ -294,14 +317,11 @@ class NetLockVpnService : VpnService() {
             } catch (_: Exception) {}
         }
         Log.d(TAG, "BLOCKLIST: $ok/${blockedPackages.size} apps dans le tunnel")
-        // Sentinelle : si aucune app valide, au moins notre app → tunnel non vide
         if (ok == 0) try { builder.addAllowedApplication(packageName) } catch (_: Exception) {}
     }
 
-    /** Applique le mode ALLOWLIST : tout entre dans le tunnel sauf les apps autorisées */
     private fun applyAllowlistMode(builder: Builder) {
         var excluded = 0
-        // Notre propre app doit toujours bypasser (sinon on perd le contrôle)
         try { builder.addDisallowedApplication(packageName); excluded++ } catch (_: Exception) {}
         for (pkg in allowedPackages) {
             val clean = pkg.substringBefore("@").trim()
@@ -315,7 +335,7 @@ class NetLockVpnService : VpnService() {
         Log.d(TAG, "ALLOWLIST: $excluded apps exclues du tunnel")
     }
 
-    /** Démonte le tunnel proprement sans changer KEY_ACTIVE */
+    /** Arrête le tunnel sans changer KEY_ACTIVE */
     private fun teardownTunnel() {
         drainThread?.interrupt()
         drainThread = null
@@ -326,9 +346,8 @@ class NetLockVpnService : VpnService() {
         releaseWakeLock()
     }
 
-    /** Arrêt intentionnel — met KEY_ACTIVE = false et s'auto-détruit */
+    /** Arrêt intentionnel — marque KEY_ACTIVE = false */
     private fun stopVpnExplicit() {
-        mainHandler.removeCallbacksAndMessages(null)
         teardownTunnel()
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_ACTIVE, false)
@@ -339,66 +358,63 @@ class NetLockVpnService : VpnService() {
         NetOffWidget.forceUpdate(this)
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Alarmes ───────────────────────────────────────────────────────────────
 
-    private fun scheduleRestart(delayMs: Long) {
-        scheduleRestartVia("START", delayMs)
-    }
-
-    private fun scheduleRestartVia(action: String, delayMs: Long) {
-        val restartIntent = Intent(this, NetLockVpnService::class.java).apply {
-            this.action = action
-            putExtra("allowlist_mode", allowlistMode)
-        }
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        else PendingIntent.FLAG_ONE_SHOT
-
-        val pi = PendingIntent.getService(this, 99, restartIntent, flags)
-        val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
-        val at = System.currentTimeMillis() + delayMs
+    private fun scheduleAlarm(action: String, delayMs: Long) {
+        val pi  = buildRestartPendingIntent(action)
+        val am  = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val at  = System.currentTimeMillis() + delayMs
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi)
         else
             am.setExact(android.app.AlarmManager.RTC_WAKEUP, at, pi)
     }
 
+    /** Variante thread-safe appelable depuis le drain thread */
+    private fun scheduleAlarmFromThread(action: String, delayMs: Long) {
+        try { scheduleAlarm(action, delayMs) }
+        catch (e: Exception) { Log.w(TAG, "scheduleAlarmFromThread: ${e.message}") }
+    }
+
+    private fun buildRestartPendingIntent(action: String): android.app.PendingIntent {
+        val intent = Intent(this, NetLockVpnService::class.java).apply {
+            this.action = action
+            putExtra("allowlist_mode", allowlistMode)
+        }
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        else PendingIntent.FLAG_UPDATE_CURRENT
+        return PendingIntent.getService(this, 99, intent, flags)
+    }
+
+    // ── Notification ──────────────────────────────────────────────────────────
+
     private fun startForegroundNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(
-                NOTIF_CHANNEL, "NetOff VPN", NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Service VPN actif"
-                setShowBadge(false)
+            val ch = NotificationChannel(NOTIF_CHANNEL, "NetOff VPN", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Service VPN actif"; setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(ch)
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
         }
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         else PendingIntent.FLAG_UPDATE_CURRENT
 
-        val openPi = PendingIntent.getActivity(
-            this, 0, packageManager.getLaunchIntentForPackage(packageName), flags
-        )
-        val stopPi = PendingIntent.getService(
-            this, 2,
-            Intent(this, NetLockVpnService::class.java).apply { action = "STOP" },
-            flags
-        )
+        val openPi = PendingIntent.getActivity(this, 0, packageManager.getLaunchIntentForPackage(packageName), flags)
+        val stopPi = PendingIntent.getService(this, 2, Intent(this, NetLockVpnService::class.java).apply { action = "STOP" }, flags)
         val focusActive = isFocusActive(this)
         val modeLabel   = when {
-            focusActive  -> "Session Focus — blocage réseau maintenu"
-            allowlistMode-> "Liste blanche — tout bloqué sauf exceptions"
-            else         -> "${blockedPackages.size} app(s) bloquée(s)"
+            focusActive   -> "Session Focus — blocage actif"
+            allowlistMode -> "Liste blanche — tout bloqué sauf exceptions"
+            blockedPackages.isEmpty() -> "Aucune app bloquée"
+            else -> "${blockedPackages.size} app(s) bloquée(s)"
         }
         val notif = NotificationCompat.Builder(this, NOTIF_CHANNEL)
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setContentTitle(if (focusActive) "🎯 Mode Focus actif" else "🛡 NetOff VPN actif")
             .setContentText(modeLabel)
-            .setOngoing(true)
-            .setAutoCancel(false)
+            .setOngoing(true).setAutoCancel(false)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -420,19 +436,12 @@ class NetLockVpnService : VpnService() {
             if (wakeLock?.isHeld == true) return
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NetOff:VpnDrain")
-                .apply { acquire(12L * 60 * 60 * 1000) } // 12h max
-            Log.d(TAG, "WakeLock acquis")
-        } catch (e: Exception) {
-            Log.w(TAG, "WakeLock non disponible: ${e.message}")
-        }
+                .apply { acquire(12L * 60 * 60 * 1000) }
+        } catch (e: Exception) { Log.w(TAG, "WakeLock: ${e.message}") }
     }
 
     private fun releaseWakeLock() {
-        try {
-            if (wakeLock?.isHeld == true) wakeLock?.release()
-            wakeLock = null
-        } catch (e: Exception) {
-            Log.w(TAG, "releaseWakeLock: ${e.message}")
-        }
+        try { if (wakeLock?.isHeld == true) wakeLock?.release(); wakeLock = null }
+        catch (e: Exception) { Log.w(TAG, "releaseWakeLock: ${e.message}") }
     }
 }
