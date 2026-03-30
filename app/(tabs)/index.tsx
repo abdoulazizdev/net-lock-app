@@ -71,7 +71,6 @@ const BlockedToast = React.memo(function BlockedToast({
 }) {
   const translateY = useRef(new Animated.Value(80)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     if (visible) {
       Animated.parallel([
@@ -103,7 +102,6 @@ const BlockedToast = React.memo(function BlockedToast({
       ]).start();
     }
   }, [visible]);
-
   return (
     <Animated.View
       pointerEvents={visible ? "auto" : "none"}
@@ -733,22 +731,15 @@ export default function HomeScreen() {
   const appStateRef = useRef(AppState.currentState);
   const mountFade = useRef(new Animated.Value(0)).current;
   const mountSlide = useRef(new Animated.Value(18)).current;
-
-  // ── Allowlist ──────────────────────────────────────────────────────────────
   const [allowlistState, setAllowlistState] = useState<AllowlistState>({
     enabled: false,
     packages: [],
   });
-
-  // ── Deferred-sort ──────────────────────────────────────────────────────────
   const [pendingSort, setPendingSort] = useState(false);
   const sortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Toast ──────────────────────────────────────────────────────────────────
   const [toastVisible, setToastVisible] = useState(false);
   const [toastAppName, setToastAppName] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const flatListRef = useRef<FlatList<AppItem>>(null);
 
   const focusActive = focusStatus?.isActive ?? false;
@@ -761,7 +752,6 @@ export default function HomeScreen() {
   const hasBanners =
     showVpnWarning || focusActive || timerActive || limitReached;
   const vpnDanger = !vpnActive && blockedCount > 0 && !anyActive;
-
   const TOAST_DURATION_MS = 4000;
 
   const showBlockedToast = useCallback((name: string) => {
@@ -861,30 +851,23 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // const toggleVpn = useCallback(() => {
-  //   if (anyActive) return;
-  //   if (vpnActive) VpnService.stopVpn();
-  //   else VpnService.startVpn();
-  // }, [vpnActive, anyActive]);
-
   const toggleVpn = useCallback(async () => {
-    if (anyActive) return; // VPN locked si Focus OU Minuterie actif
+    if (anyActive) return;
     if (vpnActive) {
       await VpnService.stopVpn();
       setVpnActive(false);
       return;
     }
-    // startVpn() gère la permission Android automatiquement.
-    // Si needs_permission → dialog → VpnService émet vpn:changed après accord.
-    // Ne pas setVpnActive(true) ici — attendre l'event vpn:changed.
+    // startVpn() gère la permission automatiquement.
+    // Si "needs_permission" → dialog Android → DeviceEventEmitter "vpn:permission"
+    // → VpnService._doStartVpn() → AppEvents.emit("vpn:changed", true) → setVpnActive(true)
     await VpnService.startVpn();
   }, [vpnActive, anyActive]);
 
-  // ── Disable allowlist from Home ────────────────────────────────────────────
   const handleDisableAllowlist = useCallback(() => {
     Alert.alert(
       "Désactiver la liste blanche ?",
-      "Le blocage reviendra en mode normal (les apps cochées seront bloquées).",
+      "Le blocage reviendra en mode normal.",
       [
         { text: "Annuler", style: "cancel" },
         {
@@ -892,8 +875,7 @@ export default function HomeScreen() {
           style: "destructive",
           onPress: async () => {
             await AllowlistService.disable();
-            const newState = await AllowlistService.getState();
-            setAllowlistState(newState);
+            setAllowlistState(await AllowlistService.getState());
             AppEvents.emit("allowlist:changed", false);
             AppEvents.emit("rules:changed", undefined);
           },
@@ -902,7 +884,6 @@ export default function HomeScreen() {
     );
   }, []);
 
-  // ── Navigate to allowlist page ─────────────────────────────────────────────
   const handleOpenAllowlist = useCallback(() => {
     router.push("/screens/allowlist");
   }, []);
@@ -935,7 +916,6 @@ export default function HomeScreen() {
     const unsubPremium = AppEvents.on("premium:changed", () =>
       refreshPremium(),
     );
-    // ← Écouter les changements allowlist depuis n'importe quelle page
     const unsubAllowlist = AppEvents.on("allowlist:changed" as any, () =>
       refreshAllowlist(),
     );
@@ -1110,12 +1090,8 @@ export default function HomeScreen() {
         ),
       );
       setBlockedCount((c) => c + (nowBlocked ? 1 : -1));
-      if (nowBlocked) {
-        armSortTimer();
-        showBlockedToast(item.appName);
-      } else {
-        armSortTimer();
-      }
+      armSortTimer();
+      if (nowBlocked) showBlockedToast(item.appName);
       if (nowBlocked && !vpnActive && !vpnPopupShown.current) {
         vpnPopupShown.current = true;
         setVpnPopupAppName(item.appName);
@@ -1175,7 +1151,6 @@ export default function HomeScreen() {
 
   const ListHeader = (
     <View style={g.listHeader}>
-      {/* ── Bannière allowlist — avec bouton désactiver et modifier ── */}
       {allowlistState.enabled && (
         <View style={g.allowlistBanner}>
           <View style={g.allowlistBannerDot} />
@@ -1186,7 +1161,6 @@ export default function HomeScreen() {
               {allowlistState.packages.length > 1 ? "s" : ""}
             </Text>
           </Text>
-          {/* Bouton Modifier → ouvre la page allowlist */}
           <TouchableOpacity
             onPress={handleOpenAllowlist}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -1194,9 +1168,7 @@ export default function HomeScreen() {
           >
             <Text style={g.allowlistBannerEdit}>Modifier ›</Text>
           </TouchableOpacity>
-          {/* Séparateur */}
           <View style={g.allowlistBannerSep} />
-          {/* Bouton Désactiver */}
           <TouchableOpacity
             onPress={handleDisableAllowlist}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -1238,7 +1210,6 @@ export default function HomeScreen() {
         translucent
       />
 
-      {/* ── Header ── */}
       <Animated.View
         style={[
           g.header,
@@ -1260,7 +1231,6 @@ export default function HomeScreen() {
               <Text style={g.brandTagline}>contrôle réseau · local</Text>
             </View>
           </View>
-
           <View style={g.headerActions}>
             {isPremium ? (
               <View style={g.proBadge}>
@@ -1353,7 +1323,6 @@ export default function HomeScreen() {
         </View>
       </Animated.View>
 
-      {/* ── Banners ── */}
       {hasBanners && (
         <View
           style={[
@@ -1423,7 +1392,6 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* ── Liste ── */}
       <FlatList
         ref={flatListRef}
         data={filteredApps}
@@ -1473,7 +1441,6 @@ export default function HomeScreen() {
         }
       />
 
-      {/* ── Toast ── */}
       <BlockedToast
         appName={toastAppName}
         visible={toastVisible}
@@ -1482,7 +1449,6 @@ export default function HomeScreen() {
         bottomInset={insets.bottom}
       />
 
-      {/* ── Modals ── */}
       <FocusModal
         visible={focusVisible}
         onClose={() => setFocusVisible(false)}
@@ -1571,13 +1537,9 @@ const g = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
     justifyContent: "center",
     alignItems: "center",
-    overflow: "hidden", // ← ajouter pour que le logo respecte le borderRadius
+    overflow: "hidden",
   },
-
-  logoMarkImg: {
-    width: 24,
-    height: 24,
-  },
+  logoMarkImg: { width: 24, height: 24 },
   brandName: {
     fontSize: 18,
     fontWeight: "800",
@@ -1778,8 +1740,6 @@ const g = StyleSheet.create({
   limitCtaText: { fontSize: 11, fontWeight: "700" },
   listContent: { paddingHorizontal: 14 },
   listHeader: { gap: 10, paddingTop: 14, paddingBottom: 6 },
-
-  // ── Bannière allowlist enrichie ──
   allowlistBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1824,7 +1784,6 @@ const g = StyleSheet.create({
     flexShrink: 0,
     paddingLeft: 2,
   },
-
   listMeta: {
     flexDirection: "row",
     alignItems: "center",

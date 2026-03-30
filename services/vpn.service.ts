@@ -1,42 +1,36 @@
 /**
  * vpn.service.ts
  *
- * FLUX CORRECT pour démarrer le VPN Android :
+ * FLUX PERMISSION VPN ANDROID :
+ *   1. startVpn() → prepareVpn()
+ *   2a. "granted"          → _doStartVpn() immédiatement
+ *   2b. "needs_permission" → dialog Android ouvert
+ *       → onActivityResult → Kotlin émet "vpn:permission" via RCTDeviceEventEmitter
+ *       → DeviceEventEmitter reçoit l'event → _doStartVpn()
  *
- *   1. prepareVpn()      → vérifie la permission Android
- *      → "granted"          : permission déjà ok, appeler startVpn() directement
- *      → "needs_permission" : dialog système lancé, attendre l'event "vpn:permission"
- *
- *   2. Event "vpn:permission" = "granted" → appeler startVpn()
- *      Event "vpn:permission" = "denied"  → permission refusée, UI à mettre à jour
- *
- *   3. startVpn() → service natif démarre → establish() retourne un vrai fd → VPN actif
- *
- * Sans VpnService.prepare(), establish() retourne null et le service s'arrête seul.
+ * IMPORTANT : utiliser DeviceEventEmitter (pas NativeEventEmitter) pour recevoir
+ * les events émis par getJSModule(RCTDeviceEventEmitter::class.java) côté Kotlin.
  */
-import { NativeEventEmitter, NativeModules, Platform } from "react-native";
+import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 import AppEvents from "./app-events";
 import StorageService from "./storage.service";
 
 const { VpnModule } = NativeModules;
-
-// NativeEventEmitter pour recevoir les events Kotlin → JS
-const vpnEmitter = VpnModule ? new NativeEventEmitter(VpnModule) : null;
-
-export type VpnPermissionResult = "granted" | "denied" | "needs_permission";
 
 class VpnService {
   private _isActive = false;
   private _isNative = !!VpnModule;
 
   constructor() {
-    // Écouter le résultat de la permission système (Dialog Android)
-    vpnEmitter?.addListener("vpn:permission", (result: string) => {
+    // DeviceEventEmitter reçoit les events émis par RCTDeviceEventEmitter côté Kotlin.
+    // Doit être enregistré une seule fois au démarrage du service (singleton).
+    DeviceEventEmitter.addListener("vpn:permission", (result: string) => {
       if (result === "granted") {
-        // L'utilisateur a accordé la permission → démarrer le VPN
+        // L'utilisateur a accordé la permission dans le dialog Android
+        // → démarrer le VPN maintenant
         this._doStartVpn();
       } else {
-        // Refusé → s'assurer que l'état JS est cohérent
+        // Refusé
         this._isActive = false;
         AppEvents.emit("vpn:changed", false);
       }
@@ -47,18 +41,16 @@ class VpnService {
 
   /**
    * Vérifie / demande la permission VPN Android.
-   * À appeler AVANT startVpn().
-   *
    * Retourne :
-   *  "granted"          → permission déjà accordée, appeler startVpn() directement
-   *  "needs_permission" → dialog ouvert, attendre l'event "vpn:permission"
-   *  "denied"           → erreur ou module absent
+   *   "granted"          → permission déjà accordée
+   *   "needs_permission" → dialog ouvert, attendre DeviceEventEmitter "vpn:permission"
+   *   "denied"           → erreur
    */
-  async prepareVpn(): Promise<VpnPermissionResult> {
+  async prepareVpn(): Promise<"granted" | "needs_permission" | "denied"> {
     if (Platform.OS !== "android" || !VpnModule) return "granted";
     try {
       const result = await VpnModule.prepareVpn();
-      return result as VpnPermissionResult;
+      return result as "granted" | "needs_permission" | "denied";
     } catch (e) {
       console.warn("VpnService.prepareVpn:", e);
       return "denied";
@@ -79,10 +71,8 @@ class VpnService {
   /**
    * Démarre le VPN.
    * Gère automatiquement la permission :
-   *  - Si déjà accordée → démarre immédiatement
-   *  - Si pas encore accordée → ouvre le dialog, démarre après acceptation
-   *
-   * Retourne true si le démarrage est initié (pas forcément terminé si dialog).
+   *  - Déjà accordée → démarre immédiatement, émet vpn:changed
+   *  - Pas encore     → ouvre le dialog → après accord → démarre + émet vpn:changed
    */
   async startVpn(): Promise<boolean> {
     if (Platform.OS !== "android") {
@@ -90,34 +80,27 @@ class VpnService {
       AppEvents.emit("vpn:changed", true);
       return true;
     }
-
     try {
       const permResult = await this.prepareVpn();
       if (permResult === "granted") {
         return await this._doStartVpn();
-      } else if (permResult === "needs_permission") {
-        // Le dialog est ouvert, on attend l'event "vpn:permission"
-        // L'état JS sera mis à jour dans le constructor listener
-        return true; // initié mais en attente
-      } else {
-        return false;
       }
+      // "needs_permission" : dialog ouvert, DeviceEventEmitter s'en occupe
+      return true;
     } catch (e) {
       console.warn("VpnService.startVpn:", e);
       return false;
     }
   }
 
-  /** Démarre effectivement le service après que la permission est accordée */
-  private async _doStartVpn(): Promise<boolean> {
+  /** Lance effectivement le service VPN natif */
+  async _doStartVpn(): Promise<boolean> {
     try {
-      if (VpnModule) {
-        await VpnModule.startVpn();
-        this._isNative = true;
-      }
+      if (VpnModule) await VpnModule.startVpn();
       this._isActive = true;
+      this._isNative = true;
       AppEvents.emit("vpn:changed", true);
-      // Synchroniser les règles avec le service natif
+      // Synchroniser les règles bloquées avec le service
       await this.syncRules();
       return true;
     } catch (e) {
@@ -140,15 +123,10 @@ class VpnService {
 
   // ── État ───────────────────────────────────────────────────────────────────
 
-  /**
-   * Interroge le service natif pour l'état réel.
-   * À utiliser au chargement d'un écran (pas en temps réel).
-   */
+  /** Interroge l'état réel du service natif */
   async isVpnActive(): Promise<boolean> {
     try {
-      if (VpnModule) {
-        this._isActive = await VpnModule.isVpnActive();
-      }
+      if (VpnModule) this._isActive = await VpnModule.isVpnActive();
       return this._isActive;
     } catch {
       return this._isActive;
@@ -156,10 +134,7 @@ class VpnService {
   }
 
   getStatus() {
-    return {
-      isActive: this._isActive,
-      isNative: this._isNative,
-    };
+    return { isActive: this._isActive, isNative: this._isNative };
   }
 
   // ── Règles ─────────────────────────────────────────────────────────────────
