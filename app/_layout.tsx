@@ -9,7 +9,7 @@ import React, { useEffect, useState } from "react";
 import { Provider as PaperProvider } from "react-native-paper";
 import "react-native-reanimated";
 
-import { UpdateBanner } from "@/components/UpdateBanner"; // 👈
+import { UpdateBanner } from "@/components/UpdateBanner";
 import WeeklyReportModal from "@/components/WeeklyReportModal";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import FocusService from "@/services/focus.service";
@@ -134,25 +134,16 @@ export default function RootLayout() {
               name="screens/oem-compat"
               options={{ headerShown: false }}
             />
-            <Stack.Screen
-              name="screens/parental-control"
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="screens/productivity"
-              options={{ headerShown: false }}
-            />
             <Stack.Screen name="settings" options={{ headerShown: false }} />
           </Stack>
           <StatusBar style="light" />
         </ThemeProvider>
       </PaperProvider>
-      {/* Modals & overlays globaux */}
       <WeeklyReportModal
         visible={showWeeklyReport}
         onClose={() => setShowWeeklyReport(false)}
       />
-      <UpdateBanner /> {/* 👈 après WeeklyReportModal, hors de PaperProvider */}
+      <UpdateBanner />
     </NetOffThemeProvider>
   );
 }
