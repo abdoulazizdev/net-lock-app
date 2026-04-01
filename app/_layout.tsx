@@ -9,6 +9,7 @@ import React, { useEffect, useState } from "react";
 import { Provider as PaperProvider } from "react-native-paper";
 import "react-native-reanimated";
 
+import { UpdateBanner } from "@/components/UpdateBanner"; // 👈
 import WeeklyReportModal from "@/components/WeeklyReportModal";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import FocusService from "@/services/focus.service";
@@ -146,10 +147,12 @@ export default function RootLayout() {
           <StatusBar style="light" />
         </ThemeProvider>
       </PaperProvider>
+      {/* Modals & overlays globaux */}
       <WeeklyReportModal
         visible={showWeeklyReport}
         onClose={() => setShowWeeklyReport(false)}
       />
+      <UpdateBanner /> {/* 👈 après WeeklyReportModal, hors de PaperProvider */}
     </NetOffThemeProvider>
   );
 }

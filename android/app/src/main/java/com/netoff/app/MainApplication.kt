@@ -31,7 +31,8 @@ class MainApplication : Application(), ReactApplication {
                     add(AppInfoPackage())
                     add(WatchdogPackage())            // ← Watchdog
                     add(NetworkConditionPackage())   // ← Réseau conditionnel
-                    add(OemCompatPackage())
+                    add(InAppUpdatePackage())          // ← Mises à jour in-app
+                    add(OemCompatPackage())            // ← Compatibilité OEM
                 }
 
             override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
@@ -56,6 +57,9 @@ class MainApplication : Application(), ReactApplication {
         // ── Watchdog : relance le VPN si il devrait être actif ──────────────
         // Planifié seulement si le VPN était actif avant le redémarrage.
         // WorkManager gère la persistance et la replanification automatique.
+        // ── Canaux de notification — créer avant toute notif ──────────────
+        NotificationHelper.createAllChannels(this)
+
         WatchdogWorker.scheduleIfNeeded(this)
     }
 
