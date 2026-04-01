@@ -1,39 +1,61 @@
 /**
  * UpdateBanner.tsx
  * Bannière discrète affichée quand une mise à jour flexible est téléchargée.
- * À placer dans _layout.tsx ou dans la HomeScreen.
+ * Chargée en lazy depuis _layout.tsx pour ne pas bloquer le démarrage.
+ * Défensive : ne crashe jamais même si InAppUpdateModule est absent.
  */
-import InAppUpdateService from "@/services/in-app-update.service";
 import { Colors } from "@/theme";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Easing,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  Animated,
+  Easing,
+  NativeModules,
+  StyleSheet,
+  TouchableOpacity,
 } from "react-native";
 import { Text } from "react-native-paper";
+
+// Vérification préalable de la disponibilité du module natif
+const isModuleAvailable = !!NativeModules?.InAppUpdateModule;
 
 export function UpdateBanner() {
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const slideAnim = useRef(new Animated.Value(-80)).current;
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    // Vérifier si une mise à jour est déjà téléchargée (cas du redémarrage)
-    InAppUpdateService.checkDownloadedUpdate().then((downloaded) => {
-      if (downloaded) showBanner();
-    });
+    if (!isModuleAvailable) return;
+    mountedRef.current = true;
 
-    // Écouter le téléchargement terminé
-    InAppUpdateService.onDownloaded(() => showBanner());
+    // Import dynamique pour éviter un crash si le module n'est pas disponible
+    import("@/services/in-app-update.service")
+      .then(({ default: InAppUpdateService }) => {
+        if (!mountedRef.current) return;
 
-    // Vérifier les mises à jour disponibles (approche flexible)
-    InAppUpdateService.handleUpdateIfAvailable();
+        // 1. Vérifier si une mise à jour est déjà téléchargée (redémarrage app)
+        InAppUpdateService.checkDownloadedUpdate()
+          .then((downloaded) => {
+            if (downloaded && mountedRef.current) show();
+          })
+          .catch(() => {});
+
+        // 2. Écouter le téléchargement terminé
+        InAppUpdateService.onDownloaded(() => {
+          if (mountedRef.current) show();
+        });
+
+        // 3. Vérifier les mises à jour disponibles (non-bloquant)
+        InAppUpdateService.handleUpdateIfAvailable().catch(() => {});
+      })
+      .catch(() => {}); // Module indisponible — ignorer silencieusement
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
-  const showBanner = () => {
+  const show = () => {
     setVisible(true);
     Animated.spring(slideAnim, {
       toValue: 0,
@@ -43,34 +65,41 @@ export function UpdateBanner() {
     }).start();
   };
 
-  const hideBanner = () => {
+  const hide = () => {
     Animated.timing(slideAnim, {
       toValue: -80,
       duration: 250,
       easing: Easing.in(Easing.ease),
       useNativeDriver: true,
-    }).start(() => setVisible(false));
+    }).start(() => {
+      if (mountedRef.current) setVisible(false);
+    });
   };
 
   const handleInstall = async () => {
     setLoading(true);
-    await InAppUpdateService.completeFlexibleUpdate();
-    // L'app redémarre automatiquement après installation
+    try {
+      const { default: InAppUpdateService } =
+        await import("@/services/in-app-update.service");
+      await InAppUpdateService.completeFlexibleUpdate();
+      // L'app redémarre automatiquement
+    } catch {
+      setLoading(false);
+    }
   };
 
-  if (!visible) return null;
+  // Ne rien rendre si module absent ou bannière cachée
+  if (!isModuleAvailable || !visible) return null;
 
   return (
     <Animated.View
       style={[st.banner, { transform: [{ translateY: slideAnim }] }]}
     >
-      <View style={st.iconWrap}>
-        <Text style={{ fontSize: 18 }}>🎉</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={st.title}>Mise à jour disponible</Text>
-        <Text style={st.sub}>Téléchargée et prête à installer</Text>
-      </View>
+      <Text style={{ fontSize: 18 }}>🎉</Text>
+      <Text style={st.title} numberOfLines={1}>
+        Mise à jour prête ·{" "}
+        <Text style={st.sub}>Nouvelle version disponible</Text>
+      </Text>
       <TouchableOpacity
         style={st.btn}
         onPress={handleInstall}
@@ -80,8 +109,8 @@ export function UpdateBanner() {
         <Text style={st.btnText}>{loading ? "…" : "Installer"}</Text>
       </TouchableOpacity>
       <TouchableOpacity
-        onPress={hideBanner}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        onPress={hide}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       >
         <Text style={st.close}>✕</Text>
       </TouchableOpacity>
@@ -100,30 +129,24 @@ const st = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     backgroundColor: Colors.blue[700],
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 12,
-    elevation: 10,
+    elevation: 12,
   },
-  iconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  title: { fontSize: 13, fontWeight: "700", color: "#fff", marginBottom: 1 },
-  sub: { fontSize: 11, color: "rgba(255,255,255,0.7)" },
+  title: { flex: 1, fontSize: 12, fontWeight: "700", color: "#fff" },
+  sub: { fontWeight: "400", color: "rgba(255,255,255,0.75)" },
   btn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
     backgroundColor: "#fff",
   },
   btnText: { fontSize: 12, fontWeight: "800", color: Colors.blue[700] },
-  close: { fontSize: 14, color: "rgba(255,255,255,0.6)", paddingLeft: 4 },
+  close: { fontSize: 14, color: "rgba(255,255,255,0.55)" },
 });
+
+export default UpdateBanner;
