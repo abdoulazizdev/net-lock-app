@@ -71,24 +71,35 @@ class InAppUpdateModule(private val reactContext: ReactApplicationContext)
      */
     @ReactMethod
     fun checkForUpdate(promise: Promise) {
-        appUpdateManager.appUpdateInfo.addOnSuccessListener { info ->
-            val available = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
-            val map = Arguments.createMap().apply {
-                putBoolean("updateAvailable",  available)
-                putInt("priority",             info.updatePriority())
-                putInt("staleDays",            info.clientVersionStalenessDays() ?: 0)
-                putInt("availableVersionCode", info.availableVersionCode())
-                putBoolean("flexibleAllowed",  info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE))
-                putBoolean("immediateAllowed", info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE))
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                try {
+                    val available = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
+                    val staleDays = try { info.clientVersionStalenessDays() ?: 0 } catch (_: Exception) { 0 }
+                    val versionCode = try { info.availableVersionCode() } catch (_: Exception) { 0 }
+                    val flexOk = try { info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE) } catch (_: Exception) { false }
+                    val immOk  = try { info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE) } catch (_: Exception) { false }
+                    val map = Arguments.createMap().apply {
+                        putBoolean("updateAvailable",     available)
+                        putInt("priority",                info.updatePriority())
+                        putInt("staleDays",               staleDays)
+                        putInt("availableVersionCode",    versionCode)
+                        putBoolean("flexibleAllowed",     flexOk)
+                        putBoolean("immediateAllowed",    immOk)
+                    }
+                    Log.d(TAG, "checkForUpdate: available=$available, priority=${info.updatePriority()}, stale=$staleDays")
+                    if (available) emitEvent("update:available", map)
+                    promise.resolve(map)
+                } catch (e: Exception) {
+                    // Build sideloadé / émulateur / Play indisponible — ignorer silencieusement
+                    Log.w(TAG, "checkForUpdate callback error (build non-Play ?): ${e.message}")
+                    promise.resolve(Arguments.createMap().apply { putBoolean("updateAvailable", false) })
+                }
             }
-            Log.d(TAG, "checkForUpdate: available=$available, priority=${info.updatePriority()}, stale=${info.clientVersionStalenessDays()}")
-            emitEvent("update:available", map)
-            promise.resolve(map)
-        }.addOnFailureListener { e ->
-            Log.w(TAG, "checkForUpdate failed: ${e.message}")
-            val map = Arguments.createMap().apply { putBoolean("updateAvailable", false) }
-            promise.resolve(map) // Résoudre (pas rejeter) — l'app fonctionne sans mises à jour
-        }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "checkForUpdate failed: ${e.message}")
+                promise.resolve(Arguments.createMap().apply { putBoolean("updateAvailable", false) })
+            }
     }
 
     /**
@@ -177,14 +188,21 @@ class InAppUpdateModule(private val reactContext: ReactApplicationContext)
      */
     @ReactMethod
     fun checkDownloadedUpdate(promise: Promise) {
-        appUpdateManager.appUpdateInfo.addOnSuccessListener { info ->
-            val downloaded = info.installStatus() == InstallStatus.DOWNLOADED
-            promise.resolve(downloaded)
-            if (downloaded) {
-                Log.d(TAG, "Mise à jour téléchargée en attente d'installation")
-                emitEvent("update:downloaded", Arguments.createMap())
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                try {
+                    val downloaded = info.installStatus() == InstallStatus.DOWNLOADED
+                    promise.resolve(downloaded)
+                    if (downloaded) {
+                        Log.d(TAG, "Mise à jour téléchargée en attente d'installation")
+                        emitEvent("update:downloaded", Arguments.createMap())
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "checkDownloadedUpdate callback: ${e.message}")
+                    promise.resolve(false)
+                }
             }
-        }.addOnFailureListener { promise.resolve(false) }
+            .addOnFailureListener { promise.resolve(false) }
     }
 
     @ReactMethod fun addListener(eventName: String) {}
