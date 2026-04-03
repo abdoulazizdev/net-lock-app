@@ -1,7 +1,3 @@
-/**
- * OnboardingScreen
- */
-
 import AppListService from "@/services/app-list.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
@@ -10,10 +6,12 @@ import WatchdogService from "@/services/watchdog.service";
 import { Colors, useTheme } from "@/theme";
 import { InstalledApp } from "@/types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  Dimensions,
   Easing,
   FlatList,
   Image,
@@ -25,19 +23,26 @@ import {
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+const { width: W } = Dimensions.get("window");
 export const ONBOARDING_KEY = "@netoff_onboarding_done";
 
-type Step = "welcome" | "how" | "permission" | "pick" | "profile" | "done";
+type Step =
+  | "welcome"
+  | "how"
+  | "permission"
+  | "notifs"
+  | "pick"
+  | "profile"
+  | "done";
 const STEPS: Step[] = [
   "welcome",
   "how",
   "permission",
+  "notifs",
   "pick",
   "profile",
   "done",
 ];
-
-type SuggestedApp = InstalledApp & { emoji?: string };
 
 const SOCIAL_PACKAGES = [
   { pkg: "com.instagram.android", label: "Instagram", icon: "📸" },
@@ -45,8 +50,9 @@ const SOCIAL_PACKAGES = [
   { pkg: "com.facebook.katana", label: "Facebook", icon: "👥" },
   { pkg: "com.twitter.android", label: "X (Twitter)", icon: "🐦" },
   { pkg: "com.snapchat.android", label: "Snapchat", icon: "👻" },
-  { pkg: "com.google.android.youtube", label: "YouTube", icon: "▶" },
+  { pkg: "com.youtube.android", label: "YouTube", icon: "▶" },
   { pkg: "com.netflix.mediaclient", label: "Netflix", icon: "🎬" },
+  { pkg: "com.google.android.youtube", label: "YouTube", icon: "▶" },
   { pkg: "com.reddit.frontpage", label: "Reddit", icon: "🔴" },
   { pkg: "com.linkedin.android", label: "LinkedIn", icon: "💼" },
   { pkg: "com.pinterest", label: "Pinterest", icon: "📌" },
@@ -68,11 +74,84 @@ function StepDots({ current, total }: { current: number; total: number }) {
   return (
     <View style={ob.dots}>
       {Array.from({ length: total }).map((_, i) => (
-        <View
-          key={i}
-          style={[ob.dot, i === current ? ob.dotActive : undefined]}
-        />
+        <View key={i} style={[ob.dot, i === current && ob.dotActive]} />
       ))}
+    </View>
+  );
+}
+
+// ─── FreeLimitBar — barre de quota visible sur l'étape "pick" ─────────────────
+function FreeLimitBar({ selected, max }: { selected: number; max: number }) {
+  const { t } = useTheme();
+  const over = selected > max;
+  const pct = Math.min(selected / max, 1);
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: pct,
+      duration: 400,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [pct]);
+
+  const width = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0%", "100%"],
+  });
+
+  return (
+    <View
+      style={[
+        ob.limitBar,
+        {
+          backgroundColor: over ? Colors.red[50] : t.bg.card,
+          borderColor: over ? Colors.red[100] : t.border.light,
+        },
+      ]}
+    >
+      <View style={ob.limitBarHeader}>
+        <Text
+          style={[
+            ob.limitBarLabel,
+            { color: over ? Colors.red[600] : t.text.secondary },
+          ]}
+        >
+          {over
+            ? "⚠ Limite gratuite dépassée"
+            : `Quota gratuit · ${selected}/${max} apps`}
+        </Text>
+        {over && (
+          <View
+            style={[
+              ob.limitBadge,
+              { backgroundColor: Colors.red[50], borderColor: Colors.red[200] },
+            ]}
+          >
+            <Text style={[ob.limitBadgeText, { color: Colors.red[500] }]}>
+              +{selected - max} en attente
+            </Text>
+          </View>
+        )}
+      </View>
+      <View style={[ob.limitBarTrack, { backgroundColor: t.border.light }]}>
+        <Animated.View
+          style={[
+            ob.limitBarFill,
+            {
+              width,
+              backgroundColor: over ? Colors.red[400] : Colors.blue[500],
+            },
+          ]}
+        />
+      </View>
+      {over && (
+        <Text style={[ob.limitNote, { color: Colors.red[500] }]}>
+          Seules les {max} premières apps seront bloquées en version gratuite.
+          Passez à Pro pour tout débloquer.
+        </Text>
+      )}
     </View>
   );
 }
@@ -81,19 +160,17 @@ function StepDots({ current, total }: { current: number; total: number }) {
 function AppPickCard({
   app,
   selected,
-  disabled,
   onToggle,
+  dimmed,
 }: {
-  app: SuggestedApp;
+  app: InstalledApp & { emoji?: string };
   selected: boolean;
-  disabled: boolean;
   onToggle: () => void;
+  dimmed: boolean;
 }) {
   const { t } = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
-
   const tap = () => {
-    if (disabled && !selected) return;
     Animated.sequence([
       Animated.timing(scale, {
         toValue: 0.93,
@@ -109,23 +186,17 @@ function AppPickCard({
     ]).start();
     onToggle();
   };
-
   return (
-    <TouchableOpacity
-      onPress={tap}
-      activeOpacity={disabled && !selected ? 0.4 : 0.9}
-    >
+    <TouchableOpacity onPress={tap} activeOpacity={0.9}>
       <Animated.View
         style={[
           ob.appCard,
           { backgroundColor: t.bg.card, borderColor: t.border.light },
-          selected
-            ? {
-                backgroundColor: Colors.blue[50],
-                borderColor: Colors.blue[400],
-              }
-            : undefined,
-          disabled && !selected ? { opacity: 0.4 } : undefined,
+          selected && {
+            backgroundColor: Colors.blue[50],
+            borderColor: Colors.blue[400],
+          },
+          dimmed && !selected && { opacity: 0.45 },
           { transform: [{ scale }] },
         ]}
       >
@@ -141,7 +212,7 @@ function AppPickCard({
               { backgroundColor: Colors.blue[50] },
             ]}
           >
-            <Text style={{ fontSize: 20 }}>{app.emoji ?? "📱"}</Text>
+            <Text style={{ fontSize: 20 }}>{(app as any).emoji ?? "📱"}</Text>
           </View>
         )}
         <Text
@@ -153,12 +224,10 @@ function AppPickCard({
         <View
           style={[
             ob.appCardCheck,
-            selected
-              ? {
-                  backgroundColor: Colors.blue[500],
-                  borderColor: Colors.blue[500],
-                }
-              : undefined,
+            selected && {
+              backgroundColor: Colors.blue[500],
+              borderColor: Colors.blue[500],
+            },
           ]}
         >
           {selected && (
@@ -172,28 +241,91 @@ function AppPickCard({
   );
 }
 
-// ─── Main ──────────────────────────────────────────────────────────────────────
+// ─── PremiumUpsellCard — carte d'upsell inline ────────────────────────────────
+function PremiumUpsellCard({ onUpgrade }: { onUpgrade: () => void }) {
+  const { t } = useTheme();
+  return (
+    <View
+      style={[
+        ob.upsellCard,
+        {
+          backgroundColor: Colors.purple.dark50,
+          borderColor: Colors.purple.dark100,
+        },
+      ]}
+    >
+      <View style={ob.upsellHeader}>
+        <Text style={{ fontSize: 24 }}>⚡</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[ob.upsellTitle, { color: Colors.purple[300] }]}>
+            NetOff Pro
+          </Text>
+          <Text style={[ob.upsellSub, { color: Colors.purple[200] }]}>
+            Débloquez toutes les fonctionnalités
+          </Text>
+        </View>
+      </View>
+      <View style={ob.upsellFeatures}>
+        {[
+          [
+            "🚫",
+            `Apps bloquées illimitées (vs ${FREE_LIMITS.MAX_BLOCKED_APPS} en gratuit)`,
+          ],
+          [
+            "📁",
+            `Profils illimités (vs ${FREE_LIMITS.MAX_PROFILES} en gratuit)`,
+          ],
+          ["⏰", "Planifications illimitées par profil"],
+          ["📊", "Toutes les statistiques et l'export"],
+          ["🔐", "PIN applicatif + biométrie"],
+        ].map(([icon, text]) => (
+          <View key={text as string} style={ob.upsellFeatureRow}>
+            <Text style={{ fontSize: 14 }}>{icon}</Text>
+            <Text style={[ob.upsellFeatureText, { color: Colors.purple[200] }]}>
+              {text as string}
+            </Text>
+          </View>
+        ))}
+      </View>
+      <TouchableOpacity
+        style={ob.upsellBtn}
+        onPress={onUpgrade}
+        activeOpacity={0.85}
+      >
+        <Text style={ob.upsellBtnText}>⚡ Passer à Pro</Text>
+      </TouchableOpacity>
+      <Text style={[ob.upsellSkip, { color: Colors.purple[400] }]}>
+        Continuer en gratuit →
+      </Text>
+    </View>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
-
   const [step, setStep] = useState<Step>("welcome");
-  const [selectedPkgs, setSelectedPkgs] = useState<Set<string>>(
-    new Set<string>(),
-  );
-  const [suggestedApps, setSuggestedApps] = useState<SuggestedApp[]>([]);
-  const [permGranted, setPermGranted] = useState<boolean>(false);
-  const [permLoading, setPermLoading] = useState<boolean>(false);
-  const [saving, setSaving] = useState<boolean>(false);
-  const [loadingApps, setLoadingApps] = useState<boolean>(false);
-  const [showLimitHint, setShowLimitHint] = useState<boolean>(false);
+  const [selectedPkgs, setSelectedPkgs] = useState<Set<string>>(new Set());
+  const [suggestedApps, setSuggestedApps] = useState<
+    (InstalledApp & { emoji?: string })[]
+  >([]);
+  const [permGranted, setPermGranted] = useState(false);
+  const [permLoading, setPermLoading] = useState(false);
+  const [notifsGranted, setNotifsGranted] = useState<boolean | null>(null);
+  const [notifsLoading, setNotifsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadingApps, setLoadingApps] = useState(false);
+  const [showUpsell, setShowUpsell] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
-  const stepIdx = STEPS.indexOf(step);
 
-  const maxSelect = FREE_LIMITS.MAX_BLOCKED_APPS;
-  const limitReached = selectedPkgs.size >= maxSelect;
+  const stepIdx = STEPS.indexOf(step);
+  const MAX_FREE = FREE_LIMITS.MAX_BLOCKED_APPS;
+  // Apps qui seront réellement bloquées (limitées en gratuit)
+  const effectiveSelection = Array.from(selectedPkgs).slice(0, MAX_FREE);
+  const overLimit = selectedPkgs.size > MAX_FREE;
 
   useEffect(() => {
     animateIn();
@@ -224,29 +356,21 @@ export default function OnboardingScreen() {
   const loadSuggested = async () => {
     setLoadingApps(true);
     try {
-      const installed: InstalledApp[] = await AppListService.getNonSystemApps();
-      const installedMap = new Map<string, InstalledApp>(
-        installed.map((a) => [a.packageName, a]),
-      );
-
-      const seen = new Set<string>();
-      const unique: SuggestedApp[] = SOCIAL_PACKAGES.filter((s) =>
+      const installed = await AppListService.getNonSystemApps();
+      const installedMap = new Map(installed.map((a) => [a.packageName, a]));
+      const matched = SOCIAL_PACKAGES.filter((s) =>
         installedMap.has(s.pkg),
-      ).reduce<SuggestedApp[]>((acc, s) => {
-        if (seen.has(s.pkg)) return acc;
-        seen.add(s.pkg);
-        const base = installedMap.get(s.pkg)!;
-        acc.push({ ...base, emoji: s.icon });
-        return acc;
-      }, []);
-
+      ).map((s) => ({ ...installedMap.get(s.pkg)!, emoji: s.icon }));
+      const seen = new Set<string>();
+      const unique = matched.filter((a) => {
+        if (seen.has(a.packageName)) return false;
+        seen.add(a.packageName);
+        return true;
+      });
       setSuggestedApps(unique);
-
-      AppListService.getNonSystemAppsWithIcons?.()
-        .then((full: InstalledApp[]) => {
-          const fm = new Map<string, InstalledApp>(
-            full.map((a) => [a.packageName, a]),
-          );
+      AppListService.getNonSystemAppsWithIcons()
+        .then((full) => {
+          const fm = new Map(full.map((a) => [a.packageName, a]));
           setSuggestedApps((prev) =>
             prev.map((a) => ({
               ...a,
@@ -269,10 +393,22 @@ export default function OnboardingScreen() {
     if (idx > 0) setStep(STEPS[idx - 1]);
   };
 
+  const requestNotifPermission = async () => {
+    setNotifsLoading(true);
+    try {
+      const { status } = await Notifications.requestPermissionsAsync();
+      setNotifsGranted(status === "granted");
+    } catch {
+      setNotifsGranted(false);
+    } finally {
+      setNotifsLoading(false);
+    }
+  };
+
   const requestVpnPermission = async () => {
     setPermLoading(true);
     try {
-      const granted: boolean = await VpnService.startVpn();
+      const granted = await VpnService.startVpn();
       setPermGranted(granted);
       if (granted) setTimeout(next, 600);
     } catch {
@@ -282,20 +418,17 @@ export default function OnboardingScreen() {
     }
   };
 
+  // ── Toggle app — respect de la limite gratuite ────────────────────────────
   const toggleApp = (pkg: string) => {
     setSelectedPkgs((prev) => {
-      const next = new Set<string>(prev);
+      const next = new Set(prev);
       if (next.has(pkg)) {
         next.delete(pkg);
-        setShowLimitHint(false);
-        return next;
+      } else {
+        // Autoriser la sélection même au-delà de la limite pour montrer le compteur
+        // La limite sera appliquée au moment du finish()
+        next.add(pkg);
       }
-      if (next.size >= maxSelect) {
-        setShowLimitHint(true);
-        setTimeout(() => setShowLimitHint(false), 2500);
-        return prev;
-      }
-      next.add(pkg);
       return next;
     });
   };
@@ -303,8 +436,8 @@ export default function OnboardingScreen() {
   const finish = async () => {
     setSaving(true);
     try {
-      const pkgsToSave = Array.from(selectedPkgs).slice(0, maxSelect);
-      for (const pkg of pkgsToSave) {
+      // N'enregistrer que les apps dans la limite gratuite
+      for (const pkg of effectiveSelection) {
         await StorageService.saveRule({
           packageName: pkg,
           isBlocked: true,
@@ -312,8 +445,8 @@ export default function OnboardingScreen() {
           updatedAt: new Date(),
         });
       }
-      if (pkgsToSave.length > 0) await VpnService.syncRules?.();
-      await WatchdogService.start?.();
+      if (effectiveSelection.length > 0) await VpnService.syncRules();
+      await WatchdogService.start();
       await markOnboardingDone();
       router.replace("/(tabs)");
     } finally {
@@ -323,31 +456,19 @@ export default function OnboardingScreen() {
 
   const skip = async () => {
     await markOnboardingDone();
-    await WatchdogService.start?.();
+    await WatchdogService.start();
     router.replace("/(tabs)");
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── Rendu par étape ──────────────────────────────────────────────────────
   const renderStep = () => {
     switch (step) {
       // ── BIENVENUE ──────────────────────────────────────────────────────────
       case "welcome":
         return (
           <View style={ob.stepWrap}>
-            <View
-              style={[
-                ob.heroIconBig,
-                {
-                  backgroundColor: Colors.blue[50],
-                  borderColor: Colors.blue[100],
-                },
-              ]}
-            >
-              <Image
-                source={require("@/assets/images/netoff-logo.png")}
-                style={ob.heroLogo}
-                resizeMode="contain"
-              />
+            <View style={ob.heroIconBig}>
+              <Text style={{ fontSize: 56 }}>🛡</Text>
             </View>
             <Text style={[ob.stepTitle, { color: t.text.primary }]}>
               Bienvenue dans NetOff
@@ -357,62 +478,101 @@ export default function OnboardingScreen() {
               qui vous distraient, en quelques secondes.
             </Text>
             <View style={ob.featureList}>
-              {(
+              {[
                 [
-                  [
-                    "🚫",
-                    "Blocage réseau par app",
-                    "Pas juste des notifications — l'internet réel",
-                  ],
-                  [
-                    "⏰",
-                    "Planifications automatiques",
-                    "Bloquer les réseaux sociaux la nuit, au travail",
-                  ],
-                  [
-                    "🎯",
-                    "Mode Focus",
-                    "Sessions verrouillées, difficiles à annuler",
-                  ],
-                  [
-                    "📊",
-                    "Statistiques détaillées",
-                    "Voyez exactement ce que vos apps font",
-                  ],
-                ] as [string, string, string][]
-              ).map(([icon, title, sub]) => (
+                  "🚫",
+                  "Blocage réseau par app",
+                  "Pas juste des notifications — l'internet réel",
+                ],
+                [
+                  "⏰",
+                  "Planifications automatiques",
+                  "Bloquer les réseaux sociaux la nuit, au travail",
+                ],
+                [
+                  "🎯",
+                  "Mode Focus",
+                  "Sessions verrouillées, difficiles à annuler",
+                ],
+                [
+                  "📊",
+                  "Statistiques détaillées",
+                  "Voyez exactement ce que vos apps font",
+                ],
+              ].map(([icon, title, sub]) => (
                 <View
-                  key={title}
+                  key={title as string}
                   style={[ob.featureRow, { borderColor: t.border.light }]}
                 >
                   <Text style={ob.featureIcon}>{icon}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={[ob.featureTitle, { color: t.text.primary }]}>
-                      {title}
+                      {title as string}
                     </Text>
                     <Text style={[ob.featureSub, { color: t.text.muted }]}>
-                      {sub}
+                      {sub as string}
                     </Text>
                   </View>
                 </View>
               ))}
             </View>
+            {/* Carte Free vs Pro dès le welcome */}
+            <View
+              style={[
+                ob.planCard,
+                { backgroundColor: t.bg.card, borderColor: t.border.light },
+              ]}
+            >
+              <View style={ob.planRow}>
+                <View style={ob.planCol}>
+                  <Text style={[ob.planLabel, { color: t.text.muted }]}>
+                    GRATUIT
+                  </Text>
+                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
+                    ✓ {MAX_FREE} apps bloquées
+                  </Text>
+                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
+                    ✓ {FREE_LIMITS.MAX_PROFILES} profil
+                  </Text>
+                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
+                    ✓ Mode Focus 25min
+                  </Text>
+                  <Text
+                    style={[ob.planItem, { color: t.text.muted, opacity: 0.5 }]}
+                  >
+                    ✗ Export / PIN / Bio
+                  </Text>
+                </View>
+                <View
+                  style={[ob.planDivider, { backgroundColor: t.border.light }]}
+                />
+                <View style={ob.planCol}>
+                  <Text style={[ob.planLabel, { color: Colors.purple[400] }]}>
+                    PRO ⚡
+                  </Text>
+                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
+                    ✓ Apps illimitées
+                  </Text>
+                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
+                    ✓ Profils illimités
+                  </Text>
+                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
+                    ✓ Tous les presets Focus
+                  </Text>
+                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
+                    ✓ Export · PIN · Biométrie
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
         );
 
-      // ── COMMENT ÇA MARCHE ─────────────────────────────────────────────────
+      // ── COMMENT ÇA MARCHE ──────────────────────────────────────────────────
       case "how":
         return (
           <View style={ob.stepWrap}>
-            <View
-              style={[
-                ob.heroIconBig,
-                {
-                  backgroundColor: Colors.blue[50],
-                  borderColor: Colors.blue[100],
-                },
-              ]}
-            >
+            <View style={ob.heroIconBig}>
               <Text style={{ fontSize: 56 }}>⚙</Text>
             </View>
             <Text style={[ob.stepTitle, { color: t.text.primary }]}>
@@ -423,34 +583,32 @@ export default function OnboardingScreen() {
               quittent jamais votre téléphone.
             </Text>
             <View style={ob.howList}>
-              {(
-                [
-                  {
-                    n: "1",
-                    title: "Un VPN local est créé",
-                    sub: "Entièrement sur votre appareil. Aucun serveur externe.",
-                    c: Colors.blue[400],
-                  },
-                  {
-                    n: "2",
-                    title: "Les apps bloquées entrent",
-                    sub: "Leur trafic réseau est redirigé dans le tunnel VPN local.",
-                    c: Colors.blue[500],
-                  },
-                  {
-                    n: "3",
-                    title: "Le trafic est drainé",
-                    sub: "Les paquets sont lus et jetés. L'app pense ne pas avoir internet.",
-                    c: Colors.blue[600],
-                  },
-                  {
-                    n: "4",
-                    title: "Les autres apps bypassent",
-                    sub: "Toutes vos autres apps continuent de fonctionner normalement.",
-                    c: Colors.blue[700],
-                  },
-                ] as { n: string; title: string; sub: string; c: string }[]
-              ).map((item) => (
+              {[
+                {
+                  n: "1",
+                  t: "Un VPN local est créé",
+                  s: "Entièrement sur votre appareil. Aucun serveur externe.",
+                  c: Colors.blue[400],
+                },
+                {
+                  n: "2",
+                  t: "Les apps bloquées entrent",
+                  s: "Leur trafic réseau est redirigé dans le tunnel VPN local.",
+                  c: Colors.blue[500],
+                },
+                {
+                  n: "3",
+                  t: "Le trafic est drainé",
+                  s: "Les paquets sont lus et jetés. L'app n'a plus d'internet.",
+                  c: Colors.blue[600],
+                },
+                {
+                  n: "4",
+                  t: "Les autres apps bypassent",
+                  s: "Toutes vos autres apps continuent de fonctionner normalement.",
+                  c: Colors.blue[700],
+                },
+              ].map((item) => (
                 <View
                   key={item.n}
                   style={[
@@ -463,10 +621,10 @@ export default function OnboardingScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[ob.howTitle, { color: t.text.primary }]}>
-                      {item.title}
+                      {item.t}
                     </Text>
                     <Text style={[ob.howSub, { color: t.text.muted }]}>
-                      {item.sub}
+                      {item.s}
                     </Text>
                   </View>
                 </View>
@@ -483,14 +641,14 @@ export default function OnboardingScreen() {
             >
               <Text style={{ fontSize: 14, color: Colors.green[500] }}>🔒</Text>
               <Text style={[ob.privacyText, { color: Colors.green[600] }]}>
-                100% privé — aucune donnée n'est envoyée à nos serveurs. Le VPN
-                est local et hors ligne.
+                100% privé — aucune donnée envoyée à nos serveurs. Le VPN est
+                local et hors ligne.
               </Text>
             </View>
           </View>
         );
 
-      // ── PERMISSION VPN ────────────────────────────────────────────────────
+      // ── PERMISSION VPN ─────────────────────────────────────────────────────
       case "permission":
         return (
           <View style={ob.stepWrap}>
@@ -519,13 +677,11 @@ export default function OnboardingScreen() {
                 local. Cette étape est obligatoire pour le blocage.
               </Text>
               <View style={ob.permSteps}>
-                {(
-                  [
-                    "Un dialog Android va s'ouvrir",
-                    'Appuyez sur "OK" ou "Autoriser"',
-                    "Le VPN local est créé sur votre appareil",
-                  ] as string[]
-                ).map((s, i) => (
+                {[
+                  "Un dialog Android va s'ouvrir",
+                  'Appuyez sur "OK" ou "Autoriser"',
+                  "Le VPN local est créé sur votre appareil",
+                ].map((s, i) => (
                   <View
                     key={i}
                     style={[ob.permStep, { borderColor: t.border.light }]}
@@ -581,7 +737,7 @@ export default function OnboardingScreen() {
                   style={[
                     ob.permBtn,
                     { backgroundColor: Colors.blue[600] },
-                    permLoading ? { opacity: 0.6 } : undefined,
+                    permLoading && { opacity: 0.6 },
                   ]}
                   onPress={requestVpnPermission}
                   disabled={permLoading}
@@ -600,7 +756,136 @@ export default function OnboardingScreen() {
           </View>
         );
 
-      // ── CHOISIR LES APPS ──────────────────────────────────────────────────
+      // ── NOTIFICATIONS ─────────────────────────────────────────────────────
+      case "notifs":
+        return (
+          <View style={ob.stepWrap}>
+            <View
+              style={[
+                ob.heroIconBig,
+                {
+                  backgroundColor: Colors.blue[50],
+                  borderColor: Colors.blue[100],
+                },
+              ]}
+            >
+              <Text style={{ fontSize: 56 }}>🔔</Text>
+            </View>
+            <Text style={[ob.stepTitle, { color: t.text.primary }]}>
+              Activer les notifications
+            </Text>
+            <Text style={[ob.stepSub, { color: t.text.secondary }]}>
+              NetOff vous notifie quand le VPN redémarre automatiquement, quand
+              une session Focus se termine, ou qu'une mise à jour est
+              disponible.
+            </Text>
+            <View
+              style={[
+                ob.permBox,
+                {
+                  backgroundColor: t.bg.card,
+                  borderColor: t.border.light,
+                  gap: 10,
+                },
+              ]}
+            >
+              {[
+                {
+                  icon: "🛡",
+                  title: "VPN redémarré",
+                  sub: "Si Android coupe le VPN, vous êtes prévenu",
+                },
+                {
+                  icon: "🎯",
+                  title: "Fin de session Focus",
+                  sub: "Alerte quand votre concentration se termine",
+                },
+                {
+                  icon: "🎉",
+                  title: "Mises à jour disponibles",
+                  sub: "Nouvelle version prête à installer",
+                },
+              ].map((item, i) => (
+                <View
+                  key={i}
+                  style={[ob.permStep, { borderColor: t.border.light }]}
+                >
+                  <Text
+                    style={{ fontSize: 18, width: 26, textAlign: "center" }}
+                  >
+                    {item.icon}
+                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[ob.howTitle, { color: t.text.primary }]}>
+                      {item.title}
+                    </Text>
+                    <Text style={[ob.howSub, { color: t.text.muted }]}>
+                      {item.sub}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+              {notifsGranted === true ? (
+                <View
+                  style={[
+                    ob.permGranted,
+                    {
+                      backgroundColor: Colors.green[50],
+                      borderColor: Colors.green[100],
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 18 }}>✅</Text>
+                  <Text
+                    style={[ob.permGrantedText, { color: Colors.green[600] }]}
+                  >
+                    Notifications activées !
+                  </Text>
+                </View>
+              ) : notifsGranted === false ? (
+                <View
+                  style={[
+                    ob.permGranted,
+                    {
+                      backgroundColor: Colors.amber[50],
+                      borderColor: Colors.amber[100],
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 14 }}>⚠</Text>
+                  <Text
+                    style={[ob.permGrantedText, { color: Colors.amber[700] }]}
+                  >
+                    Refusé — vous pourrez les activer dans Paramètres Android
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    ob.permBtn,
+                    { backgroundColor: Colors.blue[600] },
+                    notifsLoading && { opacity: 0.6 },
+                  ]}
+                  onPress={requestNotifPermission}
+                  disabled={notifsLoading}
+                  activeOpacity={0.85}
+                >
+                  <Text style={ob.permBtnText}>
+                    {notifsLoading
+                      ? "En attente…"
+                      : "🔔 Activer les notifications"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={[ob.permNote, { color: t.text.muted }]}>
+              Vous pouvez les désactiver à tout moment dans Paramètres →
+              Applications → NetOff.
+            </Text>
+          </View>
+        );
+
+      // ── CHOISIR LES APPS — avec limite Free visible ────────────────────────
       case "pick":
         return (
           <View style={[ob.stepWrap, { flex: 1 }]}>
@@ -608,186 +893,115 @@ export default function OnboardingScreen() {
               Que voulez-vous bloquer ?
             </Text>
             <Text style={[ob.stepSub, { color: t.text.secondary }]}>
-              Sélectionnez les apps qui vous distraient. Vous pourrez modifier
-              ça à tout moment.
-            </Text>
-
-            <View
-              style={[
-                ob.pickCounter,
-                {
-                  backgroundColor: limitReached ? Colors.amber[50] : t.bg.card,
-                  borderColor: limitReached
-                    ? Colors.amber[100]
-                    : t.border.light,
-                },
-              ]}
-            >
-              <View style={ob.pickCounterLeft}>
-                <Text
-                  style={[
-                    ob.pickCounterNum,
-                    {
-                      color: limitReached
-                        ? Colors.amber[500]
-                        : Colors.blue[500],
-                    },
-                  ]}
-                >
-                  {selectedPkgs.size}
-                </Text>
-                <Text style={[ob.pickCounterSep, { color: t.text.muted }]}>
-                  /
-                </Text>
-                <Text style={[ob.pickCounterMax, { color: t.text.muted }]}>
-                  {maxSelect}
-                </Text>
-              </View>
-              <Text
-                style={[
-                  ob.pickCounterLabel,
-                  {
-                    color: limitReached ? Colors.amber[600] : t.text.secondary,
-                  },
-                ]}
-              >
-                {limitReached
-                  ? "🔒 Limite gratuite — débloquez plus avec Premium"
-                  : `app${selectedPkgs.size !== 1 ? "s" : ""} sélectionnée${selectedPkgs.size !== 1 ? "s" : ""}`}
+              Sélectionnez les apps qui vous distraient.{" "}
+              <Text style={{ fontWeight: "700", color: Colors.blue[500] }}>
+                Version gratuite : {MAX_FREE} apps max.
               </Text>
-            </View>
-
-            {showLimitHint && (
-              <View
-                style={[
-                  ob.limitToast,
-                  {
-                    backgroundColor: Colors.amber[50],
-                    borderColor: Colors.amber[200],
-                  },
-                ]}
-              >
-                <Text style={[ob.limitToastText, { color: Colors.amber[700] }]}>
-                  🔒 Version gratuite — max {maxSelect} apps. Vous pourrez en
-                  débloquer plus avec Premium depuis l'accueil.
-                </Text>
-              </View>
-            )}
+            </Text>
 
             {loadingApps ? (
               <View style={ob.loadingWrap}>
-                <Text style={{ color: t.text.muted, fontSize: 14 }}>
+                <Text style={[{ color: t.text.muted, fontSize: 14 }]}>
                   Chargement des applications…
                 </Text>
               </View>
             ) : suggestedApps.length === 0 ? (
               <View style={ob.loadingWrap}>
                 <Text
-                  style={{
-                    color: t.text.muted,
-                    fontSize: 14,
-                    textAlign: "center",
-                  }}
+                  style={[
+                    { color: t.text.muted, fontSize: 14, textAlign: "center" },
+                  ]}
                 >
                   Aucune app de réseaux sociaux détectée.{"\n"}Vous pourrez en
                   ajouter depuis l'accueil.
                 </Text>
               </View>
             ) : (
-              <FlatList<SuggestedApp>
+              <FlatList
                 data={suggestedApps}
                 keyExtractor={(a) => a.packageName}
                 numColumns={3}
                 columnWrapperStyle={{ gap: 10 }}
-                contentContainerStyle={{ gap: 10, paddingBottom: 16 }}
+                contentContainerStyle={{ gap: 10, paddingBottom: 8 }}
                 scrollEnabled={false}
-                renderItem={({ item }) => (
+                renderItem={({ item, index }) => (
                   <AppPickCard
                     app={item}
                     selected={selectedPkgs.has(item.packageName)}
-                    disabled={
-                      limitReached && !selectedPkgs.has(item.packageName)
-                    }
                     onToggle={() => toggleApp(item.packageName)}
+                    // Griser les apps au-delà de la limite si non sélectionnées
+                    dimmed={
+                      !selectedPkgs.has(item.packageName) &&
+                      selectedPkgs.size >= MAX_FREE
+                    }
                   />
                 )}
+              />
+            )}
+
+            {/* Barre de limite en temps réel */}
+            {selectedPkgs.size > 0 && (
+              <FreeLimitBar selected={selectedPkgs.size} max={MAX_FREE} />
+            )}
+
+            {/* Carte upsell si dépassement */}
+            {overLimit && (
+              <PremiumUpsellCard
+                onUpgrade={() => {
+                  // Ici connecter RevenueCat / Play Billing
+                  // Pour l'instant : skip (l'utilisateur continue en gratuit)
+                }}
               />
             )}
           </View>
         );
 
-      // ── PROFIL DE BASE ────────────────────────────────────────────────────
+      // ── RÉSUMÉ / PROFIL DE BASE ────────────────────────────────────────────
       case "profile":
         return (
           <View style={ob.stepWrap}>
-            <View
-              style={[
-                ob.heroIconBig,
-                {
-                  backgroundColor: Colors.green[50],
-                  borderColor: Colors.green[100],
-                },
-              ]}
-            >
+            <View style={ob.heroIconBig}>
               <Text style={{ fontSize: 56 }}>✅</Text>
             </View>
             <Text style={[ob.stepTitle, { color: t.text.primary }]}>
               Presque prêt !
             </Text>
             <Text style={[ob.stepSub, { color: t.text.secondary }]}>
-              {selectedPkgs.size > 0
-                ? `${selectedPkgs.size} app${selectedPkgs.size > 1 ? "s" : ""} seront bloquées dès l'activation du VPN.`
+              {effectiveSelection.length > 0
+                ? `${effectiveSelection.length} app${effectiveSelection.length > 1 ? "s" : ""} seront bloquées dès l'activation du VPN.`
                 : "Vous n'avez pas sélectionné d'apps. Vous pourrez le faire depuis l'accueil."}
+              {overLimit && (
+                <Text style={{ color: Colors.red[500] }}>
+                  {"\n"}
+                  {selectedPkgs.size - MAX_FREE} app
+                  {selectedPkgs.size - MAX_FREE > 1 ? "s" : ""} ignorée
+                  {selectedPkgs.size - MAX_FREE > 1 ? "s" : ""} (limite
+                  gratuite).
+                </Text>
+              )}
             </Text>
 
-            {selectedPkgs.size >= maxSelect && (
-              <View
-                style={[
-                  ob.limitReminder,
-                  {
-                    backgroundColor: Colors.amber[50],
-                    borderColor: Colors.amber[100],
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: 14 }}>💡</Text>
-                <Text
-                  style={[ob.limitReminderText, { color: Colors.amber[700] }]}
-                >
-                  Vous avez atteint la limite de {maxSelect} apps de la version
-                  gratuite. Passez à Premium depuis l'accueil pour en débloquer
-                  plus.
-                </Text>
-              </View>
-            )}
-
             <View style={ob.summaryList}>
-              {(
+              {[
                 [
-                  [
-                    "🛡",
-                    "VPN local activé",
-                    "Vos données restent sur votre appareil",
-                  ],
-                  [
-                    "🔄",
-                    "Watchdog actif",
-                    "Le VPN se relance automatiquement si coupé",
-                  ],
-                  [
-                    "📊",
-                    "Statistiques activées",
-                    "Suivez vos tentatives de connexion bloquées",
-                  ],
-                  [
-                    "⚙",
-                    "Tout configurable",
-                    "Modifiez vos règles à tout moment",
-                  ],
-                ] as [string, string, string][]
-              ).map(([icon, title, sub]) => (
+                  "🛡",
+                  "VPN local activé",
+                  "Vos données restent sur votre appareil",
+                ],
+                [
+                  "🔄",
+                  "Watchdog actif",
+                  "Le VPN se relance automatiquement si coupé",
+                ],
+                [
+                  "📊",
+                  "Statistiques activées",
+                  "Suivez vos tentatives de connexion bloquées",
+                ],
+                ["⚙", "Tout configurable", "Modifiez vos règles à tout moment"],
+              ].map(([icon, title, sub]) => (
                 <View
-                  key={title}
+                  key={title as string}
                   style={[
                     ob.summaryRow,
                     { backgroundColor: t.bg.card, borderColor: t.border.light },
@@ -796,10 +1010,10 @@ export default function OnboardingScreen() {
                   <Text style={ob.summaryIcon}>{icon}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={[ob.summaryTitle, { color: t.text.primary }]}>
-                      {title}
+                      {title as string}
                     </Text>
                     <Text style={[ob.summarySub, { color: t.text.muted }]}>
-                      {sub}
+                      {sub as string}
                     </Text>
                   </View>
                   <Text style={{ color: Colors.green[400], fontSize: 14 }}>
@@ -807,6 +1021,55 @@ export default function OnboardingScreen() {
                   </Text>
                 </View>
               ))}
+            </View>
+
+            {/* Rappel des limites gratuites en fin d'onboarding */}
+            <View
+              style={[
+                ob.freeSummaryCard,
+                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+              ]}
+            >
+              <Text style={[ob.freeSummaryTitle, { color: t.text.secondary }]}>
+                Version gratuite — limites actives
+              </Text>
+              <View style={ob.freeSummaryItems}>
+                {[
+                  `🚫 ${MAX_FREE} apps bloquées max`,
+                  `📁 ${FREE_LIMITS.MAX_PROFILES} profil`,
+                  `⏰ ${FREE_LIMITS.MAX_SCHEDULES} planification / profil`,
+                  "🎯 Focus 25min uniquement",
+                ].map((item) => (
+                  <Text
+                    key={item}
+                    style={[ob.freeSummaryItem, { color: t.text.muted }]}
+                  >
+                    {item}
+                  </Text>
+                ))}
+              </View>
+              <TouchableOpacity
+                style={[
+                  ob.freeSummaryUpgrade,
+                  {
+                    backgroundColor: Colors.purple.dark50,
+                    borderColor: Colors.purple.dark100,
+                  },
+                ]}
+                onPress={() => {
+                  /* Connecter paywall */
+                }}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    ob.freeSummaryUpgradeText,
+                    { color: Colors.purple[300] },
+                  ]}
+                >
+                  ⚡ Débloquer Pro
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         );
@@ -819,11 +1082,22 @@ export default function OnboardingScreen() {
   const isLastContent = step === "profile";
   const canGoNext = step !== "permission" || permGranted;
 
+  // Label du bouton Continuer adapté à la limite
+  const nextLabel = () => {
+    if (saving) return "Démarrage…";
+    if (isLastContent) return "🚀 Commencer";
+    if (step === "pick") {
+      if (selectedPkgs.size === 0) return "Continuer sans bloquer";
+      if (overLimit) return `Bloquer ${MAX_FREE} apps (gratuit)`;
+      return `Bloquer ${selectedPkgs.size} app${selectedPkgs.size > 1 ? "s" : ""}`;
+    }
+    return "Continuer →";
+  };
+
   return (
     <View style={[ob.container, { backgroundColor: t.bg.page }]}>
-      <StatusBar barStyle={t.statusBar} backgroundColor={t.bg.page} />
+      <StatusBar barStyle="dark-content" backgroundColor={t.bg.page} />
 
-      {/* Header */}
       <View style={[ob.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity
           onPress={stepIdx > 0 ? prev : skip}
@@ -852,7 +1126,6 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Contenu */}
       <Animated.ScrollView
         style={{ flex: 1, opacity: fadeAnim }}
         contentContainerStyle={[
@@ -866,7 +1139,6 @@ export default function OnboardingScreen() {
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* Footer */}
       <View
         style={[
           ob.footer,
@@ -888,23 +1160,13 @@ export default function OnboardingScreen() {
           style={[
             ob.btnPrimary,
             { backgroundColor: Colors.blue[600] },
-            !canGoNext || saving ? { opacity: 0.5 } : undefined,
+            (!canGoNext || saving) && { opacity: 0.5 },
           ]}
           onPress={isLastContent ? finish : next}
           disabled={!canGoNext || saving}
           activeOpacity={0.85}
         >
-          <Text style={ob.btnPrimaryText}>
-            {saving
-              ? "Démarrage…"
-              : isLastContent
-                ? "🚀 Commencer"
-                : step === "pick"
-                  ? selectedPkgs.size > 0
-                    ? `Bloquer ${selectedPkgs.size} app${selectedPkgs.size > 1 ? "s" : ""}`
-                    : "Continuer sans bloquer"
-                  : "Continuer →"}
-          </Text>
+          <Text style={ob.btnPrimaryText}>{nextLabel()}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -942,11 +1204,12 @@ const ob = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 30,
+    backgroundColor: Colors.blue[50],
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
+    borderColor: Colors.blue[100],
   },
-  heroLogo: { width: 68, height: 68 },
   stepTitle: {
     fontSize: 26,
     fontWeight: "800",
@@ -955,6 +1218,20 @@ const ob = StyleSheet.create({
   },
   stepSub: { fontSize: 14, lineHeight: 22, textAlign: "center", opacity: 0.8 },
 
+  // Plan card (welcome)
+  planCard: { borderRadius: 18, borderWidth: 1, padding: 16 },
+  planRow: { flexDirection: "row", gap: 0 },
+  planCol: { flex: 1, gap: 5, paddingHorizontal: 8 },
+  planLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  planItem: { fontSize: 12, fontWeight: "500" },
+  planDivider: { width: 1 },
+
+  // Features
   featureList: { gap: 10 },
   featureRow: {
     flexDirection: "row",
@@ -968,6 +1245,7 @@ const ob = StyleSheet.create({
   featureTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
   featureSub: { fontSize: 12, lineHeight: 18 },
 
+  // How
   howList: { gap: 10 },
   howRow: {
     flexDirection: "row",
@@ -997,6 +1275,7 @@ const ob = StyleSheet.create({
   },
   privacyText: { fontSize: 12, lineHeight: 18, flex: 1 },
 
+  // Permission
   permBox: {
     borderRadius: 24,
     padding: 28,
@@ -1041,28 +1320,7 @@ const ob = StyleSheet.create({
   permGrantedText: { fontSize: 14, fontWeight: "700" },
   permNote: { fontSize: 11, textAlign: "center", lineHeight: 18, opacity: 0.7 },
 
-  pickCounter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-  },
-  pickCounterLeft: { flexDirection: "row", alignItems: "baseline", gap: 3 },
-  pickCounterNum: { fontSize: 22, fontWeight: "800" },
-  pickCounterSep: { fontSize: 16 },
-  pickCounterMax: { fontSize: 14 },
-  pickCounterLabel: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 16,
-  },
-
-  limitToast: { borderRadius: 12, borderWidth: 1, padding: 12 },
-  limitToastText: { fontSize: 12, lineHeight: 18, fontWeight: "500" },
-
+  // Pick apps
   appCard: {
     flex: 1,
     aspectRatio: 0.85,
@@ -1097,21 +1355,43 @@ const ob = StyleSheet.create({
   },
   loadingWrap: { paddingVertical: 32, alignItems: "center" },
 
-  limitReminder: {
+  // Limit bar
+  limitBar: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
+  limitBarHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    borderRadius: 14,
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  limitBarLabel: { fontSize: 12, fontWeight: "600" },
+  limitBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     borderWidth: 1,
-    padding: 14,
   },
-  limitReminderText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "500",
-  },
+  limitBadgeText: { fontSize: 10, fontWeight: "700" },
+  limitBarTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
+  limitBarFill: { height: "100%", borderRadius: 2 },
+  limitNote: { fontSize: 11, lineHeight: 16 },
 
+  // Upsell card
+  upsellCard: { borderRadius: 18, borderWidth: 1, padding: 18, gap: 14 },
+  upsellHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  upsellTitle: { fontSize: 16, fontWeight: "800", letterSpacing: -0.3 },
+  upsellSub: { fontSize: 11, marginTop: 2 },
+  upsellFeatures: { gap: 8 },
+  upsellFeatureRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  upsellFeatureText: { fontSize: 12, flex: 1 },
+  upsellBtn: {
+    backgroundColor: Colors.purple[500],
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  upsellBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  upsellSkip: { textAlign: "center", fontSize: 12, fontWeight: "600" },
+
+  // Summary
   summaryList: { gap: 10 },
   summaryRow: {
     flexDirection: "row",
@@ -1125,6 +1405,20 @@ const ob = StyleSheet.create({
   summaryTitle: { fontSize: 13, fontWeight: "700", marginBottom: 2 },
   summarySub: { fontSize: 11, opacity: 0.7 },
 
+  // Free summary
+  freeSummaryCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 10 },
+  freeSummaryTitle: { fontSize: 10, fontWeight: "700", letterSpacing: 1.5 },
+  freeSummaryItems: { gap: 5 },
+  freeSummaryItem: { fontSize: 12 },
+  freeSummaryUpgrade: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  freeSummaryUpgradeText: { fontSize: 13, fontWeight: "800" },
+
+  // Footer
   footer: {
     position: "absolute",
     bottom: 0,

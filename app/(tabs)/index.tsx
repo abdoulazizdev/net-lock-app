@@ -2,6 +2,7 @@ import FocusBanner from "@/components/FocusBanner";
 import FocusModal from "@/components/FocusModal";
 import HomeScreenSkeleton from "@/components/HomeScreenSkeleton";
 import { MoreMenu } from "@/components/MoreMenu";
+import { useParentalGuard } from "@/components/ParentalPinGate";
 import PaywallModal from "@/components/PaywallModal";
 import QuickTimerModal from "@/components/QuickTimerModal";
 import SearchAndFilters, {
@@ -50,12 +51,11 @@ import FocusFullScreen from "../Focusfullscreen";
 type AppItem = InstalledApp & { rule?: AppRule };
 const CARD_H = 72;
 const SORT_DEFER_MS = 1500;
-
 function pkgHue(pkg: string) {
   return pkg.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
 }
 
-// ─── BlockedToast ──────────────────────────────────────────────────────────────
+// ─── BlockedToast ─────────────────────────────────────────────────────────────
 const BlockedToast = React.memo(function BlockedToast({
   appName,
   visible,
@@ -706,6 +706,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { isPremium, refresh: refreshPremium } = usePremium();
   const { t } = useTheme();
+  const { guard, ParentalModal } = useParentalGuard();
 
   const [apps, setApps] = useState<AppItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -763,16 +764,13 @@ export default function HomeScreen() {
       TOAST_DURATION_MS,
     );
   }, []);
-
   const dismissToast = useCallback(() => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastVisible(false);
   }, []);
-
   const scrollToTop = useCallback(() => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
-
   const armSortTimer = useCallback(() => {
     if (sortTimerRef.current) clearTimeout(sortTimerRef.current);
     setPendingSort(true);
@@ -827,12 +825,10 @@ export default function HomeScreen() {
     setBlockedCount(rules.filter((r) => r.isBlocked).length);
     setApps((prev) => mergeAppsRules(prev, rules, prev));
   }, [mergeAppsRules]);
-
   const refreshAllowlist = useCallback(async () => {
     const state = await AllowlistService.getState();
     setAllowlistState(state);
   }, []);
-
   const checkFocus = useCallback(async () => {
     try {
       const s = await FocusService.getStatus();
@@ -841,7 +837,6 @@ export default function HomeScreen() {
       setFocusStatus(null);
     }
   }, []);
-
   const checkTimer = useCallback(async () => {
     try {
       const s = await TimerService.getStatus();
@@ -851,18 +846,18 @@ export default function HomeScreen() {
     }
   }, []);
 
+  // VPN toggle protégé par contrôle parental
   const toggleVpn = useCallback(async () => {
     if (anyActive) return;
+    const ok = await guard("toggle_vpn");
+    if (!ok) return;
     if (vpnActive) {
       await VpnService.stopVpn();
       setVpnActive(false);
       return;
     }
-    // startVpn() gère la permission automatiquement.
-    // Si "needs_permission" → dialog Android → DeviceEventEmitter "vpn:permission"
-    // → VpnService._doStartVpn() → AppEvents.emit("vpn:changed", true) → setVpnActive(true)
     await VpnService.startVpn();
-  }, [vpnActive, anyActive]);
+  }, [vpnActive, anyActive, guard]);
 
   const handleDisableAllowlist = useCallback(() => {
     Alert.alert(
@@ -1059,12 +1054,12 @@ export default function HomeScreen() {
     if (focusActive) setFocusExpanded(true);
     else setFocusVisible(true);
   }, [focusActive]);
-
   const showPaywall = (r: any) => {
     setPaywallReason(r);
     setPaywallVisible(true);
   };
 
+  // toggleBlock protégé par contrôle parental
   const toggleBlock = useCallback(
     async (item: AppItem) => {
       if (anyActive) return;
@@ -1077,6 +1072,9 @@ export default function HomeScreen() {
         showPaywall("blocked_apps");
         return;
       }
+      // Vérification parental avant de bloquer/débloquer
+      const ok = await guard("toggle_block_app");
+      if (!ok) return;
       const patch = (b: boolean) => ({
         ...item,
         rule: {
@@ -1115,6 +1113,7 @@ export default function HomeScreen() {
       vpnActive,
       armSortTimer,
       showBlockedToast,
+      guard,
     ],
   );
 
@@ -1209,7 +1208,6 @@ export default function HomeScreen() {
         backgroundColor="transparent"
         translucent
       />
-
       <Animated.View
         style={[
           g.header,
@@ -1256,7 +1254,6 @@ export default function HomeScreen() {
             />
           </View>
         </View>
-
         <View style={g.headerBottomRow}>
           <View
             style={[
@@ -1299,7 +1296,6 @@ export default function HomeScreen() {
             <FocusToggle active={focusActive} onPress={handleFocusPress} />
           </View>
         </View>
-
         <View
           style={[
             g.progressTrack,
@@ -1505,11 +1501,14 @@ export default function HomeScreen() {
           onClose={() => setFocusExpanded(false)}
         />
       )}
+
+      {/* Modal PIN parental — rendu ici pour couvrir toute la page */}
+      <ParentalModal />
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles (identiques à avant) ─────────────────────────────────────────────
 const g = StyleSheet.create({
   root: { flex: 1 },
   header: {
