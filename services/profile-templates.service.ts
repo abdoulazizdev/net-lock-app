@@ -1,6 +1,7 @@
 import { Profile } from "@/types";
 import AppListService from "./app-list.service";
 import StorageService from "./storage.service";
+import { FREE_LIMITS } from "./subscription.service";
 
 export interface ProfileTemplate {
   id: string;
@@ -8,8 +9,8 @@ export interface ProfileTemplate {
   description: string;
   icon: string;
   color: string;
-  packages: string[]; // packageNames ciblés
-  keywords: string[]; // mots-clés pour la détection automatique
+  packages: string[];
+  keywords: string[];
 }
 
 export const TEMPLATES: ProfileTemplate[] = [
@@ -142,21 +143,34 @@ export const TEMPLATES: ProfileTemplate[] = [
   },
 ];
 
+export interface CreateResult {
+  profile: Profile;
+  /** Apps réellement bloquées */
+  blockedCount: number;
+  /** Apps détectées au total (avant limitation) */
+  detectedCount: number;
+  /** true si la liste a été tronquée à cause de la limite gratuite */
+  wasTruncated: boolean;
+}
+
 class ProfileTemplatesService {
   /**
-   * Crée un profil à partir d'un template en ne gardant que
-   * les apps réellement installées sur l'appareil.
+   * Crée un profil depuis un template.
+   * Respecte FREE_LIMITS.MAX_BLOCKED_APPS pour les utilisateurs gratuits.
+   *
+   * @param template  Le template à utiliser
+   * @param isPremium true si l'utilisateur a un abonnement Premium
    */
-  async createFromTemplate(template: ProfileTemplate): Promise<Profile> {
+  async createFromTemplate(
+    template: ProfileTemplate,
+    isPremium: boolean,
+  ): Promise<CreateResult> {
     const installed = await AppListService.getAllApps();
     const installedPkgs = new Set(installed.map((a) => a.packageName));
 
-    // Apps exactement correspondantes
     const exactMatches = template.packages.filter((pkg) =>
       installedPkgs.has(pkg),
     );
-
-    // Apps correspondant par mots-clés (pour capturer les variantes)
     const keywordMatches = installed
       .filter((app) => {
         const name = app.appName.toLowerCase();
@@ -167,15 +181,21 @@ class ProfileTemplatesService {
       })
       .map((a) => a.packageName);
 
-    // Union dédupliquée
     const allPkgs = [...new Set([...exactMatches, ...keywordMatches])];
+    const detectedCount = allPkgs.length;
+
+    // Limiter pour les utilisateurs gratuits
+    const limit = isPremium ? Infinity : FREE_LIMITS.MAX_BLOCKED_APPS;
+    const finalPkgs = allPkgs.slice(0, limit);
+    const wasTruncated =
+      !isPremium && allPkgs.length > FREE_LIMITS.MAX_BLOCKED_APPS;
 
     const profile: Profile = {
       id: `profile_${template.id}_${Date.now()}`,
       name: template.name,
       description: template.description,
       isActive: false,
-      rules: allPkgs.map((pkg) => ({
+      rules: finalPkgs.map((pkg) => ({
         packageName: pkg,
         isBlocked: true,
         createdAt: new Date(),
@@ -186,10 +206,15 @@ class ProfileTemplatesService {
     };
 
     await StorageService.saveProfile(profile);
-    return profile;
+    return {
+      profile,
+      blockedCount: finalPkgs.length,
+      detectedCount,
+      wasTruncated,
+    };
   }
 
-  /** Compte les apps du template qui sont installées */
+  /** Compte les apps du template installées sur l'appareil */
   async countInstalled(template: ProfileTemplate): Promise<number> {
     const installed = await AppListService.getAllApps();
     const pkgs = new Set(installed.map((a) => a.packageName));

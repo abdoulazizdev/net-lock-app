@@ -49,7 +49,6 @@ const SUGGESTIONS = [
   { name: "Réseaux Sociaux", desc: "Bloquer Instagram, TikTok…" },
 ];
 
-// ─── PulseDot ─────────────────────────────────────────────────────────────────
 function PulseDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0.7)).current;
@@ -112,7 +111,6 @@ function PulseDot({ color }: { color: string }) {
   );
 }
 
-// ─── ScheduleBadge ────────────────────────────────────────────────────────────
 const ScheduleBadge = React.memo(function ScheduleBadge({
   schedule,
 }: {
@@ -165,50 +163,6 @@ const ScheduleBadge = React.memo(function ScheduleBadge({
   );
 });
 
-// ─── StatPill ─────────────────────────────────────────────────────────────────
-function StatPill({
-  value,
-  label,
-  accent,
-}: {
-  value: string | number;
-  label: string;
-  accent?: string;
-}) {
-  return (
-    <View style={stat.pill}>
-      <Text style={[stat.val, accent ? { color: accent } : {}]}>{value}</Text>
-      <Text style={stat.lbl}>{label}</Text>
-    </View>
-  );
-}
-
-const stat = StyleSheet.create({
-  pill: {
-    flex: 1,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.1)",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  val: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#fff",
-    letterSpacing: -0.5,
-  },
-  lbl: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.38)",
-    letterSpacing: 0.8,
-    marginTop: 2,
-  },
-});
-
-// ─── ProfileCard ──────────────────────────────────────────────────────────────
 const ProfileCard = React.memo(
   function ProfileCard({
     item,
@@ -232,7 +186,6 @@ const ProfileCard = React.memo(
     const totalSchedules = (item.schedules ?? []).length;
     const blockedCount = (item.rules ?? []).filter((r) => r.isBlocked).length;
     const hasSchedules = totalSchedules > 0;
-
     return (
       <View
         style={[
@@ -248,138 +201,120 @@ const ProfileCard = React.memo(
             style={[card.accentBar, { backgroundColor: t.allowed.accent }]}
           />
         )}
-
-        {/* ── Corps principal ── */}
-        <View style={card.body}>
-          {/* Avatar + infos */}
-          <View style={card.top}>
-            <View
-              style={[
-                card.avatar,
-                { backgroundColor: color + "18", borderColor: color + "35" },
-              ]}
-            >
-              <Text style={[card.avatarText, { color }]}>
-                {item.name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-
-            <View style={card.info}>
-              <View style={card.nameRow}>
-                <Text
-                  style={[card.name, { color: t.text.primary }]}
-                  numberOfLines={1}
-                >
-                  {item.name}
-                </Text>
-                {isActive ? (
-                  <View
-                    style={[
-                      card.activeBadge,
-                      {
-                        backgroundColor: t.allowed.bg,
-                        borderColor: t.allowed.border,
-                      },
-                    ]}
-                  >
-                    <PulseDot color={t.allowed.accent} />
-                    <Text
-                      style={[card.activeBadgeText, { color: t.allowed.text }]}
-                    >
-                      ACTIF
-                    </Text>
-                  </View>
-                ) : blockedCount > 0 ? (
-                  <View
-                    style={[
-                      card.sleepBadge,
-                      {
-                        backgroundColor: t.blocked.bg,
-                        borderColor: t.blocked.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[card.sleepBadgeText, { color: t.blocked.text }]}
-                    >
-                      EN VEILLE
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
+        <View style={card.top}>
+          <View
+            style={[
+              card.avatar,
+              { backgroundColor: color + "18", borderColor: color + "40" },
+            ]}
+          >
+            <Text style={[card.avatarText, { color }]}>
+              {item.name.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+          <View style={card.info}>
+            <View style={card.nameRow}>
               <Text
-                style={[card.desc, { color: t.text.muted }]}
+                style={[card.name, { color: t.text.primary }]}
                 numberOfLines={1}
               >
-                {item.description || "Aucune description"}
+                {item.name}
               </Text>
-
-              <View style={card.metaRow}>
-                <Text style={[card.meta, { color: t.text.secondary }]}>
-                  {blockedCount} bloquée{blockedCount !== 1 ? "s" : ""}
-                </Text>
-                <Text style={[card.metaDot, { color: t.border.light }]}>·</Text>
-                <Text style={[card.meta, { color: t.text.secondary }]}>
-                  {hasSchedules
-                    ? `${activeSchedules.length}/${totalSchedules} plage${totalSchedules !== 1 ? "s" : ""}`
-                    : "Sans planification"}
-                </Text>
-              </View>
+              {isActive ? (
+                <View
+                  style={[
+                    card.activeBadge,
+                    {
+                      backgroundColor: t.allowed.bg,
+                      borderColor: t.allowed.border,
+                    },
+                  ]}
+                >
+                  <PulseDot color={t.allowed.accent} />
+                  <Text
+                    style={[card.activeBadgeText, { color: t.allowed.text }]}
+                  >
+                    ACTIF
+                  </Text>
+                </View>
+              ) : blockedCount > 0 ? (
+                <View
+                  style={[
+                    card.inactiveBadge,
+                    {
+                      backgroundColor: t.blocked.bg,
+                      borderColor: t.blocked.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[card.inactiveBadgeText, { color: t.blocked.text }]}
+                  >
+                    EN VEILLE
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <Text
+              style={[card.desc, { color: t.text.muted }]}
+              numberOfLines={1}
+            >
+              {item.description || "Aucune description"}
+            </Text>
+            <View style={card.metaRow}>
+              <Text style={[card.meta, { color: t.text.secondary }]}>
+                {blockedCount} bloquée{blockedCount !== 1 ? "s" : ""}
+              </Text>
+              <Text style={[card.metaDot, { color: t.border.light }]}>·</Text>
+              <Text style={[card.meta, { color: t.text.secondary }]}>
+                {hasSchedules
+                  ? `${activeSchedules.length}/${totalSchedules} plage${totalSchedules !== 1 ? "s" : ""}`
+                  : "Sans planification"}
+              </Text>
             </View>
           </View>
-
-          {/* Bannière immédiat */}
-          {!hasSchedules && isActive && blockedCount > 0 && (
-            <View
-              style={[
-                card.immediateBanner,
-                {
-                  backgroundColor: t.allowed.bg,
-                  borderColor: t.allowed.border,
-                },
-              ]}
-            >
-              <PulseDot color={t.allowed.accent} />
-              <Text style={[card.immediateText, { color: t.allowed.text }]}>
-                {blockedCount} app{blockedCount !== 1 ? "s" : ""} bloquée
-                {blockedCount !== 1 ? "s" : ""} maintenant
-              </Text>
-            </View>
-          )}
-
-          {/* Plages horaires */}
-          {activeSchedules.length > 0 && (
-            <View style={card.scheduleSection}>
-              <View
-                style={[card.scheduleLine, { backgroundColor: t.border.light }]}
-              />
-              <View style={card.schedules}>
-                {activeSchedules.slice(0, 2).map((s) => (
-                  <ScheduleBadge key={s.id} schedule={s} />
-                ))}
-                {activeSchedules.length > 2 && (
-                  <View
-                    style={[
-                      badge.more,
-                      {
-                        backgroundColor: t.bg.cardAlt,
-                        borderColor: t.border.light,
-                      },
-                    ]}
-                  >
-                    <Text style={[badge.moreText, { color: t.text.secondary }]}>
-                      +{activeSchedules.length - 2}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
         </View>
-
-        {/* ── Divider + Actions ── */}
-        <View style={[card.divider, { backgroundColor: t.border.light }]} />
+        {!hasSchedules && isActive && blockedCount > 0 && (
+          <View
+            style={[
+              card.immediateBanner,
+              { backgroundColor: t.allowed.bg, borderColor: t.allowed.border },
+            ]}
+          >
+            <PulseDot color={t.allowed.accent} />
+            <Text style={[card.immediateText, { color: t.allowed.text }]}>
+              {blockedCount} app{blockedCount !== 1 ? "s" : ""} bloquée
+              {blockedCount !== 1 ? "s" : ""} maintenant
+            </Text>
+          </View>
+        )}
+        {activeSchedules.length > 0 && (
+          <View style={card.scheduleSection}>
+            <View
+              style={[card.scheduleLine, { backgroundColor: t.border.light }]}
+            />
+            <View style={card.schedules}>
+              {activeSchedules.slice(0, 2).map((s) => (
+                <ScheduleBadge key={s.id} schedule={s} />
+              ))}
+              {activeSchedules.length > 2 && (
+                <View
+                  style={[
+                    badge.more,
+                    {
+                      backgroundColor: t.bg.cardAlt,
+                      borderColor: t.border.light,
+                    },
+                  ]}
+                >
+                  <Text style={[badge.moreText, { color: t.text.secondary }]}>
+                    +{activeSchedules.length - 2}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
         <View style={card.actions}>
           <TouchableOpacity
             style={[
@@ -408,7 +343,26 @@ const ProfileCard = React.memo(
               {toggling ? "…" : isActive ? "Désactiver" : "Activer"}
             </Text>
           </TouchableOpacity>
-
+          <TouchableOpacity
+            style={[
+              card.appsBtn,
+              { backgroundColor: t.blocked.bg, borderColor: t.blocked.border },
+            ]}
+            onPress={() =>
+              router.push({
+                pathname: "/screens/profile-apps",
+                params: { profileId: item.id },
+              })
+            }
+            activeOpacity={0.8}
+          >
+            <Text
+              style={[card.appsBtnText, { color: t.blocked.accent }]}
+              numberOfLines={1}
+            >
+              ● {blockedCount}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[
               card.configBtn,
@@ -418,17 +372,15 @@ const ProfileCard = React.memo(
             activeOpacity={0.8}
           >
             <Text style={[card.configBtnText, { color: t.text.secondary }]}>
-              ◈ Configurer
+              ◈ Config
             </Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={[
               card.deleteBtn,
               { backgroundColor: t.danger.bg, borderColor: t.danger.border },
             ]}
             onPress={onDelete}
-            activeOpacity={0.8}
           >
             <Text style={[card.deleteBtnText, { color: t.danger.accent }]}>
               ⌫
@@ -445,7 +397,6 @@ const ProfileCard = React.memo(
     p.toggling === n.toggling,
 );
 
-// ─── CreateModal ──────────────────────────────────────────────────────────────
 function CreateModal({
   visible,
   onClose,
@@ -584,7 +535,6 @@ function CreateModal({
               <Text style={[cm.closeIconText, { color: t.text.muted }]}>✕</Text>
             </TouchableOpacity>
           </View>
-
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -688,7 +638,6 @@ function CreateModal({
   );
 }
 
-// ─── Main ──────────────────────────────────────────────────────────────────────
 export default function ProfilesScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
@@ -743,11 +692,6 @@ export default function ProfilesScreen() {
     }
     setShowModal(true);
   }, [isPremium, profiles.length]);
-
-  // Ouvre les templates — la vérification de limite se fait dans ProfileTemplatesModal
-  const handleOpenTemplates = useCallback(() => {
-    setShowTemplates(true);
-  }, []);
 
   const createProfile = async (name: string, desc: string) => {
     const newProfile: Profile = {
@@ -811,14 +755,6 @@ export default function ProfilesScreen() {
     [activeProfileId, togglingId, loadProfiles],
   );
 
-  // Stats dérivées
-  const totalBlocked = profiles.reduce(
-    (acc, p) => acc + (p.rules ?? []).filter((r) => r.isBlocked).length,
-    0,
-  );
-  const activeCount = activeProfileId ? 1 : 0;
-  const canAddMore = isPremium || profiles.length < FREE_LIMITS.MAX_PROFILES;
-
   const keyExtractor = useCallback((item: Profile) => item.id, []);
   const renderItem = useCallback(
     ({ item }: { item: Profile }) => (
@@ -840,86 +776,78 @@ export default function ProfilesScreen() {
     [activeProfileId, togglingId, toggleProfile, deleteProfile],
   );
 
+  const canAddMore = isPremium || profiles.length < FREE_LIMITS.MAX_PROFILES;
+
   return (
     <View style={[s.container, { backgroundColor: t.bg.page }]}>
       <StatusBar
         barStyle="light-content"
         backgroundColor={Semantic.bg.header}
       />
-
-      {/* ══ HEADER ══════════════════════════════════════════════════════════════ */}
-      <View
-        style={[
-          s.header,
-          {
-            paddingTop: insets.top + 14,
-            backgroundColor: Semantic.bg.header,
-          },
-        ]}
-      >
-        {/* Ligne titre + actions */}
-        <View style={s.headerTop}>
-          <Text style={s.headerTitle}>Profils</Text>
-          <View style={s.headerActions}>
-            {!isPremium && (
-              <View style={s.limitBadge}>
-                <Text style={s.limitBadgeText}>
-                  {profiles.length}/{FREE_LIMITS.MAX_PROFILES}
-                </Text>
-              </View>
-            )}
-            <TouchableOpacity
-              style={s.templatesBtn}
-              onPress={handleOpenTemplates}
-              activeOpacity={0.8}
-            >
-              <Text style={s.templatesBtnText}>⚡ Templates</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                s.addBtn,
-                canAddMore
-                  ? {
-                      backgroundColor: "rgba(99,153,34,0.2)",
-                      borderColor: "rgba(99,153,34,0.4)",
-                    }
-                  : {
-                      backgroundColor: "rgba(127,119,221,0.15)",
-                      borderColor: "rgba(127,119,221,0.35)",
-                    },
-              ]}
-              onPress={handleAddProfile}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  s.addBtnText,
-                  {
-                    color: canAddMore ? Colors.green[400] : Colors.purple[400],
-                  },
-                ]}
-              >
-                {canAddMore ? "+ Nouveau" : "🔒 Pro"}
-              </Text>
-            </TouchableOpacity>
+      <View style={[s.header, { paddingTop: insets.top + 14 }]}>
+        <View style={s.headerLeft}>
+          <View
+            style={[
+              s.headerIconWrap,
+              { backgroundColor: t.allowed.bg, borderColor: t.allowed.border },
+            ]}
+          >
+            <Text style={[s.headerIconText, { color: t.allowed.accent }]}>
+              ◉
+            </Text>
+          </View>
+          <View>
+            <Text style={s.headerTitle}>Profils</Text>
+            <Text style={[s.headerSubtitle, { color: Colors.blue[200] }]}>
+              {profiles.length} profil{profiles.length !== 1 ? "s" : ""} ·{" "}
+              {activeProfileId ? "1 actif" : "Aucun actif"}
+              {!isPremium
+                ? ` · ${profiles.length}/${FREE_LIMITS.MAX_PROFILES} gratuit`
+                : ""}
+            </Text>
           </View>
         </View>
-
-        {/* Stats pills */}
-        {profiles.length > 0 && (
-          <View style={s.statsRow}>
-            <StatPill value={profiles.length} label="PROFILS" />
-            <StatPill
-              value={activeCount}
-              label="ACTIF"
-              accent={activeCount > 0 ? "#4ade80" : undefined}
-            />
-            <StatPill value={totalBlocked} label="APPS BLOQUÉES" />
-          </View>
-        )}
+        <View style={s.headerActions}>
+          {/* Bouton Templates */}
+          <TouchableOpacity
+            style={[
+              s.templatesBtn,
+              {
+                backgroundColor: "rgba(255,255,255,.12)",
+                borderColor: "rgba(255,255,255,.2)",
+              },
+            ]}
+            onPress={() => setShowTemplates(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={s.templatesBtnText}>⚡ Templates</Text>
+          </TouchableOpacity>
+          {/* Bouton Nouveau */}
+          <TouchableOpacity
+            style={[
+              s.addBtn,
+              canAddMore
+                ? {
+                    backgroundColor: t.allowed.bg,
+                    borderColor: t.allowed.border,
+                  }
+                : { backgroundColor: t.focus.bg, borderColor: t.focus.border },
+            ]}
+            onPress={handleAddProfile}
+            activeOpacity={0.8}
+          >
+            <Text
+              style={[
+                s.addBtnText,
+                { color: canAddMore ? t.allowed.text : t.focus.text },
+              ]}
+            >
+              {canAddMore ? "+ Nouveau" : "🔒 Premium"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* ══ CONTENU ═════════════════════════════════════════════════════════════ */}
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         {profiles.length === 0 ? (
           <View style={s.empty}>
@@ -947,11 +875,11 @@ export default function ProfilesScreen() {
                 style={[
                   s.emptyBtn,
                   {
-                    backgroundColor: "rgba(255,255,255,.1)",
-                    borderColor: "rgba(255,255,255,.18)",
+                    backgroundColor: "rgba(255,255,255,.12)",
+                    borderColor: "rgba(255,255,255,.2)",
                   },
                 ]}
-                onPress={handleOpenTemplates}
+                onPress={() => setShowTemplates(true)}
               >
                 <Text style={[s.emptyBtnText, { color: Colors.blue[100] }]}>
                   ⚡ Templates
@@ -997,7 +925,6 @@ export default function ProfilesScreen() {
         )}
       </Animated.View>
 
-      {/* ══ FAB ══════════════════════════════════════════════════════════════════ */}
       {profiles.length > 0 && (
         <TouchableOpacity
           style={[
@@ -1017,13 +944,13 @@ export default function ProfilesScreen() {
         </TouchableOpacity>
       )}
 
-      {/* ══ MODALS ════════════════════════════════════════════════════════════════ */}
       <CreateModal
         visible={showModal}
         onClose={() => setShowModal(false)}
         onCreate={createProfile}
         bottomInset={insets.bottom}
       />
+
       <ProfileTemplatesModal
         visible={showTemplates}
         onClose={() => setShowTemplates(false)}
@@ -1038,6 +965,7 @@ export default function ProfilesScreen() {
         isPremium={isPremium}
         onLimitReached={() => setPaywallVisible(true)}
       />
+
       <PaywallModal
         visible={paywallVisible}
         reason="profiles"
@@ -1052,83 +980,58 @@ export default function ProfilesScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
-
-  // Header
   header: {
-    paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingHorizontal: 22,
+    paddingBottom: 18,
     backgroundColor: Semantic.bg.header,
-    shadowColor: Colors.blue[800],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  headerTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 14,
+    shadowColor: Colors.blue[800],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#fff",
-    letterSpacing: -0.8,
-  },
-  headerActions: {
-    flexDirection: "row",
-    gap: 6,
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
+  headerIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    borderWidth: 1,
+    justifyContent: "center",
     alignItems: "center",
   },
-  limitBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 7,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.15)",
-    backgroundColor: "rgba(255,255,255,0.07)",
+  headerIconText: { fontSize: 20 },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: Colors.gray[0],
+    letterSpacing: -1,
   },
-  limitBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.45)",
-    letterSpacing: 0.5,
-  },
+  headerSubtitle: { fontSize: 11, marginTop: 2, fontWeight: "500" },
+  headerActions: { flexDirection: "row", gap: 8, alignItems: "center" },
   templatesBtn: {
-    borderRadius: 9,
+    borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 7,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.15)",
-    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 1,
   },
   templatesBtnText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "rgba(255,255,255,0.75)",
+    color: "rgba(255,255,255,.85)",
   },
   addBtn: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 9,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
-  addBtnText: { fontSize: 12, fontWeight: "700" },
-
-  // Stats
-  statsRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-
-  // List
-  list: { paddingHorizontal: 14, paddingTop: 14 },
-
-  // Empty
+  addBtnText: { fontSize: 13, fontWeight: "700" },
+  list: { paddingHorizontal: 18, paddingTop: 18 },
   empty: {
     flex: 1,
     justifyContent: "center",
@@ -1136,167 +1039,166 @@ const s = StyleSheet.create({
     paddingHorizontal: 40,
   },
   emptyIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+    width: 72,
+    height: 72,
+    borderRadius: 22,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: 20,
   },
-  emptyIcon: { fontSize: 28 },
-  emptyTitle: { fontSize: 18, fontWeight: "800", marginBottom: 8 },
+  emptyIcon: { fontSize: 32 },
+  emptyTitle: { fontSize: 20, fontWeight: "800", marginBottom: 10 },
   emptyText: {
     fontSize: 13,
     textAlign: "center",
     lineHeight: 21,
-    marginBottom: 24,
+    marginBottom: 28,
   },
   emptyBtn: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 18,
-    paddingVertical: 11,
+    borderRadius: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   emptyBtnText: { fontSize: 13, fontWeight: "700" },
-
-  // FAB
   fab: {
     position: "absolute",
-    right: 18,
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    right: 20,
+    width: 54,
+    height: 54,
+    borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
     elevation: 10,
   },
   fabText: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: "300",
     color: Colors.gray[0],
-    lineHeight: 30,
+    lineHeight: 32,
   },
 });
-
 const card = StyleSheet.create({
   container: {
-    borderRadius: 16,
-    marginBottom: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 20,
+    padding: 18,
+    paddingLeft: 22,
+    marginBottom: 12,
+    borderWidth: 1,
     overflow: "hidden",
   },
   accentBar: {
     position: "absolute",
     left: 0,
-    top: 14,
-    bottom: 14,
+    top: 12,
+    bottom: 12,
     width: 3,
     borderRadius: 2,
-    zIndex: 1,
   },
-  body: {
-    paddingTop: 14,
-    paddingBottom: 12,
-    paddingHorizontal: 14,
-    paddingLeft: 18,
-  },
-  top: { flexDirection: "row", alignItems: "center", gap: 12 },
+  top: { flexDirection: "row", alignItems: "center" },
   avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 50,
+    height: 50,
+    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    flexShrink: 0,
+    marginRight: 14,
   },
-  avatarText: { fontSize: 20, fontWeight: "800" },
-  info: { flex: 1, minWidth: 0 },
+  avatarText: { fontSize: 22, fontWeight: "800" },
+  info: { flex: 1 },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    marginBottom: 3,
+    gap: 8,
+    marginBottom: 4,
     flexWrap: "wrap",
   },
-  name: { fontSize: 14, fontWeight: "700" },
+  name: { fontSize: 16, fontWeight: "700" },
   activeBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: StyleSheet.hairlineWidth,
+    gap: 5,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
   },
-  activeBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
-  sleepBadge: {
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: StyleSheet.hairlineWidth,
+  activeBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+  inactiveBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
   },
-  sleepBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
-  desc: { fontSize: 11, marginBottom: 4 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  inactiveBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+  desc: { fontSize: 11, marginBottom: 5 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   meta: { fontSize: 11, fontWeight: "500" },
   metaDot: { fontSize: 11 },
   immediateBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 10,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 12,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
   },
-  immediateText: { fontSize: 11, fontWeight: "600" },
-  scheduleSection: { marginTop: 12 },
-  scheduleLine: { height: StyleSheet.hairlineWidth, marginBottom: 10 },
+  immediateText: { fontSize: 12, fontWeight: "600" },
+  scheduleSection: { marginTop: 14 },
+  scheduleLine: { height: 1, marginBottom: 12 },
   schedules: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  divider: { height: StyleSheet.hairlineWidth },
   actions: {
     flexDirection: "row",
-    gap: 7,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    gap: 8,
+    marginTop: 16,
+    alignItems: "center",
   },
   actionBtn: {
     flex: 1,
-    borderRadius: 9,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 9,
+    borderRadius: 11,
+    borderWidth: 1,
+    paddingVertical: 10,
     alignItems: "center",
   },
-  actionText: { fontSize: 12, fontWeight: "700" },
+  actionText: { fontSize: 13, fontWeight: "700" },
   configBtn: {
     flex: 1,
-    borderRadius: 9,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 9,
+    borderRadius: 11,
+    borderWidth: 1,
+    paddingVertical: 10,
     alignItems: "center",
   },
-  configBtnText: { fontSize: 12, fontWeight: "600" },
+  configBtnText: { fontSize: 13, fontWeight: "600" },
+  appsBtn: {
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  appsBtnText: { fontSize: 11, fontWeight: "800" },
   deleteBtn: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     justifyContent: "center",
     alignItems: "center",
-    borderRadius: 9,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 11,
+    borderWidth: 1,
   },
-  deleteBtnText: { fontSize: 14 },
+  deleteBtnText: { fontSize: 15 },
 });
-
 const badge = StyleSheet.create({
   container: {
-    borderRadius: 9,
-    padding: 9,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
     gap: 5,
-    minWidth: 95,
+    minWidth: 100,
   },
   label: { fontSize: 9, fontWeight: "700", letterSpacing: 0.5 },
   daysRow: { flexDirection: "row", gap: 3 },
@@ -1306,7 +1208,7 @@ const badge = StyleSheet.create({
     borderRadius: 5,
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
   },
   dayText: { fontSize: 8, fontWeight: "700" },
   time: { fontSize: 11, fontWeight: "600", fontFamily: "monospace" },
@@ -1315,11 +1217,10 @@ const badge = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
   },
   moreText: { fontSize: 11, fontWeight: "700" },
 });
-
 const cm = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -1330,7 +1231,7 @@ const cm = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 24,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderBottomWidth: 0,
   },
   handle: {
@@ -1350,7 +1251,7 @@ const cm = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 13,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1360,17 +1261,17 @@ const cm = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 9,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   closeIconText: { fontSize: 11, fontWeight: "700" },
   label: { fontSize: 9, fontWeight: "700", letterSpacing: 2, marginBottom: 8 },
   input: {
-    borderRadius: 12,
-    padding: 13,
+    borderRadius: 14,
+    padding: 14,
     fontSize: 15,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     marginBottom: 18,
   },
   inputMulti: { height: 70, textAlignVertical: "top" },
@@ -1382,16 +1283,16 @@ const cm = StyleSheet.create({
   },
   suggestion: {
     borderRadius: 10,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
   },
   suggestionText: { fontSize: 13, fontWeight: "600" },
   createBtn: {
-    borderRadius: 14,
-    padding: 15,
+    borderRadius: 16,
+    padding: 16,
     alignItems: "center",
     marginBottom: 8,
   },
-  createBtnText: { color: Colors.gray[0], fontSize: 15, fontWeight: "800" },
+  createBtnText: { color: Colors.gray[0], fontSize: 16, fontWeight: "800" },
 });

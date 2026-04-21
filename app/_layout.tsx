@@ -163,6 +163,10 @@ export default function RootLayout() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
+              name="screens/profile-apps"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
               name="screens/oem-compat"
               options={{ headerShown: false }}
             />

@@ -17,8 +17,11 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONArray
+import java.io.BufferedReader
 import java.io.FileInputStream
+import java.io.FileReader
 import java.io.IOException
+import java.net.InetSocketAddress
 
 /**
  * NetLockVpnService — Service VPN local NetOff
@@ -37,6 +40,10 @@ class NetLockVpnService : VpnService() {
 
     @Volatile private var stopRequested    = false
     @Volatile private var tunnelGeneration = 0
+
+    // Throttle logging — max 1 entrée par app toutes les LOG_THROTTLE_MS ms
+    private val lastLogTime     = HashMap<String, Long>()
+    private val LOG_THROTTLE_MS = 3_000L
 
     companion object {
         const val TAG = "NetLockVpnService"
@@ -253,6 +260,8 @@ class NetLockVpnService : VpnService() {
                         Log.w(TAG, "Drain: EOF [gen=$myGeneration, inattendu=$unexpectedExit]")
                         break
                     }
+                    // Logger le paquet intercepté (non-bloquant, throttlé)
+                    if (len >= 20) tryLogPacket(buf, len)
                 }
             } catch (e: IOException) {
                 val interrupted = Thread.currentThread().isInterrupted
@@ -298,6 +307,109 @@ class NetLockVpnService : VpnService() {
         Log.d(TAG, "ALLOWLIST: $n apps exclues du tunnel")
     }
 
+    /**
+     * Identifie l'app qui a envoyé ce paquet IP et logue l'événement.
+     *
+     * Stratégie :
+     *   1. Parser l'en-tête IPv4 → src_ip + src_port + protocole
+     *   2. Android 10+ : ConnectivityManager.getConnectionOwnerUid()
+     *      Android < 10 : lire /proc/net/tcp ou /proc/net/udp
+     *   3. UID → PackageName via PackageManager
+     *   4. Throttler : 1 log par app toutes les LOG_THROTTLE_MS ms
+     *
+     * Cette méthode est appelée dans le drain thread. Elle est O(1) grâce
+     * au throttle — le /proc/net n'est lu que si l'app n'a pas encore
+     * été loguée récemment.
+     */
+    private fun tryLogPacket(buf: ByteArray, len: Int) {
+        try {
+            // IPv4 seulement
+            val version = (buf[0].toInt() and 0xF0) shr 4
+            if (version != 4 || len < 20) return
+            val ihl      = (buf[0].toInt() and 0x0F) * 4
+            val protocol = buf[9].toInt() and 0xFF
+            if (protocol != 6 && protocol != 17) return  // TCP ou UDP seulement
+            if (len < ihl + 4) return
+
+            // Port source de l'app
+            val srcPort = ((buf[ihl].toInt() and 0xFF) shl 8) or (buf[ihl + 1].toInt() and 0xFF)
+            // IP source
+            val srcIp = "${buf[12].toInt() and 0xFF}.${buf[13].toInt() and 0xFF}" +
+                        ".${buf[14].toInt() and 0xFF}.${buf[15].toInt() and 0xFF}"
+
+            val uid = findUidForConnection(srcIp, srcPort, protocol)
+            if (uid < 0 || uid == 1000) return  // ignorer les UIDs système
+
+            val packages = packageManager.getPackagesForUid(uid) ?: return
+            val pkg = packages.firstOrNull { p ->
+                if (allowlistMode) !allowedPackages.contains(p)
+                else blockedPackages.contains(p)
+            } ?: packages.firstOrNull { it != packageName } ?: return
+
+            // Throttle
+            val now = System.currentTimeMillis()
+            if (now - (lastLogTime[pkg] ?: 0L) < LOG_THROTTLE_MS) return
+            lastLogTime[pkg] = now
+
+            val action = if (allowlistMode && !allowedPackages.contains(pkg)) "blocked"
+                         else if (!allowlistMode && blockedPackages.contains(pkg)) "blocked"
+                         else return  // ne pas logger les paquets autorisés ici
+
+            ConnectionLogModule.appendLog(this, pkg, action)
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Résout le UID Android propriétaire d'une connexion TCP/UDP.
+     * Android 10+ : API système ConnectivityManager.getConnectionOwnerUid()
+     * Android < 10 : lecture de /proc/net/tcp ou /proc/net/udp
+     */
+    private fun findUidForConnection(srcIp: String, srcPort: Int, protocol: Int): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE)
+                            as android.net.ConnectivityManager
+                return cm.getConnectionOwnerUid(
+                    protocol,
+                    InetSocketAddress(srcIp, srcPort),
+                    InetSocketAddress("0.0.0.0", 0)
+                )
+            } catch (_: Exception) {}
+        }
+        return findUidFromProcNet(srcIp, srcPort, protocol)
+    }
+
+    /**
+     * Fallback Android < 10 : parse /proc/net/tcp ou /proc/net/udp.
+     * Format : sl local_address rem_address st ... uid ...
+     * local_address = "IIIIIIII:PPPP" (IP hex little-endian, port hex big-endian)
+     */
+    private fun findUidFromProcNet(srcIp: String, srcPort: Int, protocol: Int): Int {
+        val file    = if (protocol == 6) "/proc/net/tcp" else "/proc/net/udp"
+        val hexPort = String.format("%04X", srcPort)
+        val parts   = srcIp.split(".")
+        if (parts.size != 4) return -1
+        // Sur Linux ARM (Android) l'IP est stockée en little-endian
+        val hexIp = String.format("%02X%02X%02X%02X",
+            parts[3].toIntOrNull() ?: return -1,
+            parts[2].toIntOrNull() ?: return -1,
+            parts[1].toIntOrNull() ?: return -1,
+            parts[0].toIntOrNull() ?: return -1)
+        val target = "$hexIp:$hexPort"
+        try {
+            BufferedReader(FileReader(file)).use { br ->
+                var line: String?
+                while (br.readLine().also { line = it } != null) {
+                    val cols = line!!.trim().split("\\s+".toRegex())
+                    if (cols.size >= 8 && cols[1].uppercase() == target) {
+                        return cols[7].toIntOrNull() ?: -1
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return -1
+    }
+
     private fun teardownTunnel() {
         drainThread?.interrupt(); drainThread = null
         try { vpnInterface?.close() } catch (_: Exception) {}
@@ -333,10 +445,7 @@ class NetLockVpnService : VpnService() {
             val pi = PendingIntent.getService(this, 99, intent, flags)
             val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val at = System.currentTimeMillis() + delayMs
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
-            else
-                am.setExact(AlarmManager.RTC_WAKEUP, at, pi)
+            am.setWindow(AlarmManager.RTC_WAKEUP, at, minOf(delayMs, 60_000L), pi)
         } catch (e: Exception) { Log.w(TAG, "scheduleAlarm: ${e.message}") }
     }
 
@@ -348,13 +457,9 @@ class NetLockVpnService : VpnService() {
     // ── Notification ──────────────────────────────────────────────────────────
 
     private fun startForegroundNotification() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(NOTIF_CHANNEL, "NetOff VPN", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Service VPN actif"; setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
-        }
+        // Créer tous les canaux via NotificationHelper (idempotent)
+        NotificationHelper.createAllChannels(this)
+        // Utiliser CHANNEL_VPN avec IMPORTANCE_HIGH pour ne pas être masqué
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         else PendingIntent.FLAG_UPDATE_CURRENT
@@ -367,7 +472,7 @@ class NetLockVpnService : VpnService() {
             blockedPackages.isEmpty() -> "Aucune app bloquée"
             else -> "${blockedPackages.size} app(s) bloquée(s)"
         }
-        val notif = NotificationCompat.Builder(this, NOTIF_CHANNEL)
+        val notif = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_VPN)
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setContentTitle(if (focusActive) "🎯 Mode Focus actif" else "🛡 NetOff VPN actif")
             .setContentText(label)
