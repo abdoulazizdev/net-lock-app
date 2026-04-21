@@ -22,41 +22,56 @@ export interface LogSummary {
   perApp: AppLogStats[];
 }
 
+const EMPTY_SUMMARY: LogSummary = {
+  totalBlocked: 0,
+  totalAllowed: 0,
+  totalEvents: 0,
+  perApp: [],
+};
+
 class ConnectionLogService {
   async getLogs(limit = 200): Promise<LogEntry[]> {
     if (!ConnectionLogModule) return [];
     try {
-      return await ConnectionLogModule.getLogs(limit);
+      const result = await ConnectionLogModule.getLogs(limit);
+      // Garantir que le résultat est un tableau
+      return Array.isArray(result) ? result : [];
     } catch {
       return [];
     }
   }
 
   async getStats(): Promise<LogSummary> {
-    if (!ConnectionLogModule) {
-      return { totalBlocked: 0, totalAllowed: 0, totalEvents: 0, perApp: [] };
-    }
+    if (!ConnectionLogModule) return EMPTY_SUMMARY;
     try {
-      return await ConnectionLogModule.getStats();
+      const raw = await ConnectionLogModule.getStats();
+      // Normaliser — le module natif peut retourner perApp: null
+      return {
+        totalBlocked: raw?.totalBlocked ?? 0,
+        totalAllowed: raw?.totalAllowed ?? 0,
+        totalEvents: raw?.totalEvents ?? 0,
+        perApp: Array.isArray(raw?.perApp) ? raw.perApp : [],
+      };
     } catch {
-      return { totalBlocked: 0, totalAllowed: 0, totalEvents: 0, perApp: [] };
+      return EMPTY_SUMMARY;
     }
   }
 
   async clearLogs(): Promise<void> {
     if (!ConnectionLogModule) return;
-    await ConnectionLogModule.clearLogs();
+    try {
+      await ConnectionLogModule.clearLogs();
+    } catch {}
   }
 
-  // ── Helpers d'affichage ───────────────────────────────────────────────
+  // ── Helpers d'affichage ───────────────────────────────────────────────────
+
   formatTime(timestamp: number): string {
     const d = new Date(timestamp);
     const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
+    const diffMin = Math.floor((now.getTime() - d.getTime()) / 60000);
     const diffH = Math.floor(diffMin / 60);
     const diffD = Math.floor(diffH / 24);
-
     if (diffMin < 1) return "À l'instant";
     if (diffMin < 60) return `Il y a ${diffMin} min`;
     if (diffH < 24) return `Il y a ${diffH}h`;
@@ -66,8 +81,7 @@ class ConnectionLogService {
   }
 
   formatTimeShort(timestamp: number): string {
-    const d = new Date(timestamp);
-    return d.toLocaleTimeString("fr-FR", {
+    return new Date(timestamp).toLocaleTimeString("fr-FR", {
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -87,9 +101,8 @@ class ConnectionLogService {
     });
   }
 
-  // Groupe les logs par date pour affichage en sections
   groupByDate(logs: LogEntry[]): { date: string; entries: LogEntry[] }[] {
-    const groups: Map<string, LogEntry[]> = new Map();
+    const groups = new Map<string, LogEntry[]>();
     for (const log of logs) {
       const key = this.formatDate(log.timestamp);
       if (!groups.has(key)) groups.set(key, []);

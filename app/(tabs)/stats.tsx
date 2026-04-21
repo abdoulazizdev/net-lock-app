@@ -44,11 +44,6 @@ interface AppStatWithName extends AppLogStats {
   appName: string;
 }
 
-// ─── Définition des onglets avec leur accès ───────────────────────────────────
-// overview     → GRATUIT  (résumé chiffré, top 5)
-// productivity → GRATUIT  (streak, badges, score — viral & motivationnel)
-// history      → PRO      (liste complète des événements)
-// apps         → PRO      (stats détaillées par app)
 const TABS: { key: Tab; label: string; icon: string; free: boolean }[] = [
   { key: "overview", label: "Résumé", icon: "◈", free: true },
   { key: "productivity", label: "Prod.", icon: "🔥", free: true },
@@ -129,8 +124,6 @@ function BadgeChip({
 }
 
 // ─── ProBlurOverlay ───────────────────────────────────────────────────────────
-// Affiché par-dessus les onglets Pro quand l'utilisateur est gratuit.
-// Montre un aperçu flou + CTA "Débloquer".
 function ProBlurOverlay({
   tab,
   onUpgrade,
@@ -140,7 +133,6 @@ function ProBlurOverlay({
 }) {
   const { t } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
@@ -149,7 +141,6 @@ function ProBlurOverlay({
       useNativeDriver: true,
     }).start();
   }, [tab]);
-
   const meta = {
     history: {
       icon: "◷",
@@ -175,13 +166,10 @@ function ProBlurOverlay({
       ],
     },
   };
-
   const m = meta[tab as keyof typeof meta];
   if (!m) return null;
-
   return (
     <Animated.View style={[pbo.root, { opacity: fadeAnim }]}>
-      {/* Aperçu fantôme — derrière le flou */}
       <View style={pbo.ghostList} pointerEvents="none">
         {m.preview.map((line, i) => (
           <View
@@ -219,49 +207,10 @@ function ProBlurOverlay({
                 ]}
               />
             </View>
-            <View
-              style={[
-                pbo.ghostBadge,
-                {
-                  backgroundColor: line.includes("Bloqué")
-                    ? "rgba(248,113,113,0.12)"
-                    : "rgba(52,211,153,0.12)",
-                  borderColor: line.includes("Bloqué")
-                    ? "rgba(248,113,113,0.3)"
-                    : "rgba(52,211,153,0.3)",
-                },
-              ]}
-            >
-              <View
-                style={[
-                  pbo.ghostBadgeDot,
-                  {
-                    backgroundColor: line.includes("Bloqué")
-                      ? "#f87171"
-                      : "#34d399",
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  pbo.ghostBar,
-                  {
-                    width: 36,
-                    backgroundColor: line.includes("Bloqué")
-                      ? "rgba(248,113,113,0.4)"
-                      : "rgba(52,211,153,0.4)",
-                  },
-                ]}
-              />
-            </View>
           </View>
         ))}
       </View>
-
-      {/* Overlay dégradé */}
       <View style={pbo.gradient} pointerEvents="none" />
-
-      {/* Carte CTA centrale */}
       <View
         style={[
           pbo.card,
@@ -279,7 +228,6 @@ function ProBlurOverlay({
         >
           <Text style={{ fontSize: 24 }}>{m.icon}</Text>
         </View>
-
         <View
           style={[
             pbo.proBadge,
@@ -293,13 +241,10 @@ function ProBlurOverlay({
             ◎ NETOFF PRO
           </Text>
         </View>
-
         <Text style={[pbo.cardTitle, { color: t.text.primary }]}>
           {m.title}
         </Text>
         <Text style={[pbo.cardSub, { color: t.text.secondary }]}>{m.sub}</Text>
-
-        {/* Mini aperçu texte */}
         <View
           style={[
             pbo.previewBox,
@@ -331,7 +276,6 @@ function ProBlurOverlay({
             + bien plus…
           </Text>
         </View>
-
         <TouchableOpacity
           style={[pbo.ctaBtn, { backgroundColor: Colors.purple[600] }]}
           onPress={onUpgrade}
@@ -374,6 +318,8 @@ function EmptyState({
 export default function StatsScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTheme();
+  const { isPremium, refresh: refreshPremium } = usePremium();
+
   const [tab, setTab] = useState<Tab>("overview");
   const [summary, setSummary] = useState<LogSummary>({
     totalBlocked: 0,
@@ -388,8 +334,7 @@ export default function StatsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
-  const [paywallTab, setPaywallTab] = useState<Tab | null>(null);
-  const { isPremium, refresh: refreshPremium } = usePremium();
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const tabAnim = useRef(new Animated.Value(1)).current;
 
@@ -416,12 +361,6 @@ export default function StatsScreen() {
       }),
     ]).start();
     setTab(next);
-    // Si non-premium tente d'aller sur un onglet pro → on navigue quand même
-    // mais on affiche le ProBlurOverlay par-dessus (voir rendu ci-dessous)
-  }, []);
-
-  const handlePaywallFromOverlay = useCallback(() => {
-    setPaywallVisible(true);
   }, []);
 
   const displayName = useCallback(
@@ -432,47 +371,95 @@ export default function StatsScreen() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [sv, l, prod, report] = await Promise.all([
-        ConnectionLogService.getStats(),
-        ConnectionLogService.getLogs(300),
-        ProductivityService.getStats(),
-        WeeklyReportService.getLastReport(),
-      ]);
+      // ── Étape 1 : logs + summary (critique) ─────────────────────────────
+      let sv: LogSummary = {
+        totalBlocked: 0,
+        totalAllowed: 0,
+        totalEvents: 0,
+        perApp: [],
+      };
+      let rawLogs: LogEntryWithName[] = [];
+
+      try {
+        const [summaryResult, logsResult] = await Promise.all([
+          ConnectionLogService.getStats(),
+          ConnectionLogService.getLogs(300),
+        ]);
+        // Double protection : s'assurer que perApp est bien un tableau
+        sv = {
+          ...summaryResult,
+          perApp: Array.isArray(summaryResult.perApp)
+            ? summaryResult.perApp
+            : [],
+        };
+        rawLogs = Array.isArray(logsResult)
+          ? logsResult.map((e) => ({
+              ...e,
+              appName: displayName(e.packageName),
+            }))
+          : [];
+      } catch (e) {
+        console.warn("[StatsScreen] getStats/getLogs:", e);
+      }
+
       setSummary(sv);
-      setLogs(l.map((e) => ({ ...e, appName: displayName(e.packageName) })));
+      setLogs(rawLogs);
       setAppStats(
         sv.perApp.map((a) => ({ ...a, appName: displayName(a.packageName) })),
       );
-      setProdStats(prod);
-      setWeekReport(report);
 
-      const pkgs = [
-        ...new Set([
-          ...l.map((e) => e.packageName),
-          ...sv.perApp.map((a) => a.packageName),
-        ]),
-      ];
-      const map = new Map<string, string>();
-      await Promise.all(
-        pkgs.map(async (pkg) => {
-          try {
-            const app = await AppListService.getAppByPackage(pkg);
-            if (app?.appName) map.set(pkg, app.appName);
-          } catch {}
-        }),
-      );
-      setLogs(
-        l.map((e) => ({
-          ...e,
-          appName: map.get(e.packageName) ?? displayName(e.packageName),
-        })),
-      );
-      setAppStats(
-        sv.perApp.map((a) => ({
-          ...a,
-          appName: map.get(a.packageName) ?? displayName(a.packageName),
-        })),
-      );
+      // ── Étape 2 : productivité (non-bloquante) ───────────────────────────
+      try {
+        const prod = await ProductivityService.getStats();
+        setProdStats(prod);
+      } catch (e) {
+        console.warn("[StatsScreen] ProductivityService:", e);
+      }
+
+      // ── Étape 3 : rapport hebdomadaire (non-bloquant) ────────────────────
+      try {
+        const report = await WeeklyReportService.getLastReport();
+        setWeekReport(report);
+      } catch (e) {
+        console.warn("[StatsScreen] WeeklyReportService:", e);
+      }
+
+      // ── Étape 4 : résolution des noms d'apps (enrichissement) ───────────
+      try {
+        const pkgs = [
+          ...new Set([
+            ...rawLogs.map((e) => e.packageName),
+            ...sv.perApp.map((a) => a.packageName),
+          ]),
+        ];
+        if (pkgs.length > 0) {
+          const nameMap = new Map<string, string>();
+          await Promise.all(
+            pkgs.map(async (pkg) => {
+              try {
+                const app = await AppListService.getAppByPackage(pkg);
+                if (app?.appName) nameMap.set(pkg, app.appName);
+              } catch {}
+            }),
+          );
+          if (nameMap.size > 0) {
+            setLogs((prev) =>
+              prev.map((e) => ({
+                ...e,
+                appName: nameMap.get(e.packageName) ?? e.appName,
+              })),
+            );
+            setAppStats((prev) =>
+              prev.map((a) => ({
+                ...a,
+                appName: nameMap.get(a.packageName) ?? a.appName,
+              })),
+            );
+          }
+        }
+      } catch (e) {
+        console.warn("[StatsScreen] appName resolution:", e);
+      }
     } finally {
       setLoading(false);
     }
@@ -523,7 +510,6 @@ export default function StatsScreen() {
       min < 60
         ? `${min}min`
         : `${Math.floor(min / 60)}h${min % 60 ? (min % 60) + "m" : ""}`;
-
     return (
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -561,7 +547,6 @@ export default function StatsScreen() {
                 </View>
               </View>
             )}
-
             <View style={s.statsGrid}>
               {[
                 {
@@ -609,7 +594,6 @@ export default function StatsScreen() {
                 </View>
               ))}
             </View>
-
             <View
               style={[
                 s.totalCard,
@@ -650,14 +634,12 @@ export default function StatsScreen() {
                 </Text>
               </View>
             </View>
-
             {appStats.length > 0 && (
               <>
                 <Text style={[s.sectionLabel, { color: t.text.muted }]}>
                   TOP APPS BLOQUÉES
                 </Text>
-                {appStats
-                  .slice()
+                {[...appStats]
                   .sort((a, b) => b.blockedCount - a.blockedCount)
                   .slice(0, 5)
                   .map((app, i) => {
@@ -718,8 +700,6 @@ export default function StatsScreen() {
                   })}
               </>
             )}
-
-            {/* Teaser Pro discret en bas de l'overview */}
             {!isPremium && (
               <TouchableOpacity
                 style={[
@@ -872,14 +852,10 @@ export default function StatsScreen() {
   const AppsTab = useCallback(
     () => (
       <FlatList
-        data={appStats
-          .slice()
-          .sort(
-            (a, b) =>
-              b.blockedCount +
-              b.allowedCount -
-              (a.blockedCount + a.allowedCount),
-          )}
+        data={[...appStats].sort(
+          (a, b) =>
+            b.blockedCount + b.allowedCount - (a.blockedCount + a.allowedCount),
+        )}
         keyExtractor={(item) => item.packageName}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
@@ -1026,14 +1002,12 @@ export default function StatsScreen() {
       min < 60
         ? `${min}min`
         : `${Math.floor(min / 60)}h${min % 60 ? (min % 60) + "" : ""}`;
-
     return (
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={rc}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
       >
-        {/* Score */}
         <View
           style={[
             pg.scoreCard,
@@ -1078,8 +1052,6 @@ export default function StatsScreen() {
             </View>
           </View>
         </View>
-
-        {/* Streak */}
         <Text style={[s.sectionLabel, { color: t.text.muted }]}>STREAK</Text>
         <View
           style={[
@@ -1125,8 +1097,6 @@ export default function StatsScreen() {
             </View>
           )}
         </View>
-
-        {/* Stats globales */}
         <Text style={[s.sectionLabel, { color: t.text.muted }]}>GLOBAL</Text>
         <View style={pg.statsGrid}>
           {[
@@ -1180,8 +1150,6 @@ export default function StatsScreen() {
             </View>
           ))}
         </View>
-
-        {/* Badges */}
         <Text style={[s.sectionLabel, { color: t.text.muted }]}>
           BADGES ({prodStats.badges.filter((b) => b.earned).length}/
           {prodStats.badges.length})
@@ -1196,8 +1164,6 @@ export default function StatsScreen() {
             />
           ))}
         </View>
-
-        {/* Conseil */}
         <View
           style={[
             pg.tipCard,
@@ -1224,8 +1190,8 @@ export default function StatsScreen() {
     );
   }, [prodStats, refreshing, insets, t]);
 
-  // Détermine si l'onglet courant est verrouillé pour l'utilisateur
-  const currentTabLocked = !isPremium && !TABS.find((t) => t.key === tab)?.free;
+  const currentTabLocked =
+    !isPremium && !TABS.find((tab_) => tab_.key === tab)?.free;
 
   return (
     <View style={[s.container, { backgroundColor: t.bg.page }]}>
@@ -1233,8 +1199,6 @@ export default function StatsScreen() {
         barStyle="light-content"
         backgroundColor={Semantic.bg.header}
       />
-
-      {/* ── Header ── */}
       <Animated.View
         style={[s.header, { paddingTop: insets.top + 14, opacity: fadeAnim }]}
       >
@@ -1262,8 +1226,6 @@ export default function StatsScreen() {
             </TouchableOpacity>
           )}
         </View>
-
-        {/* ── Tabs ── */}
         <View style={s.tabs}>
           {TABS.map(({ key, label, icon, free }) => {
             const locked = !isPremium && !free;
@@ -1314,7 +1276,6 @@ export default function StatsScreen() {
         </View>
       </Animated.View>
 
-      {/* ── Contenu ── */}
       <View style={s.contentWrapper}>
         <Animated.View style={[s.content, { opacity: tabAnim }]}>
           {tab === "overview" && <OverviewTab />}
@@ -1322,10 +1283,8 @@ export default function StatsScreen() {
           {tab === "apps" && <AppsTab />}
           {tab === "productivity" && <ProductivityTab />}
         </Animated.View>
-
-        {/* Overlay Pro — monté par-dessus le contenu si onglet verrouillé */}
         {currentTabLocked && (
-          <ProBlurOverlay tab={tab} onUpgrade={handlePaywallFromOverlay} />
+          <ProBlurOverlay tab={tab} onUpgrade={() => setPaywallVisible(true)} />
         )}
       </View>
 
@@ -1396,8 +1355,6 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   clearBtnText: { fontSize: 16, color: Colors.gray[0] },
-
-  // Tabs
   tabs: { flexDirection: "row", gap: 4, paddingBottom: 16 },
   tab: {
     flex: 1,
@@ -1435,11 +1392,8 @@ const s = StyleSheet.create({
   },
   tabIcon: { fontSize: 12 },
   tabText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.2 },
-
-  // Layout
   contentWrapper: { flex: 1, position: "relative" },
   content: { flex: 1, paddingHorizontal: 18, paddingTop: 18 },
-
   sectionLabel: {
     fontSize: 9,
     fontWeight: "700",
@@ -1531,8 +1485,6 @@ const s = StyleSheet.create({
   topAppName: { fontSize: 13, fontWeight: "700", flex: 1 },
   topAppBlocked: { fontSize: 12, fontWeight: "700" },
   topAppPkg: { fontSize: 9, marginTop: 3 },
-
-  // Teaser Pro dans Overview
   proTeaser: {
     flexDirection: "row",
     alignItems: "center",
@@ -1550,13 +1502,10 @@ const s = StyleSheet.create({
     borderRadius: 8,
   },
   proTeaserBadgeText: { fontSize: 11, fontWeight: "800" },
-
-  // History
   dateLabel: {
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 2,
-    textTransform: "uppercase",
     marginTop: 16,
     marginBottom: 8,
   },
@@ -1592,8 +1541,6 @@ const s = StyleSheet.create({
   logBadgeDot: { width: 5, height: 5, borderRadius: 3 },
   logBadgeText: { fontSize: 10, fontWeight: "700" },
   logTime: { fontSize: 10 },
-
-  // Apps
   appStatCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -1652,8 +1599,6 @@ const s = StyleSheet.create({
   appStatFillBlocked: {},
   appStatFillAllowed: {},
   appStatPct: { fontSize: 10, textAlign: "right" },
-
-  // Empty
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyIconWrap: {
     width: 64,
@@ -1668,8 +1613,6 @@ const s = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: "800", marginBottom: 8 },
   emptySub: { fontSize: 12, textAlign: "center", lineHeight: 18 },
 });
-
-// ─── Styles ProBlurOverlay ────────────────────────────────────────────────────
 const pbo = StyleSheet.create({
   root: {
     ...StyleSheet.absoluteFillObject,
@@ -1778,8 +1721,6 @@ const pbo = StyleSheet.create({
     letterSpacing: -0.2,
   },
 });
-
-// ─── Styles productivité ──────────────────────────────────────────────────────
 const pg = StyleSheet.create({
   scoreCard: {
     flexDirection: "row",

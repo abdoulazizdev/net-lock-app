@@ -40,9 +40,13 @@
         "WAKE_LOCK"
       ],
 
+      // "adaptiveIcon": {
+      //   "foregroundImage": "./assets/icons/netoff_foreground.png",
+      //   "backgroundImage": "./assets/icons/netoff_background.png"
+      // },
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icons/netoff_foreground.png",
-        "backgroundImage": "./assets/icons/netoff_background.png"
+        "foregroundImage": "./assets/icons/adaptive_icon.png",
+        "backgroundColor": "#0C1438"
       },
 
       "intentFilters": [
