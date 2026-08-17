@@ -2,29 +2,26 @@
   "expo": {
     "name": "NetOff",
     "slug": "netoff",
-    "version": "1.0.24",
+    "version": "1.0.25",
     "orientation": "portrait",
     "icon": "./assets/icons/netoff_icon.png",
     "scheme": "netoff",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.netoff.app",
       "icon": "./assets/icons/netoff_icon.png",
-      "buildNumber": "24",
+      "buildNumber": "25",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Utilisé pour sécuriser l'accès à l'application."
       }
     },
-
     "android": {
       "package": "com.netoff.app",
-      "versionCode": 24,
+      "versionCode": 25,
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-
+      "predictiveBackGestureEnabled": true,
       "permissions": [
         "INTERNET",
         "BIND_VPN_SERVICE",
@@ -39,35 +36,29 @@
         "VIBRATE",
         "WAKE_LOCK"
       ],
-
-      // "adaptiveIcon": {
-      //   "foregroundImage": "./assets/icons/netoff_foreground.png",
-      //   "backgroundImage": "./assets/icons/netoff_background.png"
-      // },
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/adaptive_icon.png",
         "backgroundColor": "#0C1438"
       },
-
       "intentFilters": [
         {
           "action": "VIEW",
-          "autoVerify": true,
           "data": [
             {
               "scheme": "netoff"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/icons/netoff_icon.png"
     },
-
     "plugins": [
       "expo-router",
       [
@@ -76,9 +67,9 @@
           "image": "./assets/icons/netoff_icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#0C1438",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#0C1438"
           }
         }
       ],
@@ -92,30 +83,26 @@
         "expo-build-properties",
         {
           "android": {
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 35
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0"
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-web-browser"
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-
     "extra": {
       "router": {},
       "eas": {
         "projectId": "31d284c3-e169-4330-ae67-367c2a8eed64"
       }
     },
-
-    "updates": {
-      "fallbackToCacheTimeout": 0
-    },
-
     "runtimeVersion": {
       "policy": "appVersion"
     }
