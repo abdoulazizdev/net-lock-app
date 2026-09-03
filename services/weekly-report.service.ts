@@ -24,7 +24,6 @@ class WeeklyReportService {
     try {
       if (!ConnectionLogModule) return null;
 
-      const stats = await ConnectionLogModule.getStats();
       const logs = await ConnectionLogModule.getLogs(1000);
 
       const now = new Date();

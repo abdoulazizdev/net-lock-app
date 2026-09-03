@@ -54,18 +54,15 @@ class ImportExportService {
 
     this.validate(data);
 
-    if (mode === "replace") {
-      const existing = await StorageService.getRules();
-      for (const r of existing) await StorageService.deleteRule(r.packageName);
-    }
+    const imported = data.rules.map((rule) => ({
+      ...rule,
+      createdAt: new Date(rule.createdAt),
+      updatedAt: new Date(),
+    }));
 
-    for (const rule of data.rules) {
-      await StorageService.saveRule({
-        ...rule,
-        createdAt: new Date(rule.createdAt),
-        updatedAt: new Date(),
-      });
-    }
+    // Une écriture unique dans les deux modes, quel que soit le volume importé.
+    if (mode === "replace") await StorageService.replaceRules(imported);
+    else await StorageService.saveRules(imported);
 
     let profileCount = 0;
     for (const profile of data.profiles ?? []) {

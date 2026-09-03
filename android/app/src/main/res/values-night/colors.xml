@@ -1,3 +1,4 @@
 <resources>
-  <color name="splashscreen_background">#000000</color>
+  <!-- NetOff adopte un fond sombre dans les deux modes : le splash reste identique. -->
+  <color name="splashscreen_background">#08090C</color>
 </resources>

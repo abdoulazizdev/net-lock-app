@@ -1,1444 +1,574 @@
+/**
+ * app/onboarding.tsx — Première configuration
+ *
+ * Quatre étapes, dans l'ordre qui donne le meilleur taux d'acceptation :
+ *
+ *   1. à quoi sert l'app ;
+ *   2. comment elle s'y prend (VPN local — dit *avant* de le demander) ;
+ *   3. quoi bloquer, tout de suite, pour que l'app serve à quelque chose ;
+ *   4. les permissions, une fois la valeur comprise.
+ *
+ * Chaque étape peut être passée : un onboarding bloquant fait perdre plus
+ * d'utilisateurs qu'il n'en convertit.
+ */
+
+import * as Notifications from "expo-notifications";
+import { router } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
+import { Image, StyleSheet, View } from "react-native";
+import Animated, { FadeIn, FadeInRight, FadeOutLeft } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { plural } from "@/lib/format";
+import { markOnboardingDone } from "@/features/system/useBootstrap";
 import AppListService from "@/services/app-list.service";
 import StorageService from "@/services/storage.service";
 import { FREE_LIMITS } from "@/services/subscription.service";
 import VpnService from "@/services/vpn.service";
-import WatchdogService from "@/services/watchdog.service";
-import { Colors, useTheme } from "@/theme";
-import { InstalledApp } from "@/types";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
-import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import type { InstalledApp } from "@/types";
+import { Radius, Spacing, useTheme } from "@/theme";
 import {
-  Animated,
-  Dimensions,
-  Easing,
-  FlatList,
-  Image,
-  StatusBar,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { Text } from "react-native-paper";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+  AppAvatar,
+  Badge,
+  Button,
+  Icon,
+  ProgressBar,
+  Screen,
+  Skeleton,
+  Text,
+  Touchable,
+  toast,
+  type IconName,
+} from "@/ui";
 
-const { width: W } = Dimensions.get("window");
-export const ONBOARDING_KEY = "@netoff_onboarding_done";
-
-type Step =
-  | "welcome"
-  | "how"
-  | "permission"
-  | "notifs"
-  | "pick"
-  | "profile"
-  | "done";
-const STEPS: Step[] = [
-  "welcome",
-  "how",
-  "permission",
-  "notifs",
-  "pick",
-  "profile",
-  "done",
+/** Apps couramment chronophages, proposées en priorité. */
+const SUGGESTED_PACKAGES = [
+  "com.instagram.android",
+  "com.zhiliaoapp.musically",
+  "com.facebook.katana",
+  "com.twitter.android",
+  "com.snapchat.android",
+  "com.google.android.youtube",
+  "com.netflix.mediaclient",
+  "com.reddit.frontpage",
+  "com.pinterest",
+  "com.discord",
+  "com.linkedin.android",
+  "com.king.candycrushsaga",
 ];
 
-const SOCIAL_PACKAGES = [
-  { pkg: "com.instagram.android", label: "Instagram", icon: "📸" },
-  { pkg: "com.zhiliaoapp.musically", label: "TikTok", icon: "🎵" },
-  { pkg: "com.facebook.katana", label: "Facebook", icon: "👥" },
-  { pkg: "com.twitter.android", label: "X (Twitter)", icon: "🐦" },
-  { pkg: "com.snapchat.android", label: "Snapchat", icon: "👻" },
-  { pkg: "com.youtube.android", label: "YouTube", icon: "▶" },
-  { pkg: "com.netflix.mediaclient", label: "Netflix", icon: "🎬" },
-  { pkg: "com.google.android.youtube", label: "YouTube", icon: "▶" },
-  { pkg: "com.reddit.frontpage", label: "Reddit", icon: "🔴" },
-  { pkg: "com.linkedin.android", label: "LinkedIn", icon: "💼" },
-  { pkg: "com.pinterest", label: "Pinterest", icon: "📌" },
-  { pkg: "com.discord", label: "Discord", icon: "💬" },
-  { pkg: "com.whatsapp", label: "WhatsApp", icon: "💬" },
-  { pkg: "org.telegram.messenger", label: "Telegram", icon: "✈" },
-  { pkg: "com.king.candycrushsaga", label: "Candy Crush", icon: "🍬" },
+const STEPS = ["welcome", "how", "apps", "permissions"] as const;
+type Step = (typeof STEPS)[number];
+
+const HOW_POINTS: { icon: IconName; title: string; body: string }[] = [
+  {
+    icon: "cellphone-lock",
+    title: "Un tunnel local, rien de plus",
+    body: "NetOff crée un VPN qui ne sort pas de votre téléphone. Le trafic des apps bloquées y est simplement abandonné.",
+  },
+  {
+    icon: "eye-off-outline",
+    title: "Aucune donnée collectée",
+    body: "Pas de compte, pas de serveur, pas de lecture du contenu de vos connexions.",
+  },
+  {
+    icon: "calendar-clock",
+    title: "Automatique si vous voulez",
+    body: "Profils et planifications appliquent vos règles aux bonnes heures, même app fermée.",
+  },
 ];
 
-export async function markOnboardingDone() {
-  await AsyncStorage.setItem(ONBOARDING_KEY, "true");
-}
-export async function isOnboardingDone(): Promise<boolean> {
-  return (await AsyncStorage.getItem(ONBOARDING_KEY)) === "true";
-}
+export default function OnboardingScreen() {
+  const { t } = useTheme();
+  const insets = useSafeAreaInsets();
 
-// ─── StepDots ─────────────────────────────────────────────────────────────────
-function StepDots({ current, total }: { current: number; total: number }) {
+  const [step, setStep] = useState<Step>("welcome");
+  const [suggested, setSuggested] = useState<InstalledApp[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
+  const [vpnGranted, setVpnGranted] = useState<boolean | null>(null);
+  const [finishing, setFinishing] = useState(false);
+
+  const stepIndex = STEPS.indexOf(step);
+  const maxFree = FREE_LIMITS.MAX_BLOCKED_APPS;
+
+  // Les suggestions sont chargées dès l'ouverture : à l'étape 3, la liste est
+  // déjà prête et l'écran ne fait pas patienter.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const installed = await AppListService.getUserAppsWithIcons();
+        if (cancelled) return;
+        const map = new Map(installed.map((app) => [app.packageName, app]));
+        const matches = SUGGESTED_PACKAGES.map((pkg) => map.get(pkg)).filter(
+          (app): app is InstalledApp => !!app,
+        );
+        // À défaut de correspondance, on propose les premières apps utilisateur.
+        setSuggested(matches.length > 0 ? matches : installed.slice(0, 12));
+      } catch {
+        if (!cancelled) setSuggested([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const goNext = useCallback(() => {
+    const next = STEPS[stepIndex + 1];
+    if (next) setStep(next);
+  }, [stepIndex]);
+
+  const goBack = useCallback(() => {
+    const previous = STEPS[stepIndex - 1];
+    if (previous) setStep(previous);
+  }, [stepIndex]);
+
+  const toggleApp = useCallback(
+    (packageName: string) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(packageName)) {
+          next.delete(packageName);
+          return next;
+        }
+        if (next.size >= maxFree) {
+          toast.info(
+            `Version gratuite : ${plural(maxFree, "app")} maximum. Vous pourrez en ajouter avec Pro.`,
+          );
+          return prev;
+        }
+        next.add(packageName);
+        return next;
+      });
+    },
+    [maxFree],
+  );
+
+  const requestNotifications = useCallback(async () => {
+    try {
+      const { status } = await Notifications.requestPermissionsAsync();
+      setNotifGranted(status === "granted");
+    } catch {
+      setNotifGranted(false);
+    }
+  }, []);
+
+  const requestVpn = useCallback(async () => {
+    try {
+      const started = await VpnService.startVpn();
+      setVpnGranted(started);
+      if (!started) toast.error("Permission VPN refusée — vous pourrez réessayer plus tard.");
+    } catch {
+      setVpnGranted(false);
+    }
+  }, []);
+
+  const finish = useCallback(async () => {
+    setFinishing(true);
+    try {
+      // Les règles choisies sont écrites avant de quitter l'onboarding : l'app
+      // s'ouvre alors sur un état déjà utile.
+      const now = new Date();
+      for (const packageName of selected) {
+        await StorageService.saveRule({
+          packageName,
+          isBlocked: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      if (selected.size > 0) await VpnService.syncRules();
+      await markOnboardingDone();
+      router.replace("/(tabs)");
+    } catch {
+      // Même en cas d'échec d'écriture, on ne bloque pas l'accès à l'app.
+      await markOnboardingDone().catch(() => {});
+      router.replace("/(tabs)");
+    }
+  }, [selected]);
+
   return (
-    <View style={ob.dots}>
-      {Array.from({ length: total }).map((_, i) => (
-        <View key={i} style={[ob.dot, i === current && ob.dotActive]} />
-      ))}
-    </View>
+    <Screen>
+      <View style={[st.root, { paddingBottom: insets.bottom + Spacing.lg }]}>
+        {/* Progression */}
+        <View style={st.progress}>
+          <ProgressBar
+            progress={(stepIndex + 1) / STEPS.length}
+            height={4}
+            color={t.brand.base}
+          />
+          <View style={st.progressRow}>
+            <Text variant="overline" tone="faint">
+              Étape {stepIndex + 1} sur {STEPS.length}
+            </Text>
+            {step !== "welcome" ? (
+              <Touchable onPress={goBack} feedback="none" hitSlop={8}>
+                <Text variant="caption" tone="muted">
+                  Retour
+                </Text>
+              </Touchable>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={st.body}>
+          {step === "welcome" ? (
+            <Animated.View
+              key="welcome"
+              entering={FadeIn.duration(360)}
+              style={st.welcome}
+            >
+              <View
+                style={[
+                  st.logo,
+                  { backgroundColor: t.brand.soft, borderColor: t.brand.softBorder },
+                ]}
+              >
+                <Image
+                  source={require("@/assets/images/netoff-logo.png")}
+                  style={st.logoImage}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text variant="display" center>
+                Reprenez la main
+              </Text>
+              <Text variant="body" tone="secondary" center>
+                NetOff coupe l'accès à internet des applications que vous
+                désignez. Pas de suppression, pas de désinstallation : juste
+                plus de réseau, quand vous l'avez décidé.
+              </Text>
+              <View style={st.pills}>
+                <Badge label="100 % local" tone="allowed" icon="cellphone-lock" size="md" />
+                <Badge label="Sans compte" tone="brand" icon="account-off-outline" size="md" />
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {step === "how" ? (
+            <Animated.View
+              key="how"
+              entering={FadeInRight.duration(280)}
+              exiting={FadeOutLeft.duration(180)}
+              style={st.section}
+            >
+              <Text variant="title1">Comment ça marche</Text>
+              <Text variant="callout" tone="muted">
+                Android va vous avertir qu'une app « surveille votre trafic ».
+                Voici ce que cela signifie réellement.
+              </Text>
+
+              <View style={st.points}>
+                {HOW_POINTS.map((point) => (
+                  <View key={point.title} style={st.point}>
+                    <View
+                      style={[
+                        st.pointIcon,
+                        { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
+                      ]}
+                    >
+                      <Icon name={point.icon} size={19} color={t.brand.base} />
+                    </View>
+                    <View style={st.flex}>
+                      <Text variant="headline">{point.title}</Text>
+                      <Text variant="footnote" tone="muted">
+                        {point.body}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {step === "apps" ? (
+            <Animated.View
+              key="apps"
+              entering={FadeInRight.duration(280)}
+              exiting={FadeOutLeft.duration(180)}
+              style={st.section}
+            >
+              <Text variant="title1">Que voulez-vous couper ?</Text>
+              <Text variant="callout" tone="muted">
+                Choisissez jusqu'à {plural(maxFree, "application")} pour commencer.
+                Vous pourrez tout ajuster ensuite.
+              </Text>
+
+              <View style={st.counter}>
+                <Badge
+                  label={`${selected.size}/${maxFree}`}
+                  tone={selected.size >= maxFree ? "warning" : "brand"}
+                  size="md"
+                />
+                <Text variant="footnote" tone="faint" style={st.flex}>
+                  {selected.size === 0
+                    ? "Aucune sélection — vous pouvez passer cette étape."
+                    : plural(selected.size, "app sera bloquée", "apps seront bloquées")}
+                </Text>
+              </View>
+
+              {suggested === null ? (
+                <View style={st.appGrid}>
+                  {Array.from({ length: 6 }, (_, i) => (
+                    <Skeleton key={i} width="30%" height={92} radius={Radius.md} />
+                  ))}
+                </View>
+              ) : suggested.length === 0 ? (
+                <Text variant="callout" tone="muted">
+                  Impossible de lire la liste des applications installées. Vous
+                  pourrez choisir vos apps depuis l'onglet Apps.
+                </Text>
+              ) : (
+                <View style={st.appGrid}>
+                  {suggested.map((app) => {
+                    const active = selected.has(app.packageName);
+                    return (
+                      <Touchable
+                        key={app.packageName}
+                        onPress={() => toggleApp(app.packageName)}
+                        feedback="strong"
+                        haptic="light"
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: active }}
+                        style={[
+                          st.appTile,
+                          {
+                            backgroundColor: active ? t.intent.blocked.bg : t.bg.card,
+                            borderColor: active ? t.intent.blocked.accent : t.border.light,
+                            borderWidth: active ? 2 : 1,
+                          },
+                        ]}
+                      >
+                        <AppAvatar
+                          packageName={app.packageName}
+                          appName={app.appName}
+                          icon={app.icon}
+                          size="md"
+                        />
+                        <Text variant="caption" center numberOfLines={1}>
+                          {app.appName}
+                        </Text>
+                        {active ? (
+                          <View style={st.appCheck}>
+                            <Icon
+                              name="close-circle"
+                              size={16}
+                              color={t.intent.blocked.accent}
+                            />
+                          </View>
+                        ) : null}
+                      </Touchable>
+                    );
+                  })}
+                </View>
+              )}
+            </Animated.View>
+          ) : null}
+
+          {step === "permissions" ? (
+            <Animated.View
+              key="permissions"
+              entering={FadeInRight.duration(280)}
+              exiting={FadeOutLeft.duration(180)}
+              style={st.section}
+            >
+              <Text variant="title1">Deux autorisations</Text>
+              <Text variant="callout" tone="muted">
+                La première est indispensable, la seconde recommandée.
+              </Text>
+
+              <PermissionCard
+                icon="shield-check-outline"
+                title="Protection réseau"
+                body="Nécessaire pour couper le trafic des apps bloquées. Sans elle, NetOff enregistre vos règles sans pouvoir les appliquer."
+                required
+                granted={vpnGranted}
+                actionLabel="Activer"
+                onPress={requestVpn}
+              />
+
+              <PermissionCard
+                icon="bell-outline"
+                title="Notifications"
+                body="Sert à afficher la session en cours et à signaler une interruption de la protection."
+                granted={notifGranted}
+                actionLabel="Autoriser"
+                onPress={requestNotifications}
+              />
+            </Animated.View>
+          ) : null}
+        </View>
+
+        {/* Actions */}
+        <View style={st.actions}>
+          {step === "permissions" ? (
+            <>
+              <Button
+                label={selected.size > 0 ? "Terminer et bloquer" : "Terminer"}
+                icon="check"
+                onPress={finish}
+                loading={finishing}
+                size="lg"
+                fullWidth
+              />
+              {vpnGranted !== true ? (
+                <Text variant="footnote" tone="faint" center>
+                  Vous pourrez activer la protection à tout moment depuis l'accueil.
+                </Text>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Button
+                label={step === "welcome" ? "Commencer" : "Continuer"}
+                icon="arrow-right"
+                iconRight
+                onPress={goNext}
+                size="lg"
+                fullWidth
+              />
+              {step === "apps" ? (
+                <Button label="Passer cette étape" variant="ghost" onPress={goNext} fullWidth />
+              ) : null}
+            </>
+          )}
+        </View>
+      </View>
+    </Screen>
   );
 }
 
-// ─── FreeLimitBar — barre de quota visible sur l'étape "pick" ─────────────────
-function FreeLimitBar({ selected, max }: { selected: number; max: number }) {
+// ─── Carte de permission ─────────────────────────────────────────────────────
+
+function PermissionCard({
+  icon,
+  title,
+  body,
+  granted,
+  actionLabel,
+  onPress,
+  required = false,
+}: {
+  icon: IconName;
+  title: string;
+  body: string;
+  granted: boolean | null;
+  actionLabel: string;
+  onPress: () => void;
+  required?: boolean;
+}) {
   const { t } = useTheme();
-  const over = selected > max;
-  const pct = Math.min(selected / max, 1);
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: pct,
-      duration: 400,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [pct]);
-
-  const width = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "100%"],
-  });
+  const ok = granted === true;
 
   return (
     <View
       style={[
-        ob.limitBar,
+        st.permission,
         {
-          backgroundColor: over ? Colors.red[50] : t.bg.card,
-          borderColor: over ? Colors.red[100] : t.border.light,
+          backgroundColor: ok ? t.intent.allowed.bg : t.bg.card,
+          borderColor: ok ? t.intent.allowed.border : t.border.light,
         },
       ]}
     >
-      <View style={ob.limitBarHeader}>
-        <Text
+      <View style={st.permissionHead}>
+        <View
           style={[
-            ob.limitBarLabel,
-            { color: over ? Colors.red[600] : t.text.secondary },
-          ]}
-        >
-          {over
-            ? "⚠ Limite gratuite dépassée"
-            : `Quota gratuit · ${selected}/${max} apps`}
-        </Text>
-        {over && (
-          <View
-            style={[
-              ob.limitBadge,
-              { backgroundColor: Colors.red[50], borderColor: Colors.red[200] },
-            ]}
-          >
-            <Text style={[ob.limitBadgeText, { color: Colors.red[500] }]}>
-              +{selected - max} en attente
-            </Text>
-          </View>
-        )}
-      </View>
-      <View style={[ob.limitBarTrack, { backgroundColor: t.border.light }]}>
-        <Animated.View
-          style={[
-            ob.limitBarFill,
+            st.pointIcon,
             {
-              width,
-              backgroundColor: over ? Colors.red[400] : Colors.blue[500],
+              backgroundColor: ok ? t.bg.card : t.bg.cardAlt,
+              borderColor: ok ? t.intent.allowed.border : t.border.light,
             },
           ]}
-        />
+        >
+          <Icon
+            name={ok ? "check" : icon}
+            size={19}
+            color={ok ? t.intent.allowed.accent : t.brand.base}
+          />
+        </View>
+        <View style={st.flex}>
+          <View style={st.permissionTitle}>
+            <Text variant="headline" numberOfLines={1}>
+              {title}
+            </Text>
+            {required ? <Badge label="Requis" tone="warning" /> : null}
+          </View>
+          <Text variant="footnote" tone="muted">
+            {body}
+          </Text>
+        </View>
       </View>
-      {over && (
-        <Text style={[ob.limitNote, { color: Colors.red[500] }]}>
-          Seules les {max} premières apps seront bloquées en version gratuite.
-          Passez à Pro pour tout débloquer.
+
+      {ok ? (
+        <Text variant="caption" tone="allowed">
+          Autorisation accordée
         </Text>
+      ) : (
+        <Button
+          label={granted === false ? "Réessayer" : actionLabel}
+          variant={required ? "primary" : "secondary"}
+          onPress={onPress}
+          fullWidth
+        />
       )}
     </View>
   );
 }
 
-// ─── AppPickCard ──────────────────────────────────────────────────────────────
-function AppPickCard({
-  app,
-  selected,
-  onToggle,
-  dimmed,
-}: {
-  app: InstalledApp & { emoji?: string };
-  selected: boolean;
-  onToggle: () => void;
-  dimmed: boolean;
-}) {
-  const { t } = useTheme();
-  const scale = useRef(new Animated.Value(1)).current;
-  const tap = () => {
-    Animated.sequence([
-      Animated.timing(scale, {
-        toValue: 0.93,
-        duration: 80,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scale, {
-        toValue: 1,
-        tension: 300,
-        friction: 12,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    onToggle();
-  };
-  return (
-    <TouchableOpacity onPress={tap} activeOpacity={0.9}>
-      <Animated.View
-        style={[
-          ob.appCard,
-          { backgroundColor: t.bg.card, borderColor: t.border.light },
-          selected && {
-            backgroundColor: Colors.blue[50],
-            borderColor: Colors.blue[400],
-          },
-          dimmed && !selected && { opacity: 0.45 },
-          { transform: [{ scale }] },
-        ]}
-      >
-        {app.icon ? (
-          <Image
-            source={{ uri: `data:image/png;base64,${app.icon}` }}
-            style={ob.appCardIcon}
-          />
-        ) : (
-          <View
-            style={[
-              ob.appCardIconFallback,
-              { backgroundColor: Colors.blue[50] },
-            ]}
-          >
-            <Text style={{ fontSize: 20 }}>{(app as any).emoji ?? "📱"}</Text>
-          </View>
-        )}
-        <Text
-          style={[ob.appCardName, { color: t.text.primary }]}
-          numberOfLines={2}
-        >
-          {app.appName}
-        </Text>
-        <View
-          style={[
-            ob.appCardCheck,
-            selected && {
-              backgroundColor: Colors.blue[500],
-              borderColor: Colors.blue[500],
-            },
-          ]}
-        >
-          {selected && (
-            <Text style={{ fontSize: 10, color: "#fff", fontWeight: "800" }}>
-              ✓
-            </Text>
-          )}
-        </View>
-      </Animated.View>
-    </TouchableOpacity>
-  );
-}
-
-// ─── PremiumUpsellCard — carte d'upsell inline ────────────────────────────────
-function PremiumUpsellCard({ onUpgrade }: { onUpgrade: () => void }) {
-  const { t } = useTheme();
-  return (
-    <View
-      style={[
-        ob.upsellCard,
-        {
-          backgroundColor: Colors.purple.dark50,
-          borderColor: Colors.purple.dark100,
-        },
-      ]}
-    >
-      <View style={ob.upsellHeader}>
-        <Text style={{ fontSize: 24 }}>⚡</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={[ob.upsellTitle, { color: Colors.purple[300] }]}>
-            NetOff Pro
-          </Text>
-          <Text style={[ob.upsellSub, { color: Colors.purple[200] }]}>
-            Débloquez toutes les fonctionnalités
-          </Text>
-        </View>
-      </View>
-      <View style={ob.upsellFeatures}>
-        {[
-          [
-            "🚫",
-            `Apps bloquées illimitées (vs ${FREE_LIMITS.MAX_BLOCKED_APPS} en gratuit)`,
-          ],
-          [
-            "📁",
-            `Profils illimités (vs ${FREE_LIMITS.MAX_PROFILES} en gratuit)`,
-          ],
-          ["⏰", "Planifications illimitées par profil"],
-          ["📊", "Toutes les statistiques et l'export"],
-          ["🔐", "PIN applicatif + biométrie"],
-        ].map(([icon, text]) => (
-          <View key={text as string} style={ob.upsellFeatureRow}>
-            <Text style={{ fontSize: 14 }}>{icon}</Text>
-            <Text style={[ob.upsellFeatureText, { color: Colors.purple[200] }]}>
-              {text as string}
-            </Text>
-          </View>
-        ))}
-      </View>
-      <TouchableOpacity
-        style={ob.upsellBtn}
-        onPress={onUpgrade}
-        activeOpacity={0.85}
-      >
-        <Text style={ob.upsellBtnText}>⚡ Passer à Pro</Text>
-      </TouchableOpacity>
-      <Text style={[ob.upsellSkip, { color: Colors.purple[400] }]}>
-        Continuer en gratuit →
-      </Text>
-    </View>
-  );
-}
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
-export default function OnboardingScreen() {
-  const insets = useSafeAreaInsets();
-  const { t } = useTheme();
-  const [step, setStep] = useState<Step>("welcome");
-  const [selectedPkgs, setSelectedPkgs] = useState<Set<string>>(new Set());
-  const [suggestedApps, setSuggestedApps] = useState<
-    (InstalledApp & { emoji?: string })[]
-  >([]);
-  const [permGranted, setPermGranted] = useState(false);
-  const [permLoading, setPermLoading] = useState(false);
-  const [notifsGranted, setNotifsGranted] = useState<boolean | null>(null);
-  const [notifsLoading, setNotifsLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [loadingApps, setLoadingApps] = useState(false);
-  const [showUpsell, setShowUpsell] = useState(false);
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-
-  const stepIdx = STEPS.indexOf(step);
-  const MAX_FREE = FREE_LIMITS.MAX_BLOCKED_APPS;
-  // Apps qui seront réellement bloquées (limitées en gratuit)
-  const effectiveSelection = Array.from(selectedPkgs).slice(0, MAX_FREE);
-  const overLimit = selectedPkgs.size > MAX_FREE;
-
-  useEffect(() => {
-    animateIn();
-  }, [step]);
-  useEffect(() => {
-    if (step === "pick") loadSuggested();
-  }, [step]);
-
-  const animateIn = () => {
-    fadeAnim.setValue(0);
-    slideAnim.setValue(24);
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 320,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 320,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const loadSuggested = async () => {
-    setLoadingApps(true);
-    try {
-      const installed = await AppListService.getNonSystemApps();
-      const installedMap = new Map(installed.map((a) => [a.packageName, a]));
-      const matched = SOCIAL_PACKAGES.filter((s) =>
-        installedMap.has(s.pkg),
-      ).map((s) => ({ ...installedMap.get(s.pkg)!, emoji: s.icon }));
-      const seen = new Set<string>();
-      const unique = matched.filter((a) => {
-        if (seen.has(a.packageName)) return false;
-        seen.add(a.packageName);
-        return true;
-      });
-      setSuggestedApps(unique);
-      AppListService.getNonSystemAppsWithIcons()
-        .then((full) => {
-          const fm = new Map(full.map((a) => [a.packageName, a]));
-          setSuggestedApps((prev) =>
-            prev.map((a) => ({
-              ...a,
-              icon: fm.get(a.packageName)?.icon ?? a.icon,
-            })),
-          );
-        })
-        .catch(() => {});
-    } finally {
-      setLoadingApps(false);
-    }
-  };
-
-  const next = () => {
-    const idx = STEPS.indexOf(step);
-    if (idx < STEPS.length - 1) setStep(STEPS[idx + 1]);
-  };
-  const prev = () => {
-    const idx = STEPS.indexOf(step);
-    if (idx > 0) setStep(STEPS[idx - 1]);
-  };
-
-  const requestNotifPermission = async () => {
-    setNotifsLoading(true);
-    try {
-      const { status } = await Notifications.requestPermissionsAsync();
-      setNotifsGranted(status === "granted");
-    } catch {
-      setNotifsGranted(false);
-    } finally {
-      setNotifsLoading(false);
-    }
-  };
-
-  const requestVpnPermission = async () => {
-    setPermLoading(true);
-    try {
-      const granted = await VpnService.startVpn();
-      setPermGranted(granted);
-      if (granted) setTimeout(next, 600);
-    } catch {
-      setPermGranted(false);
-    } finally {
-      setPermLoading(false);
-    }
-  };
-
-  // ── Toggle app — respect de la limite gratuite ────────────────────────────
-  const toggleApp = (pkg: string) => {
-    setSelectedPkgs((prev) => {
-      const next = new Set(prev);
-      if (next.has(pkg)) {
-        next.delete(pkg);
-      } else {
-        // Autoriser la sélection même au-delà de la limite pour montrer le compteur
-        // La limite sera appliquée au moment du finish()
-        next.add(pkg);
-      }
-      return next;
-    });
-  };
-
-  const finish = async () => {
-    setSaving(true);
-    try {
-      // N'enregistrer que les apps dans la limite gratuite
-      for (const pkg of effectiveSelection) {
-        await StorageService.saveRule({
-          packageName: pkg,
-          isBlocked: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
-      if (effectiveSelection.length > 0) await VpnService.syncRules();
-      await WatchdogService.start();
-      await markOnboardingDone();
-      router.replace("/(tabs)");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const skip = async () => {
-    await markOnboardingDone();
-    await WatchdogService.start();
-    router.replace("/(tabs)");
-  };
-
-  // ─── Rendu par étape ──────────────────────────────────────────────────────
-  const renderStep = () => {
-    switch (step) {
-      // ── BIENVENUE ──────────────────────────────────────────────────────────
-      case "welcome":
-        return (
-          <View style={ob.stepWrap}>
-            <View style={ob.heroIconBig}>
-              <Text style={{ fontSize: 56 }}>🛡</Text>
-            </View>
-            <Text style={[ob.stepTitle, { color: t.text.primary }]}>
-              Bienvenue dans NetOff
-            </Text>
-            <Text style={[ob.stepSub, { color: t.text.secondary }]}>
-              Reprenez le contrôle de votre connexion internet. Bloquez les apps
-              qui vous distraient, en quelques secondes.
-            </Text>
-            <View style={ob.featureList}>
-              {[
-                [
-                  "🚫",
-                  "Blocage réseau par app",
-                  "Pas juste des notifications — l'internet réel",
-                ],
-                [
-                  "⏰",
-                  "Planifications automatiques",
-                  "Bloquer les réseaux sociaux la nuit, au travail",
-                ],
-                [
-                  "🎯",
-                  "Mode Focus",
-                  "Sessions verrouillées, difficiles à annuler",
-                ],
-                [
-                  "📊",
-                  "Statistiques détaillées",
-                  "Voyez exactement ce que vos apps font",
-                ],
-              ].map(([icon, title, sub]) => (
-                <View
-                  key={title as string}
-                  style={[ob.featureRow, { borderColor: t.border.light }]}
-                >
-                  <Text style={ob.featureIcon}>{icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[ob.featureTitle, { color: t.text.primary }]}>
-                      {title as string}
-                    </Text>
-                    <Text style={[ob.featureSub, { color: t.text.muted }]}>
-                      {sub as string}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-            {/* Carte Free vs Pro dès le welcome */}
-            <View
-              style={[
-                ob.planCard,
-                { backgroundColor: t.bg.card, borderColor: t.border.light },
-              ]}
-            >
-              <View style={ob.planRow}>
-                <View style={ob.planCol}>
-                  <Text style={[ob.planLabel, { color: t.text.muted }]}>
-                    GRATUIT
-                  </Text>
-                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
-                    ✓ {MAX_FREE} apps bloquées
-                  </Text>
-                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
-                    ✓ {FREE_LIMITS.MAX_PROFILES} profil
-                  </Text>
-                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
-                    ✓ Mode Focus 25min
-                  </Text>
-                  <Text
-                    style={[ob.planItem, { color: t.text.muted, opacity: 0.5 }]}
-                  >
-                    ✗ Export / PIN / Bio
-                  </Text>
-                </View>
-                <View
-                  style={[ob.planDivider, { backgroundColor: t.border.light }]}
-                />
-                <View style={ob.planCol}>
-                  <Text style={[ob.planLabel, { color: Colors.purple[400] }]}>
-                    PRO ⚡
-                  </Text>
-                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
-                    ✓ Apps illimitées
-                  </Text>
-                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
-                    ✓ Profils illimités
-                  </Text>
-                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
-                    ✓ Tous les presets Focus
-                  </Text>
-                  <Text style={[ob.planItem, { color: t.text.secondary }]}>
-                    ✓ Export · PIN · Biométrie
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        );
-
-      // ── COMMENT ÇA MARCHE ──────────────────────────────────────────────────
-      case "how":
-        return (
-          <View style={ob.stepWrap}>
-            <View style={ob.heroIconBig}>
-              <Text style={{ fontSize: 56 }}>⚙</Text>
-            </View>
-            <Text style={[ob.stepTitle, { color: t.text.primary }]}>
-              Comment ça marche ?
-            </Text>
-            <Text style={[ob.stepSub, { color: t.text.secondary }]}>
-              NetOff utilise un VPN local sur votre appareil. Vos données ne
-              quittent jamais votre téléphone.
-            </Text>
-            <View style={ob.howList}>
-              {[
-                {
-                  n: "1",
-                  t: "Un VPN local est créé",
-                  s: "Entièrement sur votre appareil. Aucun serveur externe.",
-                  c: Colors.blue[400],
-                },
-                {
-                  n: "2",
-                  t: "Les apps bloquées entrent",
-                  s: "Leur trafic réseau est redirigé dans le tunnel VPN local.",
-                  c: Colors.blue[500],
-                },
-                {
-                  n: "3",
-                  t: "Le trafic est drainé",
-                  s: "Les paquets sont lus et jetés. L'app n'a plus d'internet.",
-                  c: Colors.blue[600],
-                },
-                {
-                  n: "4",
-                  t: "Les autres apps bypassent",
-                  s: "Toutes vos autres apps continuent de fonctionner normalement.",
-                  c: Colors.blue[700],
-                },
-              ].map((item) => (
-                <View
-                  key={item.n}
-                  style={[
-                    ob.howRow,
-                    { backgroundColor: t.bg.card, borderColor: t.border.light },
-                  ]}
-                >
-                  <View style={[ob.howNum, { backgroundColor: item.c }]}>
-                    <Text style={ob.howNumText}>{item.n}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[ob.howTitle, { color: t.text.primary }]}>
-                      {item.t}
-                    </Text>
-                    <Text style={[ob.howSub, { color: t.text.muted }]}>
-                      {item.s}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-            <View
-              style={[
-                ob.privacyBox,
-                {
-                  backgroundColor: Colors.green[50],
-                  borderColor: Colors.green[100],
-                },
-              ]}
-            >
-              <Text style={{ fontSize: 14, color: Colors.green[500] }}>🔒</Text>
-              <Text style={[ob.privacyText, { color: Colors.green[600] }]}>
-                100% privé — aucune donnée envoyée à nos serveurs. Le VPN est
-                local et hors ligne.
-              </Text>
-            </View>
-          </View>
-        );
-
-      // ── PERMISSION VPN ─────────────────────────────────────────────────────
-      case "permission":
-        return (
-          <View style={ob.stepWrap}>
-            <View
-              style={[
-                ob.permBox,
-                { backgroundColor: t.bg.card, borderColor: t.border.light },
-              ]}
-            >
-              <Text style={{ fontSize: 48, marginBottom: 16 }}>🔑</Text>
-              <Text
-                style={[
-                  ob.stepTitle,
-                  { color: t.text.primary, textAlign: "center" },
-                ]}
-              >
-                Permission VPN requise
-              </Text>
-              <Text
-                style={[
-                  ob.stepSub,
-                  { color: t.text.secondary, textAlign: "center" },
-                ]}
-              >
-                Android doit vous demander d'autoriser NetOff à créer un VPN
-                local. Cette étape est obligatoire pour le blocage.
-              </Text>
-              <View style={ob.permSteps}>
-                {[
-                  "Un dialog Android va s'ouvrir",
-                  'Appuyez sur "OK" ou "Autoriser"',
-                  "Le VPN local est créé sur votre appareil",
-                ].map((s, i) => (
-                  <View
-                    key={i}
-                    style={[ob.permStep, { borderColor: t.border.light }]}
-                  >
-                    <View
-                      style={[
-                        ob.permStepNum,
-                        {
-                          backgroundColor: permGranted
-                            ? Colors.green[400]
-                            : Colors.blue[500],
-                        },
-                      ]}
-                    >
-                      <Text style={ob.permStepNumText}>
-                        {permGranted ? "✓" : i + 1}
-                      </Text>
-                    </View>
-                    <Text
-                      style={[
-                        ob.permStepText,
-                        {
-                          color: permGranted
-                            ? Colors.green[600]
-                            : t.text.secondary,
-                        },
-                      ]}
-                    >
-                      {s}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              {permGranted ? (
-                <View
-                  style={[
-                    ob.permGranted,
-                    {
-                      backgroundColor: Colors.green[50],
-                      borderColor: Colors.green[100],
-                    },
-                  ]}
-                >
-                  <Text style={{ fontSize: 18 }}>✅</Text>
-                  <Text
-                    style={[ob.permGrantedText, { color: Colors.green[600] }]}
-                  >
-                    Permission accordée !
-                  </Text>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    ob.permBtn,
-                    { backgroundColor: Colors.blue[600] },
-                    permLoading && { opacity: 0.6 },
-                  ]}
-                  onPress={requestVpnPermission}
-                  disabled={permLoading}
-                  activeOpacity={0.85}
-                >
-                  <Text style={ob.permBtnText}>
-                    {permLoading ? "En attente…" : "🔑 Accorder la permission"}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <Text style={[ob.permNote, { color: t.text.muted }]}>
-              Android peut vous poser cette question à nouveau après un
-              redémarrage. C'est normal.
-            </Text>
-          </View>
-        );
-
-      // ── NOTIFICATIONS ─────────────────────────────────────────────────────
-      case "notifs":
-        return (
-          <View style={ob.stepWrap}>
-            <View
-              style={[
-                ob.heroIconBig,
-                {
-                  backgroundColor: Colors.blue[50],
-                  borderColor: Colors.blue[100],
-                },
-              ]}
-            >
-              <Text style={{ fontSize: 56 }}>🔔</Text>
-            </View>
-            <Text style={[ob.stepTitle, { color: t.text.primary }]}>
-              Activer les notifications
-            </Text>
-            <Text style={[ob.stepSub, { color: t.text.secondary }]}>
-              NetOff vous notifie quand le VPN redémarre automatiquement, quand
-              une session Focus se termine, ou qu'une mise à jour est
-              disponible.
-            </Text>
-            <View
-              style={[
-                ob.permBox,
-                {
-                  backgroundColor: t.bg.card,
-                  borderColor: t.border.light,
-                  gap: 10,
-                },
-              ]}
-            >
-              {[
-                {
-                  icon: "🛡",
-                  title: "VPN redémarré",
-                  sub: "Si Android coupe le VPN, vous êtes prévenu",
-                },
-                {
-                  icon: "🎯",
-                  title: "Fin de session Focus",
-                  sub: "Alerte quand votre concentration se termine",
-                },
-                {
-                  icon: "🎉",
-                  title: "Mises à jour disponibles",
-                  sub: "Nouvelle version prête à installer",
-                },
-              ].map((item, i) => (
-                <View
-                  key={i}
-                  style={[ob.permStep, { borderColor: t.border.light }]}
-                >
-                  <Text
-                    style={{ fontSize: 18, width: 26, textAlign: "center" }}
-                  >
-                    {item.icon}
-                  </Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[ob.howTitle, { color: t.text.primary }]}>
-                      {item.title}
-                    </Text>
-                    <Text style={[ob.howSub, { color: t.text.muted }]}>
-                      {item.sub}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-              {notifsGranted === true ? (
-                <View
-                  style={[
-                    ob.permGranted,
-                    {
-                      backgroundColor: Colors.green[50],
-                      borderColor: Colors.green[100],
-                    },
-                  ]}
-                >
-                  <Text style={{ fontSize: 18 }}>✅</Text>
-                  <Text
-                    style={[ob.permGrantedText, { color: Colors.green[600] }]}
-                  >
-                    Notifications activées !
-                  </Text>
-                </View>
-              ) : notifsGranted === false ? (
-                <View
-                  style={[
-                    ob.permGranted,
-                    {
-                      backgroundColor: Colors.amber[50],
-                      borderColor: Colors.amber[100],
-                    },
-                  ]}
-                >
-                  <Text style={{ fontSize: 14 }}>⚠</Text>
-                  <Text
-                    style={[ob.permGrantedText, { color: Colors.amber[700] }]}
-                  >
-                    Refusé — vous pourrez les activer dans Paramètres Android
-                  </Text>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    ob.permBtn,
-                    { backgroundColor: Colors.blue[600] },
-                    notifsLoading && { opacity: 0.6 },
-                  ]}
-                  onPress={requestNotifPermission}
-                  disabled={notifsLoading}
-                  activeOpacity={0.85}
-                >
-                  <Text style={ob.permBtnText}>
-                    {notifsLoading
-                      ? "En attente…"
-                      : "🔔 Activer les notifications"}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <Text style={[ob.permNote, { color: t.text.muted }]}>
-              Vous pouvez les désactiver à tout moment dans Paramètres →
-              Applications → NetOff.
-            </Text>
-          </View>
-        );
-
-      // ── CHOISIR LES APPS — avec limite Free visible ────────────────────────
-      case "pick":
-        return (
-          <View style={[ob.stepWrap, { flex: 1 }]}>
-            <Text style={[ob.stepTitle, { color: t.text.primary }]}>
-              Que voulez-vous bloquer ?
-            </Text>
-            <Text style={[ob.stepSub, { color: t.text.secondary }]}>
-              Sélectionnez les apps qui vous distraient.{" "}
-              <Text style={{ fontWeight: "700", color: Colors.blue[500] }}>
-                Version gratuite : {MAX_FREE} apps max.
-              </Text>
-            </Text>
-
-            {loadingApps ? (
-              <View style={ob.loadingWrap}>
-                <Text style={[{ color: t.text.muted, fontSize: 14 }]}>
-                  Chargement des applications…
-                </Text>
-              </View>
-            ) : suggestedApps.length === 0 ? (
-              <View style={ob.loadingWrap}>
-                <Text
-                  style={[
-                    { color: t.text.muted, fontSize: 14, textAlign: "center" },
-                  ]}
-                >
-                  Aucune app de réseaux sociaux détectée.{"\n"}Vous pourrez en
-                  ajouter depuis l'accueil.
-                </Text>
-              </View>
-            ) : (
-              <FlatList
-                data={suggestedApps}
-                keyExtractor={(a) => a.packageName}
-                numColumns={3}
-                columnWrapperStyle={{ gap: 10 }}
-                contentContainerStyle={{ gap: 10, paddingBottom: 8 }}
-                scrollEnabled={false}
-                renderItem={({ item, index }) => (
-                  <AppPickCard
-                    app={item}
-                    selected={selectedPkgs.has(item.packageName)}
-                    onToggle={() => toggleApp(item.packageName)}
-                    // Griser les apps au-delà de la limite si non sélectionnées
-                    dimmed={
-                      !selectedPkgs.has(item.packageName) &&
-                      selectedPkgs.size >= MAX_FREE
-                    }
-                  />
-                )}
-              />
-            )}
-
-            {/* Barre de limite en temps réel */}
-            {selectedPkgs.size > 0 && (
-              <FreeLimitBar selected={selectedPkgs.size} max={MAX_FREE} />
-            )}
-
-            {/* Carte upsell si dépassement */}
-            {overLimit && (
-              <PremiumUpsellCard
-                onUpgrade={() => {
-                  // Ici connecter RevenueCat / Play Billing
-                  // Pour l'instant : skip (l'utilisateur continue en gratuit)
-                }}
-              />
-            )}
-          </View>
-        );
-
-      // ── RÉSUMÉ / PROFIL DE BASE ────────────────────────────────────────────
-      case "profile":
-        return (
-          <View style={ob.stepWrap}>
-            <View style={ob.heroIconBig}>
-              <Text style={{ fontSize: 56 }}>✅</Text>
-            </View>
-            <Text style={[ob.stepTitle, { color: t.text.primary }]}>
-              Presque prêt !
-            </Text>
-            <Text style={[ob.stepSub, { color: t.text.secondary }]}>
-              {effectiveSelection.length > 0
-                ? `${effectiveSelection.length} app${effectiveSelection.length > 1 ? "s" : ""} seront bloquées dès l'activation du VPN.`
-                : "Vous n'avez pas sélectionné d'apps. Vous pourrez le faire depuis l'accueil."}
-              {overLimit && (
-                <Text style={{ color: Colors.red[500] }}>
-                  {"\n"}
-                  {selectedPkgs.size - MAX_FREE} app
-                  {selectedPkgs.size - MAX_FREE > 1 ? "s" : ""} ignorée
-                  {selectedPkgs.size - MAX_FREE > 1 ? "s" : ""} (limite
-                  gratuite).
-                </Text>
-              )}
-            </Text>
-
-            <View style={ob.summaryList}>
-              {[
-                [
-                  "🛡",
-                  "VPN local activé",
-                  "Vos données restent sur votre appareil",
-                ],
-                [
-                  "🔄",
-                  "Watchdog actif",
-                  "Le VPN se relance automatiquement si coupé",
-                ],
-                [
-                  "📊",
-                  "Statistiques activées",
-                  "Suivez vos tentatives de connexion bloquées",
-                ],
-                ["⚙", "Tout configurable", "Modifiez vos règles à tout moment"],
-              ].map(([icon, title, sub]) => (
-                <View
-                  key={title as string}
-                  style={[
-                    ob.summaryRow,
-                    { backgroundColor: t.bg.card, borderColor: t.border.light },
-                  ]}
-                >
-                  <Text style={ob.summaryIcon}>{icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[ob.summaryTitle, { color: t.text.primary }]}>
-                      {title as string}
-                    </Text>
-                    <Text style={[ob.summarySub, { color: t.text.muted }]}>
-                      {sub as string}
-                    </Text>
-                  </View>
-                  <Text style={{ color: Colors.green[400], fontSize: 14 }}>
-                    ✓
-                  </Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Rappel des limites gratuites en fin d'onboarding */}
-            <View
-              style={[
-                ob.freeSummaryCard,
-                { backgroundColor: t.bg.cardAlt, borderColor: t.border.light },
-              ]}
-            >
-              <Text style={[ob.freeSummaryTitle, { color: t.text.secondary }]}>
-                Version gratuite — limites actives
-              </Text>
-              <View style={ob.freeSummaryItems}>
-                {[
-                  `🚫 ${MAX_FREE} apps bloquées max`,
-                  `📁 ${FREE_LIMITS.MAX_PROFILES} profil`,
-                  `⏰ ${FREE_LIMITS.MAX_SCHEDULES} planification / profil`,
-                  "🎯 Focus 25min uniquement",
-                ].map((item) => (
-                  <Text
-                    key={item}
-                    style={[ob.freeSummaryItem, { color: t.text.muted }]}
-                  >
-                    {item}
-                  </Text>
-                ))}
-              </View>
-              <TouchableOpacity
-                style={[
-                  ob.freeSummaryUpgrade,
-                  {
-                    backgroundColor: Colors.purple.dark50,
-                    borderColor: Colors.purple.dark100,
-                  },
-                ]}
-                onPress={() => {
-                  /* Connecter paywall */
-                }}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    ob.freeSummaryUpgradeText,
-                    { color: Colors.purple[300] },
-                  ]}
-                >
-                  ⚡ Débloquer Pro
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
-
-      case "done":
-        return null;
-    }
-  };
-
-  const isLastContent = step === "profile";
-  const canGoNext = step !== "permission" || permGranted;
-
-  // Label du bouton Continuer adapté à la limite
-  const nextLabel = () => {
-    if (saving) return "Démarrage…";
-    if (isLastContent) return "🚀 Commencer";
-    if (step === "pick") {
-      if (selectedPkgs.size === 0) return "Continuer sans bloquer";
-      if (overLimit) return `Bloquer ${MAX_FREE} apps (gratuit)`;
-      return `Bloquer ${selectedPkgs.size} app${selectedPkgs.size > 1 ? "s" : ""}`;
-    }
-    return "Continuer →";
-  };
-
-  return (
-    <View style={[ob.container, { backgroundColor: t.bg.page }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={t.bg.page} />
-
-      <View style={[ob.header, { paddingTop: insets.top + 12 }]}>
-        <TouchableOpacity
-          onPress={stepIdx > 0 ? prev : skip}
-          activeOpacity={0.7}
-          style={ob.headerBack}
-        >
-          {stepIdx > 0 ? (
-            <Text style={[ob.headerBackText, { color: t.text.muted }]}>
-              ← Retour
-            </Text>
-          ) : (
-            <Text style={[ob.headerSkip, { color: t.text.muted }]}>Passer</Text>
-          )}
-        </TouchableOpacity>
-        <StepDots current={stepIdx} total={STEPS.length - 1} />
-        <TouchableOpacity
-          onPress={skip}
-          activeOpacity={0.7}
-          style={ob.headerSkipBtn}
-        >
-          {stepIdx < STEPS.length - 2 ? (
-            <Text style={[ob.headerSkip, { color: t.text.muted }]}>Passer</Text>
-          ) : (
-            <View style={{ width: 48 }} />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <Animated.ScrollView
-        style={{ flex: 1, opacity: fadeAnim }}
-        contentContainerStyle={[
-          ob.scrollContent,
-          { paddingBottom: insets.bottom + 120 },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
-          {renderStep()}
-        </Animated.View>
-      </Animated.ScrollView>
-
-      <View
-        style={[
-          ob.footer,
-          { paddingBottom: insets.bottom + 16, backgroundColor: t.bg.page },
-        ]}
-      >
-        {step === "permission" && !permGranted && (
-          <TouchableOpacity
-            style={[ob.btnSecondary, { borderColor: t.border.normal }]}
-            onPress={next}
-            activeOpacity={0.75}
-          >
-            <Text style={[ob.btnSecondaryText, { color: t.text.secondary }]}>
-              Passer cette étape
-            </Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={[
-            ob.btnPrimary,
-            { backgroundColor: Colors.blue[600] },
-            (!canGoNext || saving) && { opacity: 0.5 },
-          ]}
-          onPress={isLastContent ? finish : next}
-          disabled={!canGoNext || saving}
-          activeOpacity={0.85}
-        >
-          <Text style={ob.btnPrimaryText}>{nextLabel()}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const ob = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
+const st = StyleSheet.create({
+  root: { flex: 1, paddingHorizontal: Spacing.xl, gap: Spacing.lg },
+  progress: { gap: Spacing.sm, paddingTop: Spacing.md },
+  progressRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 8,
   },
-  headerBack: { minWidth: 64 },
-  headerBackText: { fontSize: 14, fontWeight: "600" },
-  headerSkipBtn: { minWidth: 64, alignItems: "flex-end" },
-  headerSkip: { fontSize: 13, fontWeight: "500" },
-  dots: { flexDirection: "row", gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#CBD5E0" },
-  dotActive: {
-    width: 18,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.blue[500],
-  },
-
-  scrollContent: { paddingHorizontal: 22, paddingTop: 8 },
-  stepWrap: { gap: 16 },
-  heroIconBig: {
-    alignSelf: "center",
-    marginBottom: 8,
-    width: 100,
-    height: 100,
-    borderRadius: 30,
-    backgroundColor: Colors.blue[50],
+  body: { flex: 1 },
+  welcome: { flex: 1, justifyContent: "center", alignItems: "center", gap: Spacing.md },
+  logo: {
+    width: 90,
+    height: 90,
+    borderRadius: 28,
+    borderWidth: 1,
+    alignItems: "center",
     justifyContent: "center",
+    marginBottom: Spacing.md,
+  },
+  logoImage: { width: 52, height: 52 },
+  pills: { flexDirection: "row", gap: Spacing.sm, paddingTop: Spacing.md },
+  section: { gap: Spacing.md, paddingTop: Spacing.lg },
+  points: { gap: Spacing.lg, paddingTop: Spacing.sm },
+  point: { flexDirection: "row", gap: Spacing.md, alignItems: "flex-start" },
+  pointIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: Colors.blue[100],
-  },
-  stepTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-    textAlign: "center",
-  },
-  stepSub: { fontSize: 14, lineHeight: 22, textAlign: "center", opacity: 0.8 },
-
-  // Plan card (welcome)
-  planCard: { borderRadius: 18, borderWidth: 1, padding: 16 },
-  planRow: { flexDirection: "row", gap: 0 },
-  planCol: { flex: 1, gap: 5, paddingHorizontal: 8 },
-  planLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.5,
-    marginBottom: 4,
-  },
-  planItem: { fontSize: 12, fontWeight: "500" },
-  planDivider: { width: 1 },
-
-  // Features
-  featureList: { gap: 10 },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 14,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  featureIcon: { fontSize: 22, width: 28, textAlign: "center" },
-  featureTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
-  featureSub: { fontSize: 12, lineHeight: 18 },
-
-  // How
-  howList: { gap: 10 },
-  howRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 14,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  howNum: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
     justifyContent: "center",
-    alignItems: "center",
   },
-  howNumText: { fontSize: 13, fontWeight: "800", color: "#fff" },
-  howTitle: { fontSize: 13, fontWeight: "700", marginBottom: 2 },
-  howSub: { fontSize: 12, lineHeight: 17 },
-  privacyBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    padding: 14,
-    borderRadius: 14,
+  counter: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
+  appGrid: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
+  appTile: {
+    flexGrow: 1,
+    flexBasis: "28%",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.md,
+  },
+  appCheck: { position: "absolute", top: 5, right: 5 },
+  permission: {
+    gap: Spacing.md,
+    padding: Spacing.lg,
+    borderRadius: Radius.lg,
     borderWidth: 1,
   },
-  privacyText: { fontSize: 12, lineHeight: 18, flex: 1 },
-
-  // Permission
-  permBox: {
-    borderRadius: 24,
-    padding: 28,
-    borderWidth: 1,
-    alignItems: "center",
-    gap: 16,
-  },
-  permSteps: { width: "100%", gap: 12 },
-  permStep: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  permStepNum: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  permStepNumText: { fontSize: 12, fontWeight: "800", color: "#fff" },
-  permStepText: { fontSize: 13, flex: 1, fontWeight: "500" },
-  permBtn: {
-    borderRadius: 16,
-    paddingVertical: 15,
-    paddingHorizontal: 32,
-    width: "100%",
-    alignItems: "center",
-  },
-  permBtnText: { fontSize: 15, fontWeight: "800", color: "#fff" },
-  permGranted: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  permGrantedText: { fontSize: 14, fontWeight: "700" },
-  permNote: { fontSize: 11, textAlign: "center", lineHeight: 18, opacity: 0.7 },
-
-  // Pick apps
-  appCard: {
-    flex: 1,
-    aspectRatio: 0.85,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    padding: 12,
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  appCardIcon: { width: 48, height: 48, borderRadius: 13 },
-  appCardIconFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 13,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  appCardName: {
-    fontSize: 11,
-    fontWeight: "600",
-    textAlign: "center",
-    lineHeight: 14,
-  },
-  appCardCheck: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: "#CBD5E0",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingWrap: { paddingVertical: 32, alignItems: "center" },
-
-  // Limit bar
-  limitBar: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
-  limitBarHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  limitBarLabel: { fontSize: 12, fontWeight: "600" },
-  limitBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  limitBadgeText: { fontSize: 10, fontWeight: "700" },
-  limitBarTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
-  limitBarFill: { height: "100%", borderRadius: 2 },
-  limitNote: { fontSize: 11, lineHeight: 16 },
-
-  // Upsell card
-  upsellCard: { borderRadius: 18, borderWidth: 1, padding: 18, gap: 14 },
-  upsellHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
-  upsellTitle: { fontSize: 16, fontWeight: "800", letterSpacing: -0.3 },
-  upsellSub: { fontSize: 11, marginTop: 2 },
-  upsellFeatures: { gap: 8 },
-  upsellFeatureRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  upsellFeatureText: { fontSize: 12, flex: 1 },
-  upsellBtn: {
-    backgroundColor: Colors.purple[500],
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  upsellBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  upsellSkip: { textAlign: "center", fontSize: 12, fontWeight: "600" },
-
-  // Summary
-  summaryList: { gap: 10 },
-  summaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  summaryIcon: { fontSize: 20, width: 28, textAlign: "center" },
-  summaryTitle: { fontSize: 13, fontWeight: "700", marginBottom: 2 },
-  summarySub: { fontSize: 11, opacity: 0.7 },
-
-  // Free summary
-  freeSummaryCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 10 },
-  freeSummaryTitle: { fontSize: 10, fontWeight: "700", letterSpacing: 1.5 },
-  freeSummaryItems: { gap: 5 },
-  freeSummaryItem: { fontSize: 12 },
-  freeSummaryUpgrade: {
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  freeSummaryUpgradeText: { fontSize: 13, fontWeight: "800" },
-
-  // Footer
-  footer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 22,
-    gap: 10,
-  },
-  btnPrimary: { borderRadius: 16, paddingVertical: 16, alignItems: "center" },
-  btnPrimaryText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#fff",
-    letterSpacing: -0.2,
-  },
-  btnSecondary: {
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  btnSecondaryText: { fontSize: 14, fontWeight: "600" },
+  permissionHead: { flexDirection: "row", gap: Spacing.md, alignItems: "flex-start" },
+  permissionTitle: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
+  actions: { gap: Spacing.sm },
+  flex: { flex: 1 },
 });

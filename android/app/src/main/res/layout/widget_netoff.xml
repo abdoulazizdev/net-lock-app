@@ -37,7 +37,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="NetOff"
-                android:textColor="#F0F0FF"
+                android:textColor="@color/widget_text"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:letterSpacing="-0.02"/>
@@ -48,8 +48,8 @@
             android:id="@+id/widget_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="⚠ VPN Inactif"
-            android:textColor="#D04070"
+            android:text="Protection coupée"
+            android:textColor="@color/widget_danger"
             android:textSize="13sp"
             android:textStyle="bold"
             android:layout_marginBottom="4dp"/>
@@ -60,7 +60,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Aucune règle active"
-            android:textColor="#3A3A58"
+            android:textColor="@color/widget_text_muted"
             android:textSize="10sp"
             android:layout_marginBottom="12dp"/>
 
@@ -70,7 +70,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Activer"
-            android:textColor="#7B6EF6"
+            android:textColor="@color/widget_brand"
             android:textSize="12sp"
             android:textStyle="bold"
             android:gravity="center"

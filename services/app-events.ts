@@ -16,7 +16,6 @@ type EventKey = keyof EventMap;
 type Listener<K extends EventKey> = (payload: EventMap[K]) => void;
 
 class AppEventBus {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private listeners = new Map<EventKey, Set<Listener<any>>>();
 
   on<K extends EventKey>(event: K, listener: Listener<K>): () => void {

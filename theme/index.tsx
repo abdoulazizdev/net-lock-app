@@ -1,15 +1,17 @@
-// ─── theme.ts ─────────────────────────────────────────────────────────────────
-// NetOff — Système de thème dual : Jour (bleu/blanc) + Nuit (sombre)
-//
-// • Détection automatique selon l'heure : 7h–20h → Jour, sinon → Nuit
-// • Override manuel possible via useTheme()
-// • Tous les composants importent useTheme() au lieu de Colors directement
-//
-// Usage :
-//   const { t, isDark, toggle } = useTheme();
-//   style={{ backgroundColor: t.bg.page }}
-//   style={{ color: t.text.primary }}
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * theme/index.tsx — Point d'entrée du design system
+ *
+ *   import { useTheme, useThemedStyles, Spacing, Radius } from "@/theme";
+ *
+ *   const { t, isDark } = useTheme();
+ *   style={{ backgroundColor: t.bg.card, borderColor: t.border.light }}
+ *
+ * Modes disponibles :
+ *   • system   — suit le réglage d'Android/iOS (défaut)
+ *   • light    — forcé clair
+ *   • dark     — forcé sombre
+ *   • schedule — clair de 7 h à 20 h, sombre le reste du temps
+ */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
@@ -17,427 +19,238 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
+import { useColorScheme } from "react-native";
 
-// ─── Palettes brutes (invariantes) ───────────────────────────────────────────
-export const Colors = {
-  blue: {
-    50: "#EBF3FE",
-    100: "#C7DFFB",
-    200: "#94C0F7",
-    400: "#378ADD",
-    500: "#2A6DD9",
-    600: "#1A4DB8",
-    700: "#103A96",
-    800: "#0A2870",
-  },
-  gray: {
-    0: "#FFFFFF",
-    50: "#F6F8FC",
-    100: "#EEF2F8",
-    150: "#E4EAF4",
-    200: "#D0D8E8",
-    300: "#B0BCCE",
-    400: "#8A96A8",
-    500: "#6A7688",
-    600: "#4A5468",
-    700: "#2A3448",
-    800: "#1A2238",
-  },
-  dark: {
-    0: "#07070F", // fond page
-    50: "#0C0C16", // card
-    100: "#111120", // card alt
-    150: "#141428", // border légère
-    200: "#1C1C2C", // border normale
-    300: "#2A2A42", // border forte
-    400: "#3A3A58", // texte muted foncé
-    500: "#5A5A80", // texte secondaire
-    600: "#8A8AAA", // texte muted
-    700: "#C0C0D8", // texte principal
-    800: "#EDEDFF", // texte titre
-  },
-  red: {
-    50: "#FFF0EC",
-    100: "#FFD5C8",
-    200: "#FFA888",
-    400: "#FF5733",
-    500: "#E84020",
-    600: "#C23010",
-    dark50: "#180A08",
-    dark100: "#2A1018",
-    darkAccent: "#C04060",
-  },
-  green: {
-    50: "#EDFAF3",
-    100: "#C5EED8",
-    200: "#94D9B0",
-    400: "#2DBB70",
-    500: "#1E9A58",
-    600: "#146B3D",
-    dark50: "#081410",
-    dark100: "#0E3020",
-    darkAccent: "#2DB870",
-  },
-  amber: {
-    50: "#FFF8E6",
-    100: "#FDECC0",
-    200: "#FCD38C",
-    400: "#F5A623",
-    500: "#D4860A",
-    600: "#A86200",
-    700: "#7C4E00",
-    dark50: "#100C04",
-    dark100: "#3A2800",
-    darkAccent: "#C07010",
-  },
-  purple: {
-    50: "#F0EEFE",
-    100: "#D4CEFB",
-    200: "#AFA9EC",
-    300: "#897EDD",
-    400: "#7B6EF6",
-    500: "#5A4FD4",
-    600: "#3D34A8",
-    700: "#2A2A96",
-    dark50: "#16103A",
-    dark100: "#4A3F8A",
-  },
-} as const;
+import { Palette } from "./tokens";
+import { DarkTheme, LightTheme, type ThemeTokens } from "./themes";
 
-// ─── Tokens sémantiques par thème ────────────────────────────────────────────
-export type ThemeTokens = {
-  // Fonds
-  bg: {
-    page: string; // fond général
-    card: string; // carte principale
-    cardAlt: string; // carte secondaire / input
-    cardSunken: string; // zone enfoncée
-    header: string; // header app
-    accent: string; // fond accent
-  };
-  // Textes
-  text: {
-    primary: string;
-    secondary: string;
-    muted: string;
-    inverse: string; // sur fond sombre
-    inverseAlt: string; // secondaire sur fond sombre
-    link: string;
-  };
-  // Bordures
-  border: {
-    light: string;
-    normal: string;
-    strong: string;
-    focus: string;
-  };
-  // États
-  blocked: {
-    bg: string;
-    border: string;
-    accent: string;
-    text: string;
-  };
-  allowed: {
-    bg: string;
-    border: string;
-    accent: string;
-    text: string;
-  };
-  vpnOn: {
-    bg: string;
-    border: string;
-    dot: string;
-    text: string;
-  };
-  vpnOff: {
-    bg: string;
-    border: string;
-    dot: string;
-    text: string;
-  };
-  warning: {
-    bg: string;
-    border: string;
-    accent: string;
-    text: string;
-  };
-  focus: {
-    bg: string;
-    border: string;
-    accent: string;
-    text: string;
-  };
-  danger: {
-    bg: string;
-    border: string;
-    accent: string;
-    text: string;
-  };
-  // StatusBar
-  statusBar: "light-content" | "dark-content";
-  // Refresh control
-  refreshTint: string;
-  // Ombre des cards
-  shadowColor: string;
-  shadowOpacity: number;
-  // Header buttons (sur fond bleu)
-  headerBtnBg: string;
-  headerBtnBorder: string;
-  headerBtnText: string;
-};
+export * from "./tokens";
+export * from "./themes";
 
-// ─── Thème JOUR (bleu/blanc) ──────────────────────────────────────────────────
-export const LightTheme: ThemeTokens = {
-  bg: {
-    page: Colors.gray[50],
-    card: Colors.gray[0],
-    cardAlt: Colors.gray[100],
-    cardSunken: Colors.gray[150],
-    header: Colors.blue[600],
-    accent: Colors.blue[50],
-  },
-  text: {
-    primary: Colors.gray[800],
-    secondary: Colors.gray[600],
-    muted: Colors.gray[400],
-    inverse: Colors.gray[0],
-    inverseAlt: Colors.blue[200],
-    link: Colors.blue[500],
-  },
-  border: {
-    light: Colors.gray[200],
-    normal: Colors.gray[300],
-    strong: Colors.blue[200],
-    focus: Colors.blue[500],
-  },
-  blocked: {
-    bg: Colors.red[50],
-    border: Colors.red[100],
-    accent: Colors.red[500],
-    text: Colors.red[600],
-  },
-  allowed: {
-    bg: Colors.green[50],
-    border: Colors.green[100],
-    accent: Colors.green[400],
-    text: Colors.green[600],
-  },
-  vpnOn: {
-    bg: Colors.green[50],
-    border: Colors.green[100],
-    dot: Colors.green[400],
-    text: Colors.green[600],
-  },
-  vpnOff: {
-    bg: Colors.red[50],
-    border: Colors.red[100],
-    dot: Colors.red[500],
-    text: Colors.red[600],
-  },
-  warning: {
-    bg: Colors.amber[50],
-    border: Colors.amber[100],
-    accent: Colors.amber[400],
-    text: Colors.amber[600],
-  },
-  focus: {
-    bg: Colors.purple[50],
-    border: Colors.purple[100],
-    accent: Colors.purple[400],
-    text: Colors.purple[600],
-  },
-  danger: {
-    bg: Colors.red[50],
-    border: Colors.red[100],
-    accent: Colors.red[500],
-    text: Colors.red[600],
-  },
-  statusBar: "light-content",
-  refreshTint: Colors.blue[500],
-  shadowColor: Colors.blue[600],
-  shadowOpacity: 0.06,
-  headerBtnBg: "rgba(255,255,255,.12)",
-  headerBtnBorder: "rgba(255,255,255,.2)",
-  headerBtnText: Colors.blue[100],
-};
+const STORAGE_KEY = "@netoff_theme_mode";
+/** Ancienne clé (v1) — migrée au premier lancement. */
+const LEGACY_KEY = "@netoff_theme_override";
 
-// ─── Thème NUIT (sombre) ──────────────────────────────────────────────────────
-export const DarkTheme: ThemeTokens = {
-  bg: {
-    page: Colors.dark[0],
-    card: Colors.dark[50],
-    cardAlt: Colors.dark[100],
-    cardSunken: Colors.dark[100],
-    header: Colors.blue[600], // header reste bleu dans les 2 thèmes
-    accent: Colors.purple.dark50,
-  },
-  text: {
-    primary: Colors.dark[800],
-    secondary: Colors.dark[600],
-    muted: Colors.dark[400],
-    inverse: Colors.gray[0],
-    inverseAlt: Colors.blue[200],
-    link: Colors.blue[400],
-  },
-  border: {
-    light: Colors.dark[150],
-    normal: Colors.dark[200],
-    strong: Colors.dark[300],
-    focus: Colors.blue[400],
-  },
-  blocked: {
-    bg: Colors.red.dark50,
-    border: Colors.red.dark100,
-    accent: Colors.red.darkAccent,
-    text: Colors.red.darkAccent,
-  },
-  allowed: {
-    bg: Colors.green.dark50,
-    border: Colors.green.dark100,
-    accent: Colors.green.darkAccent,
-    text: Colors.green.darkAccent,
-  },
-  vpnOn: {
-    bg: Colors.green.dark50,
-    border: Colors.green.dark100,
-    dot: Colors.green.darkAccent,
-    text: Colors.green.darkAccent,
-  },
-  vpnOff: {
-    bg: Colors.red.dark50,
-    border: Colors.red.dark100,
-    dot: Colors.red.darkAccent,
-    text: Colors.red.darkAccent,
-  },
-  warning: {
-    bg: Colors.amber.dark50,
-    border: Colors.amber.dark100,
-    accent: Colors.amber.darkAccent,
-    text: Colors.amber.darkAccent,
-  },
-  focus: {
-    bg: Colors.purple.dark50,
-    border: Colors.purple.dark100,
-    accent: Colors.purple[400],
-    text: "#9B8FFF",
-  },
-  danger: {
-    bg: Colors.red.dark50,
-    border: Colors.red.dark100,
-    accent: Colors.red.darkAccent,
-    text: Colors.red.darkAccent,
-  },
-  statusBar: "light-content",
-  refreshTint: Colors.purple[400],
-  shadowColor: "#000000",
-  shadowOpacity: 0.3,
-  headerBtnBg: "rgba(255,255,255,.1)",
-  headerBtnBorder: "rgba(255,255,255,.15)",
-  headerBtnText: Colors.blue[100],
-};
+const DAY_START_HOUR = 7;
+const DAY_END_HOUR = 20;
 
-// ─── Logique de détection auto ────────────────────────────────────────────────
-const STORAGE_KEY = "@netoff_theme_override";
-const DAY_START = 7; // 7h00
-const DAY_END = 20; // 20h00
+export type ThemeMode = "system" | "light" | "dark" | "schedule";
 
-function isNightTime(): boolean {
+export const THEME_MODES: { key: ThemeMode; label: string; icon: string }[] = [
+  { key: "system", label: "Système", icon: "cellphone-cog" },
+  { key: "light", label: "Clair", icon: "white-balance-sunny" },
+  { key: "dark", label: "Sombre", icon: "weather-night" },
+  { key: "schedule", label: "Horaire", icon: "clock-outline" },
+];
+
+function isNightHour(): boolean {
   const h = new Date().getHours();
-  return h < DAY_START || h >= DAY_END;
+  return h < DAY_START_HOUR || h >= DAY_END_HOUR;
 }
 
-export type ThemeMode = "auto" | "light" | "dark";
+function parseMode(raw: string | null): ThemeMode | null {
+  switch (raw) {
+    case "system":
+    case "light":
+    case "dark":
+    case "schedule":
+      return raw;
+    // v1 : "auto" désignait la bascule horaire.
+    case "auto":
+      return "schedule";
+    default:
+      return null;
+  }
+}
 
-// ─── Context ──────────────────────────────────────────────────────────────────
+// ─── Contexte ────────────────────────────────────────────────────────────────
+
 type ThemeContextValue = {
-  t: ThemeTokens; // tokens du thème actif
+  /** Tokens du thème actif. */
+  t: ThemeTokens;
   isDark: boolean;
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
-  toggle: () => void; // bascule light ↔ dark (passe en mode manuel)
+  /** Bascule clair ↔ sombre en passant en mode manuel. */
+  toggle: () => void;
 };
 
-export const NetOffThemeContext = createContext<ThemeContextValue>({
-  t: LightTheme,
-  isDark: false,
-  mode: "auto",
+const ThemeContext = createContext<ThemeContextValue>({
+  t: DarkTheme,
+  isDark: true,
+  mode: "system",
   setMode: () => {},
   toggle: () => {},
 });
 
-export function NetOffThemeProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}): React.ReactElement {
-  const [mode, setModeState] = useState<ThemeMode>("auto");
-  const [autoIsDark, setAutoIsDark] = useState(isNightTime());
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const systemScheme = useColorScheme();
+  const [mode, setModeState] = useState<ThemeMode>("system");
+  const [scheduleIsNight, setScheduleIsNight] = useState(isNightHour);
 
-  // Charger le mode sauvegardé
+  // Charge le mode persisté (et migre l'ancienne clé).
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((v) => {
-      if (v === "light" || v === "dark" || v === "auto") setModeState(v);
-    });
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = parseMode(await AsyncStorage.getItem(STORAGE_KEY));
+        if (stored) {
+          if (!cancelled) setModeState(stored);
+          return;
+        }
+        const legacy = parseMode(await AsyncStorage.getItem(LEGACY_KEY));
+        if (legacy && !cancelled) {
+          setModeState(legacy);
+          await AsyncStorage.setItem(STORAGE_KEY, legacy);
+          await AsyncStorage.removeItem(LEGACY_KEY);
+        }
+      } catch {
+        // Pas de persistance disponible : on reste sur "system".
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Rafraîchir la détection auto toutes les minutes
+  // Le mode horaire est le seul à devoir être réévalué périodiquement.
   useEffect(() => {
-    const id = setInterval(() => setAutoIsDark(isNightTime()), 60_000);
+    if (mode !== "schedule") return;
+    setScheduleIsNight(isNightHour());
+    const id = setInterval(() => setScheduleIsNight(isNightHour()), 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [mode]);
 
   const setMode = useCallback((m: ThemeMode) => {
     setModeState(m);
-    AsyncStorage.setItem(STORAGE_KEY, m);
+    AsyncStorage.setItem(STORAGE_KEY, m).catch(() => {});
   }, []);
 
-  // isDark calculé AVANT toggle pour éviter la référence temporelle
-  const isDark = mode === "dark" ? true : mode === "light" ? false : autoIsDark;
+  const isDark = ((): boolean => {
+    switch (mode) {
+      case "light":
+        return false;
+      case "dark":
+        return true;
+      case "schedule":
+        return scheduleIsNight;
+      default:
+        // `useColorScheme()` peut renvoyer null avant que le natif réponde :
+        // on privilégie alors le sombre, cohérent avec le splash de l'app.
+        return systemScheme !== "light";
+    }
+  })();
 
-  const toggle = useCallback(() => {
-    setMode(isDark ? "light" : "dark");
-  }, [isDark, setMode]);
-
-  const t = isDark ? DarkTheme : LightTheme;
-
-  return (
-    <NetOffThemeContext.Provider value={{ t, isDark, mode, setMode, toggle }}>
-      {children}
-    </NetOffThemeContext.Provider>
+  const toggle = useCallback(
+    () => setMode(isDark ? "light" : "dark"),
+    [isDark, setMode],
   );
+
+  const value = useMemo<ThemeContextValue>(
+    () => ({ t: isDark ? DarkTheme : LightTheme, isDark, mode, setMode, toggle }),
+    [isDark, mode, setMode, toggle],
+  );
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
-export function useTheme() {
-  return useContext(NetOffThemeContext);
+export function useTheme(): ThemeContextValue {
+  return useContext(ThemeContext);
 }
 
-// ─── Semantic (rétrocompat — pointe vers LightTheme) ─────────────────────────
-// À utiliser UNIQUEMENT pour les valeurs invariantes (header toujours bleu).
-// Pour le reste, préférer useTheme().t.*
-export const Semantic = {
-  bg: {
-    header: Colors.blue[600],
+// ─── Compatibilité v1 ────────────────────────────────────────────────────────
+// Ponts conservés le temps que tous les écrans passent aux nouveaux tokens.
+// Ne rien ajouter ici — et préférer `useTheme().t` / `Palette` dans du code neuf.
+
+export { ThemeProvider as NetOffThemeProvider };
+
+export const Semantic = { bg: { header: Palette.brand[600] } } as const;
+
+/** @deprecated Utiliser `Palette` (theme/tokens.ts). */
+export const Colors = {
+  blue: {
+    50: Palette.brand[50],
+    100: Palette.brand[100],
+    200: Palette.brand[200],
+    400: Palette.brand[400],
+    500: Palette.brand[500],
+    600: Palette.brand[600],
+    700: Palette.brand[700],
+    800: Palette.brand[800],
   },
-} as const;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-export const Radius = {
-  xs: 6,
-  sm: 10,
-  md: 14,
-  lg: 18,
-  xl: 24,
-  xxl: 28,
-} as const;
-
-export const Spacing = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 22,
-  xxl: 32,
+  gray: {
+    0: Palette.slate[0],
+    50: Palette.slate[50],
+    100: Palette.slate[100],
+    150: Palette.slate[150],
+    200: Palette.slate[200],
+    300: Palette.slate[300],
+    400: Palette.slate[400],
+    500: Palette.slate[500],
+    600: Palette.slate[600],
+    700: Palette.slate[700],
+    800: Palette.slate[900],
+  },
+  dark: {
+    0: Palette.ink[0],
+    50: Palette.ink[50],
+    100: Palette.ink[100],
+    150: Palette.ink[150],
+    200: Palette.ink[200],
+    300: Palette.ink[300],
+    400: Palette.ink[500],
+    500: Palette.ink[500],
+    600: Palette.ink[600],
+    700: Palette.ink[700],
+    800: Palette.ink[900],
+  },
+  red: {
+    50: Palette.red[50],
+    100: Palette.red[100],
+    200: Palette.red[200],
+    400: Palette.red[400],
+    500: Palette.red[500],
+    600: Palette.red[600],
+    dark50: DarkTheme.intent.blocked.bg,
+    dark100: DarkTheme.intent.blocked.border,
+    darkAccent: DarkTheme.intent.blocked.accent,
+  },
+  green: {
+    50: Palette.green[50],
+    100: Palette.green[100],
+    200: Palette.green[200],
+    400: Palette.green[400],
+    500: Palette.green[500],
+    600: Palette.green[600],
+    dark50: DarkTheme.intent.allowed.bg,
+    dark100: DarkTheme.intent.allowed.border,
+    darkAccent: DarkTheme.intent.allowed.accent,
+  },
+  amber: {
+    50: Palette.amber[50],
+    100: Palette.amber[100],
+    200: Palette.amber[200],
+    400: Palette.amber[400],
+    500: Palette.amber[500],
+    600: Palette.amber[600],
+    700: Palette.amber[700],
+    dark50: DarkTheme.intent.warning.bg,
+    dark100: DarkTheme.intent.warning.border,
+    darkAccent: DarkTheme.intent.warning.accent,
+  },
+  purple: {
+    50: Palette.violet[50],
+    100: Palette.violet[100],
+    200: Palette.violet[200],
+    300: Palette.violet[300],
+    400: Palette.violet[400],
+    500: Palette.violet[500],
+    600: Palette.violet[600],
+    700: Palette.violet[700],
+    dark50: DarkTheme.intent.focus.bg,
+    dark100: DarkTheme.intent.focus.border,
+  },
 } as const;

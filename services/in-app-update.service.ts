@@ -191,21 +191,31 @@ class InAppUpdateService {
   }
 
   // ── Listeners ─────────────────────────────────────────────────────────────
+  // Chaque abonnement renvoie sa fonction de désinscription : sans elle, un
+  // composant remonté plusieurs fois empilait des écouteurs indéfiniment.
 
-  onAvailable(fn: UpdateListener) {
-    this._listeners.onAvailable.push(fn);
+  private _subscribe<T>(list: T[], fn: T): () => void {
+    list.push(fn);
+    return () => {
+      const index = list.indexOf(fn);
+      if (index >= 0) list.splice(index, 1);
+    };
   }
-  onProgress(fn: ProgressListener) {
-    this._listeners.onProgress.push(fn);
+
+  onAvailable(fn: UpdateListener): () => void {
+    return this._subscribe(this._listeners.onAvailable, fn);
   }
-  onDownloaded(fn: SimpleListener) {
-    this._listeners.onDownloaded.push(fn);
+  onProgress(fn: ProgressListener): () => void {
+    return this._subscribe(this._listeners.onProgress, fn);
   }
-  onInstalled(fn: SimpleListener) {
-    this._listeners.onInstalled.push(fn);
+  onDownloaded(fn: SimpleListener): () => void {
+    return this._subscribe(this._listeners.onDownloaded, fn);
   }
-  onFailed(fn: SimpleListener) {
-    this._listeners.onFailed.push(fn);
+  onInstalled(fn: SimpleListener): () => void {
+    return this._subscribe(this._listeners.onInstalled, fn);
+  }
+  onFailed(fn: SimpleListener): () => void {
+    return this._subscribe(this._listeners.onFailed, fn);
   }
 }
 

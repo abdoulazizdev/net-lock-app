@@ -23,11 +23,62 @@ class StorageService {
   }
 
   async saveRule(rule: AppRule): Promise<void> {
+    await this.saveRules([rule]);
+  }
+
+  /**
+   * Écrit plusieurs règles en une seule opération.
+   *
+   * À préférer systématiquement à une boucle sur `saveRule` : celle-ci relit
+   * et réécrit la totalité du stockage à chaque appel, soit un coût
+   * quadratique. Sur un profil de cent applications, la différence se compte
+   * en secondes de gel de l'interface.
+   */
+  async saveRules(incoming: AppRule[]): Promise<void> {
+    if (incoming.length === 0) return;
     const rules = await this.getRules();
-    const index = rules.findIndex((r) => r.packageName === rule.packageName);
-    if (index >= 0) rules[index] = { ...rule, updatedAt: new Date() };
-    else rules.push({ ...rule, createdAt: new Date(), updatedAt: new Date() });
+    const byPackage = new Map(rules.map((r) => [r.packageName, r]));
+    const now = new Date();
+
+    for (const rule of incoming) {
+      const existing = byPackage.get(rule.packageName);
+      byPackage.set(rule.packageName, {
+        ...rule,
+        createdAt: existing?.createdAt ?? rule.createdAt ?? now,
+        updatedAt: now,
+      });
+    }
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.RULES,
+      JSON.stringify([...byPackage.values()]),
+    );
+  }
+
+  /**
+   * Remplace intégralement le jeu de règles.
+   * Une seule écriture, quel que soit le nombre de règles.
+   */
+  async replaceRules(rules: AppRule[]): Promise<void> {
     await AsyncStorage.setItem(STORAGE_KEYS.RULES, JSON.stringify(rules));
+  }
+
+  /** Bascule le blocage de plusieurs applications d'un coup. */
+  async setBlockedPackages(
+    packageNames: string[],
+    isBlocked: boolean,
+    profileId?: string,
+  ): Promise<void> {
+    if (packageNames.length === 0) return;
+    const now = new Date();
+    await this.saveRules(
+      packageNames.map((packageName) => ({
+        packageName,
+        isBlocked,
+        profileId,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
   }
 
   async deleteRule(packageName: string): Promise<void> {
@@ -90,7 +141,7 @@ class StorageService {
       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_PROFILE, profileId);
       const profiles = await this.getProfiles();
       const profile = profiles.find((p) => p.id === profileId);
-      if (profile) for (const rule of profile.rules) await this.saveRule(rule);
+      if (profile) await this.saveRules(profile.rules ?? []);
     } else {
       await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_PROFILE);
     }

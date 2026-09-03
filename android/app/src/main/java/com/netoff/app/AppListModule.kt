@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -21,322 +20,376 @@ import android.util.Log
 import com.facebook.react.bridge.*
 import java.io.ByteArrayOutputStream
 
+/**
+ * Inventaire des applications installées.
+ *
+ * Deux exigences contradictoires : ne rien manquer, et rester rapide. Le
+ * PackageManager ne répond pas de la même façon selon les surcouches
+ * constructeur, d'où plusieurs stratégies de collecte complémentaires. Mais
+ * chaque appel au PackageManager est une IPC : en interroger une par
+ * application (ce que faisait la version précédente pour lire le numéro de
+ * version) provoquait plusieurs centaines d'allers-retours et gelait l'app.
+ *
+ * Règles tenues ici :
+ *   • aucune IPC par application dans la boucle de construction du résultat ;
+ *   • les icônes sont encodées en WebP (≈ 4× plus léger que le PNG précédent) ;
+ *   • un scan complet est mis en cache côté natif pendant quelques secondes,
+ *     ce qui absorbe les appels simultanés venant de plusieurs écrans.
+ */
 class AppListModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     override fun getName() = "AppListModule"
 
     companion object {
-        const val TAG       = "AppListModule"
-        const val ICON_SIZE = 96
+        const val TAG = "AppListModule"
+
+        /** Côté du bitmap d'icône, en pixels. */
+        const val ICON_SIZE = 84
+
+        /** Qualité WebP — au-delà, le gain visuel ne justifie plus le poids. */
+        const val ICON_QUALITY = 78
+
+        /**
+         * Durée de validité du dernier scan. Assez longue pour absorber les
+         * écrans qui se montent en cascade, assez courte pour qu'une
+         * installation soit visible après un simple retour sur la liste.
+         */
+        const val CACHE_TTL_MS = 10_000L
     }
+
+    /** Application collectée, avant mise en forme pour le pont React. */
+    private data class Entry(
+        val info: ApplicationInfo,
+        val profile: UserHandle?,
+        val label: String,
+        /** L'app possède une activité lançable — sert à trier l'utile du technique. */
+        val launchable: Boolean,
+    )
+
+    private class Snapshot(val entries: List<Entry>, val takenAt: Long)
+
+    @Volatile private var snapshot: Snapshot? = null
+    private val scanLock = Any()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // API exposée à JavaScript
+    // ─────────────────────────────────────────────────────────────────────────
 
     @ReactMethod
     fun getInstalledApps(includeSystemApps: Boolean, withIcons: Boolean, promise: Promise) {
         Thread {
             try {
-                promise.resolve(collectAllApps(includeSystemApps, withIcons))
+                val entries = entries()
+                promise.resolve(buildResult(entries, includeSystemApps, withIcons))
             } catch (e: Exception) {
-                Log.e(TAG, "getInstalledApps error", e)
+                Log.e(TAG, "getInstalledApps", e)
                 promise.reject("APP_LIST_ERROR", e.message, e)
+            }
+        }.start()
+    }
+
+    /**
+     * Icônes d'une sélection d'applications.
+     * Permet de charger la liste sans icônes (instantané) puis de ne demander
+     * que celles réellement affichées.
+     */
+    @ReactMethod
+    fun getAppIcons(packageNames: ReadableArray, promise: Promise) {
+        Thread {
+            try {
+                val pm = reactContext.packageManager
+                val byPackage = entries().associateBy { it.info.packageName }
+                val result = Arguments.createMap()
+
+                for (i in 0 until packageNames.size()) {
+                    val pkg = packageNames.getString(i) ?: continue
+                    val entry = byPackage[pkg]
+                    val icon =
+                        if (entry != null) loadIcon(pm, entry.info)
+                        else runCatching { loadIcon(pm, pm.getApplicationInfo(pkg, 0)) }.getOrNull()
+                    if (icon != null) result.putString(pkg, icon)
+                }
+                promise.resolve(result)
+            } catch (e: Exception) {
+                Log.e(TAG, "getAppIcons", e)
+                promise.reject("APP_ICONS_ERROR", e.message, e)
             }
         }.start()
     }
 
     @ReactMethod
     fun getAppByPackage(packageName: String, promise: Promise) {
-        try {
-            val pm   = reactContext.packageManager
-            val info = pm.getApplicationInfo(packageName, 0)
-            promise.resolve(appInfoToMap(pm, info, withIcon = true, profile = null))
-        } catch (e: Exception) {
-            promise.resolve(null)
-        }
+        Thread {
+            try {
+                val pm = reactContext.packageManager
+                val info = pm.getApplicationInfo(packageName, 0)
+                val map = Arguments.createMap()
+                map.putString("packageName", packageName)
+                map.putString("appName", label(pm, info))
+                val isSystem = info.flags and ApplicationInfo.FLAG_SYSTEM != 0
+                val isUpdated = info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0
+                map.putBoolean("isSystemApp", isSystem && !isUpdated)
+                map.putInt("userId", 0)
+                map.putBoolean("isWorkProfile", false)
+                val icon = loadIcon(pm, info)
+                if (icon != null) map.putString("icon", icon) else map.putNull("icon")
+                promise.resolve(map)
+            } catch (_: Exception) {
+                promise.resolve(null)
+            }
+        }.start()
+    }
+
+    /** Force un nouveau scan au prochain appel (après installation ou désinstallation). */
+    @ReactMethod
+    fun invalidateCache() {
+        snapshot = null
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Collecte principale — 4 stratégies complémentaires
+    // Collecte
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun collectAllApps(includeSystem: Boolean, withIcons: Boolean): WritableArray {
+    private fun entries(): List<Entry> {
+        snapshot?.let {
+            if (System.currentTimeMillis() - it.takenAt < CACHE_TTL_MS) return it.entries
+        }
+        // Un seul scan à la fois : plusieurs écrans peuvent démarrer ensemble,
+        // et un scan concurrent coûterait autant que le premier pour rien.
+        synchronized(scanLock) {
+            snapshot?.let {
+                if (System.currentTimeMillis() - it.takenAt < CACHE_TTL_MS) return it.entries
+            }
+            val scanned = scan()
+            snapshot = Snapshot(scanned, System.currentTimeMillis())
+            return scanned
+        }
+    }
+
+    private fun scan(): List<Entry> {
         val pm = reactContext.packageManager
+        val collected = LinkedHashMap<String, Entry>()
+        val started = System.currentTimeMillis()
 
-        // Map : clé unique → (ApplicationInfo, UserHandle?)
-        // La clé inclut le profil pour les apps clone : "pkgName" ou "pkgName@userId"
-        data class AppEntry(val info: ApplicationInfo, val profile: UserHandle?, val label: String)
-        val collected = LinkedHashMap<String, AppEntry>()
-
-        // ── STRATÉGIE 1 : LauncherApps (API officielle multi-profil) ──────────
-        // C'est la seule API qui retourne les apps de TOUS les profils autorisés :
-        // profil principal, profil professionnel, espace privé Android 15,
-        // MIUI Dual Space, Huawei Twin Apps, Samsung Secure Folder, etc.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            try {
-                val launcherApps = reactContext.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-                    as LauncherApps
-                val userManager  = reactContext.getSystemService(Context.USER_SERVICE)
-                    as UserManager
-                val profiles     = userManager.userProfiles
-
-                for (profile in profiles) {
-                    try {
-                        val activities: List<LauncherActivityInfo> =
-                            launcherApps.getActivityList(null, profile)
-
-                        val isMainProfile = profile == Process.myUserHandle()
-                        val userId = getUserId(profile)
-
-                        for (activity in activities) {
-                            val ai  = activity.applicationInfo
-                            val key = if (isMainProfile) ai.packageName else "${ai.packageName}@$userId"
-                            if (!collected.containsKey(key)) {
-                                // Utiliser le label de l'activité qui est plus précis
-                                val label = try {
-                                    activity.label.toString()
-                                } catch (_: Exception) {
-                                    pm.getApplicationLabel(ai).toString()
-                                }
-                                collected[key] = AppEntry(ai, profile, label)
-                            }
-                        }
-                        Log.d(TAG, "S1 LauncherApps profile=$userId: ${activities.size} activités")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "S1 profile failed: ${e.message}")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "S1 LauncherApps failed: ${e.message}")
-            }
-        }
-
-        // ── STRATÉGIE 2 : getInstalledPackages — apps sans launcher ───────────
-        // Capture les apps sans activité LAUNCHER (services purs, apps background,
-        // apps désactivées, apps installées via ADB sans activité principale)
+        // ── 1. LauncherApps — la seule API qui couvre tous les profils ───────
+        // Profil principal, profil professionnel, espace privé Android 15,
+        // Dual Space MIUI, Twin Apps Huawei, Secure Folder Samsung.
+        val launchablePackages = HashSet<String>()
         try {
-            // Flags combinés pour maximiser la couverture
-            val flags = PackageManager.GET_META_DATA or
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
-                    PackageManager.MATCH_DISABLED_COMPONENTS or PackageManager.MATCH_UNINSTALLED_PACKAGES
-                else 0
+            val launcherApps =
+                reactContext.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+            val userManager =
+                reactContext.getSystemService(Context.USER_SERVICE) as UserManager
 
-            val pkgs: List<PackageInfo> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(flags.toLong()))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getInstalledPackages(flags)
-            }
+            for (profile in userManager.userProfiles) {
+                try {
+                    val isMain = profile == Process.myUserHandle()
+                    val userId = userId(profile)
+                    val activities: List<LauncherActivityInfo> =
+                        launcherApps.getActivityList(null, profile)
 
-            for (pkg in pkgs) {
-                val ai = pkg.applicationInfo ?: continue
-                if (!collected.containsKey(ai.packageName)) {
-                    val label = pm.getApplicationLabel(ai).toString()
-                    collected[ai.packageName] = AppEntry(ai, null, label)
+                    for (activity in activities) {
+                        val info = activity.applicationInfo
+                        launchablePackages.add(info.packageName)
+                        val key =
+                            if (isMain) info.packageName else "${info.packageName}@$userId"
+                        if (collected.containsKey(key)) continue
+                        val name = runCatching { activity.label.toString() }
+                            .getOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: label(pm, info)
+                        collected[key] = Entry(info, profile, name, launchable = true)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "LauncherApps profil ignoré : ${e.message}")
                 }
             }
-            Log.d(TAG, "S2 getInstalledPackages: ${collected.size} total")
         } catch (e: Exception) {
-            Log.w(TAG, "S2 failed: ${e.message}")
+            Log.w(TAG, "LauncherApps indisponible : ${e.message}")
         }
 
-        // ── STRATÉGIE 3 : Intent ACTION_MAIN avec flags larges ────────────────
-        // Certains OEM (EMUI, ColorOS) filtrent LauncherApps mais répondent
-        // aux intents directs. On capture aussi les apps qui répondent à des
-        // catégories non-standard (certaines apps constructeur).
-        val intentCategories = listOf(
-            Intent.CATEGORY_LAUNCHER,
-            Intent.CATEGORY_LEANBACK_LAUNCHER, // Android TV
-            "android.intent.category.HOME",
-        )
-        for (category in intentCategories) {
+        // ── 2. Intents ACTION_MAIN — surcouches qui filtrent LauncherApps ────
+        for (category in listOf(Intent.CATEGORY_LAUNCHER, Intent.CATEGORY_LEANBACK_LAUNCHER)) {
             try {
                 val intent = Intent(Intent.ACTION_MAIN).addCategory(category)
-                val flags  = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                    PackageManager.MATCH_ALL else 0
-                val activities = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(flags.toLong()))
+                val flags = PackageManager.MATCH_ALL
+                val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.queryIntentActivities(
+                        intent,
+                        PackageManager.ResolveInfoFlags.of(flags.toLong()),
+                    )
                 } else {
                     @Suppress("DEPRECATION")
                     pm.queryIntentActivities(intent, flags)
                 }
-                for (ri in activities) {
-                    val ai = ri.activityInfo?.applicationInfo ?: continue
-                    if (!collected.containsKey(ai.packageName)) {
-                        val label = ri.loadLabel(pm).toString().ifEmpty {
-                            pm.getApplicationLabel(ai).toString()
-                        }
-                        collected[ai.packageName] = AppEntry(ai, null, label)
-                    }
+                for (resolveInfo in resolved) {
+                    val info = resolveInfo.activityInfo?.applicationInfo ?: continue
+                    launchablePackages.add(info.packageName)
+                    if (collected.containsKey(info.packageName)) continue
+                    val name = runCatching { resolveInfo.loadLabel(pm).toString() }
+                        .getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: label(pm, info)
+                    collected[info.packageName] = Entry(info, null, name, launchable = true)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "S3 category=$category failed: ${e.message}")
+                Log.w(TAG, "queryIntentActivities($category) : ${e.message}")
             }
         }
-        Log.d(TAG, "S3 Intent queries: ${collected.size} total")
 
-        // ── STRATÉGIE 4 : getInstalledApplications (fallback classique) ───────
+        // ── 3. Inventaire complet — apps sans activité de lancement ──────────
+        // Services purs, apps désactivées, composants constructeur : ils
+        // consomment du réseau et doivent donc pouvoir être bloqués.
         try {
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
-                PackageManager.MATCH_UNINSTALLED_PACKAGES else 0
-
-            val apps: List<ApplicationInfo> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(flags.toLong()))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getInstalledApplications(flags)
+            var flags = 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                flags = flags or PackageManager.MATCH_DISABLED_COMPONENTS or
+                    PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS or
+                    PackageManager.MATCH_UNINSTALLED_PACKAGES
             }
-            for (ai in apps) {
-                if (!collected.containsKey(ai.packageName)) {
-                    collected[ai.packageName] = AppEntry(ai, null, pm.getApplicationLabel(ai).toString())
-                }
-            }
-            Log.d(TAG, "S4 getInstalledApplications: ${collected.size} total")
-        } catch (e: Exception) {
-            Log.w(TAG, "S4 failed: ${e.message}")
-        }
-
-        // ── Filtrage et construction du résultat ──────────────────────────────
-        val result = Arguments.createArray()
-        var count  = 0
-
-        for ((_, entry) in collected) {
-            val ai    = entry.info
-            val flags = ai.flags
-            val isSystem        = (flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            val isUpdatedSystem = (flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-            val isEnabled       = ai.enabled
-
-            // Exclure les apps purement système (sauf mises à jour par l'user)
-            if (!includeSystem && isSystem && !isUpdatedSystem) continue
-
-            // Exclure les apps complètement désactivées ET système
-            // (garder les apps utilisateur désactivées — l'user peut vouloir les voir)
-            if (!isEnabled && isSystem && !isUpdatedSystem) continue
-
-            try {
-                val map = Arguments.createMap()
-                map.putString("packageName", ai.packageName)
-                map.putString("appName",     entry.label.ifEmpty { ai.packageName.split(".").last() })
-                map.putBoolean("isSystemApp", isSystem && !isUpdatedSystem)
-
-                // Profil — pour les apps clone/travail
-                val userId = if (entry.profile != null) getUserId(entry.profile) else 0
-                map.putInt("userId", userId)
-                map.putBoolean("isWorkProfile", userId != 0)
-
-                // Version
-                try {
-                    val pkgInfo: PackageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        pm.getPackageInfo(ai.packageName, PackageManager.PackageInfoFlags.of(0L))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        pm.getPackageInfo(ai.packageName, 0)
-                    }
-                    map.putString("versionName", pkgInfo.versionName ?: "")
-                } catch (_: Exception) {
-                    map.putString("versionName", "")
-                }
-
-                // Icône — putNull si null pour éviter putString(key, null)
-                if (withIcons) {
-                    val icon = loadIcon(pm, ai, entry.profile)
-                    if (icon != null) map.putString("icon", icon)
-                    else map.putNull("icon")
+            val apps: List<ApplicationInfo> =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getInstalledApplications(
+                        PackageManager.ApplicationInfoFlags.of(flags.toLong()),
+                    )
                 } else {
-                    map.putNull("icon")
+                    @Suppress("DEPRECATION")
+                    pm.getInstalledApplications(flags)
                 }
 
-                result.pushMap(map)
-                count++
-            } catch (e: Exception) {
-                Log.w(TAG, "Error processing ${ai.packageName}: ${e.message}")
+            for (info in apps) {
+                if (collected.containsKey(info.packageName)) continue
+                // Écarte les résidus d'applications désinstallées remontés par
+                // MATCH_UNINSTALLED_PACKAGES : leurs données existent encore,
+                // mais l'app n'est plus là et ne consomme aucun réseau.
+                if (info.flags and ApplicationInfo.FLAG_INSTALLED == 0) continue
+                collected[info.packageName] = Entry(
+                    info,
+                    null,
+                    label(pm, info),
+                    launchable = launchablePackages.contains(info.packageName),
+                )
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "getInstalledApplications : ${e.message}")
         }
 
-        Log.d(TAG, "Result: $count apps (includeSystem=$includeSystem, withIcons=$withIcons)")
+        val entries = collected.values.toList()
+        Log.d(TAG, "Scan : ${entries.size} apps en ${System.currentTimeMillis() - started} ms")
+        return entries
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Mise en forme
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun buildResult(
+        entries: List<Entry>,
+        includeSystem: Boolean,
+        withIcons: Boolean,
+    ): WritableArray {
+        val pm = reactContext.packageManager
+        val result = Arguments.createArray()
+
+        for (entry in entries) {
+            val info = entry.info
+            val isSystem = info.flags and ApplicationInfo.FLAG_SYSTEM != 0
+            val isUpdated = info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0
+
+            // Une app système mise à jour par l'utilisateur (Chrome, Maps…) est
+            // traitée comme une app utilisateur : c'est ainsi qu'elle est
+            // perçue, et c'est celle qu'on veut voir dans « Mes apps ».
+            val systemApp = isSystem && !isUpdated
+
+            // NetOff ne peut pas se bloquer lui-même sans se couper le tunnel.
+            if (info.packageName == reactContext.packageName) continue
+
+            if (!includeSystem && systemApp) continue
+
+            val map = Arguments.createMap()
+            map.putString("packageName", info.packageName)
+            map.putString(
+                "appName",
+                entry.label.ifBlank { info.packageName.substringAfterLast('.') },
+            )
+            map.putBoolean("isSystemApp", systemApp)
+            map.putBoolean("isLaunchable", entry.launchable)
+            map.putBoolean("isEnabled", info.enabled)
+
+            val userId = entry.profile?.let { userId(it) } ?: 0
+            map.putInt("userId", userId)
+            map.putBoolean("isWorkProfile", userId != 0)
+
+            if (withIcons) {
+                val icon = loadIcon(pm, info)
+                if (icon != null) map.putString("icon", icon) else map.putNull("icon")
+            } else {
+                map.putNull("icon")
+            }
+
+            result.pushMap(map)
+        }
         return result
     }
 
-    // ─── Chargement d'icône ───────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // Utilitaires
+    // ─────────────────────────────────────────────────────────────────────────
 
-    private fun loadIcon(
-        pm: PackageManager,
-        info: ApplicationInfo,
-        profile: UserHandle?
-    ): String? {
-        return try {
-            // Utiliser PackageManager.getApplicationIcon — fiable sur tous les appareils.
-            // getBadgedIcon via LauncherApps peut lancer des SecurityException sur certains OEM.
-            val drawable: Drawable = try {
-                pm.getApplicationIcon(info.packageName)
-            } catch (_: Exception) {
-                try { pm.getApplicationIcon(info) }
-                catch (_: Exception) { pm.defaultActivityIcon }
-            }
+    private fun label(pm: PackageManager, info: ApplicationInfo): String =
+        runCatching { pm.getApplicationLabel(info).toString() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: info.packageName.substringAfterLast('.')
 
-            val bitmap = drawableToBitmap(drawable)
-            val scaled = Bitmap.createScaledBitmap(bitmap, ICON_SIZE, ICON_SIZE, true)
-            val out    = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.PNG, 85, out)
-            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-        } catch (e: Exception) {
-            Log.w(TAG, "Icon failed for ${info.packageName}: ${e.message}")
-            null
-        }
-    }
+    private fun loadIcon(pm: PackageManager, info: ApplicationInfo): String? = try {
+        val drawable: Drawable =
+            runCatching { pm.getApplicationIcon(info.packageName) }
+                .recoverCatching { pm.getApplicationIcon(info) }
+                .getOrElse { pm.defaultActivityIcon }
 
-    private fun drawableToBitmap(d: Drawable): Bitmap {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && d is AdaptiveIconDrawable) {
-            val bmp = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
-            d.setBounds(0, 0, ICON_SIZE, ICON_SIZE); d.draw(Canvas(bmp)); return bmp
-        }
-        if (d is BitmapDrawable && d.bitmap != null) return d.bitmap
-        val w = if (d.intrinsicWidth  > 0) d.intrinsicWidth  else ICON_SIZE
-        val h = if (d.intrinsicHeight > 0) d.intrinsicHeight else ICON_SIZE
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        d.setBounds(0, 0, w, h); d.draw(Canvas(bmp)); return bmp
-    }
-
-    // Obtenir l'userId depuis un UserHandle sans réflexion (API 33+)
-    // ou avec réflexion pour les versions antérieures
-    private fun getUserId(profile: UserHandle): Int {
-        // UserHandle.identifier est @hide avant API 33 et non accessible via propriété Kotlin
-        // même avec compileSdk=35. On utilise la réflexion dans tous les cas.
-        return try {
-            val m = profile.javaClass.getMethod("getIdentifier")
-            (m.invoke(profile) as? Int) ?: 0
-        } catch (_: Exception) { 0 }
-    }
-
-    // ─── appInfoToMap — pour getAppByPackage ──────────────────────────────────
-    private fun appInfoToMap(
-        pm: PackageManager,
-        info: ApplicationInfo,
-        withIcon: Boolean,
-        profile: UserHandle?
-    ): WritableMap {
-        val map = Arguments.createMap()
-        map.putString("packageName", info.packageName)
-        map.putString("appName",     pm.getApplicationLabel(info).toString())
-        val isSystem        = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-        val isUpdatedSystem = (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-        map.putBoolean("isSystemApp", isSystem && !isUpdatedSystem)
-        map.putInt("userId",          if (profile != null) getUserId(profile) else 0)
-        map.putBoolean("isWorkProfile", profile != null && getUserId(profile) != 0)
-        try {
-            val pkgInfo: PackageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getPackageInfo(info.packageName, PackageManager.PackageInfoFlags.of(0L))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getPackageInfo(info.packageName, 0)
-            }
-            map.putString("versionName", pkgInfo.versionName ?: "")
-        } catch (_: Exception) { map.putString("versionName", "") }
-        if (withIcon) {
-            val icon = loadIcon(pm, info, profile)
-            if (icon != null) map.putString("icon", icon) else map.putNull("icon")
+        val bitmap = toBitmap(drawable)
+        val out = ByteArrayOutputStream()
+        // WebP plutôt que PNG : à qualité perçue égale, l'icône encodée pèse
+        // environ quatre fois moins, ce qui divise d'autant le volume transféré
+        // sur le pont React pour plusieurs centaines d'applications.
+        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSY
         } else {
-            map.putNull("icon")
+            @Suppress("DEPRECATION")
+            Bitmap.CompressFormat.WEBP
         }
-        return map
+        bitmap.compress(format, ICON_QUALITY, out)
+        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    } catch (e: Exception) {
+        Log.w(TAG, "Icône indisponible pour ${info.packageName} : ${e.message}")
+        null
+    }
+
+    /** Rend le drawable directement à la taille cible, sans redimensionnement. */
+    private fun toBitmap(drawable: Drawable): Bitmap {
+        if (drawable is BitmapDrawable) {
+            drawable.bitmap?.let { source ->
+                if (source.width == ICON_SIZE && source.height == ICON_SIZE) return source
+                return Bitmap.createScaledBitmap(source, ICON_SIZE, ICON_SIZE, true)
+            }
+        }
+        val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable is AdaptiveIconDrawable) {
+            drawable.setBounds(0, 0, ICON_SIZE, ICON_SIZE)
+        } else {
+            drawable.setBounds(0, 0, ICON_SIZE, ICON_SIZE)
+        }
+        drawable.draw(canvas)
+        return bitmap
+    }
+
+    /** `UserHandle.getIdentifier()` reste masqué : la réflexion est la seule voie. */
+    private fun userId(profile: UserHandle): Int = try {
+        (profile.javaClass.getMethod("getIdentifier").invoke(profile) as? Int) ?: 0
+    } catch (_: Exception) {
+        0
     }
 }

@@ -155,70 +155,84 @@ export interface CreateResult {
 
 class ProfileTemplatesService {
   /**
-   * Crée un profil depuis un template.
-   * Respecte FREE_LIMITS.MAX_BLOCKED_APPS pour les utilisateurs gratuits.
+   * Crée un profil depuis un modèle.
    *
-   * @param template  Le template à utiliser
-   * @param isPremium true si l'utilisateur a un abonnement Premium
+   * Deux sources de correspondance, volontairement asymétriques :
+   *   • les packages listés explicitement sont cherchés parmi *toutes* les
+   *     apps, y compris préinstallées par le constructeur ;
+   *   • les mots-clés ne sont appliqués qu'aux apps installées par
+   *     l'utilisateur — un mot comme « chat » ou « game » attraperait sinon
+   *     des composants système sans rapport.
+   *
+   * @param template  modèle à appliquer
+   * @param isPremium un compte gratuit est limité à `FREE_LIMITS.MAX_BLOCKED_APPS`
    */
   async createFromTemplate(
     template: ProfileTemplate,
     isPremium: boolean,
   ): Promise<CreateResult> {
-    const installed = await AppListService.getAllApps();
-    const installedPkgs = new Set(installed.map((a) => a.packageName));
+    const [allApps, userApps] = await Promise.all([
+      AppListService.getAllApps(),
+      AppListService.getUserApps(),
+    ]);
 
-    const exactMatches = template.packages.filter((pkg) =>
-      installedPkgs.has(pkg),
-    );
-    const keywordMatches = installed
+    const installed = new Set(allApps.map((app) => app.packageName));
+    const exactMatches = template.packages.filter((pkg) => installed.has(pkg));
+
+    const keywordMatches = userApps
       .filter((app) => {
-        const name = app.appName.toLowerCase();
-        const pkg = app.packageName.toLowerCase();
-        return template.keywords.some(
-          (kw) => name.includes(kw) || pkg.includes(kw),
-        );
+        const haystack = `${app.appName} ${app.packageName}`.toLowerCase();
+        return template.keywords.some((keyword) => haystack.includes(keyword));
       })
-      .map((a) => a.packageName);
+      .map((app) => app.packageName);
 
-    const allPkgs = [...new Set([...exactMatches, ...keywordMatches])];
-    const detectedCount = allPkgs.length;
-
-    // Limiter pour les utilisateurs gratuits
+    const detected = [...new Set([...exactMatches, ...keywordMatches])];
     const limit = isPremium ? Infinity : FREE_LIMITS.MAX_BLOCKED_APPS;
-    const finalPkgs = allPkgs.slice(0, limit);
-    const wasTruncated =
-      !isPremium && allPkgs.length > FREE_LIMITS.MAX_BLOCKED_APPS;
+    const selected = detected.slice(0, limit);
+    const now = new Date();
 
     const profile: Profile = {
-      id: `profile_${template.id}_${Date.now()}`,
+      id: `profile_${template.id}_${Date.now().toString(36)}`,
       name: template.name,
       description: template.description,
       isActive: false,
-      rules: finalPkgs.map((pkg) => ({
-        packageName: pkg,
+      rules: selected.map((packageName) => ({
+        packageName,
         isBlocked: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: now,
+        updatedAt: now,
       })),
       schedules: [],
-      createdAt: new Date(),
+      createdAt: now,
     };
 
     await StorageService.saveProfile(profile);
     return {
       profile,
-      blockedCount: finalPkgs.length,
-      detectedCount,
-      wasTruncated,
+      blockedCount: selected.length,
+      detectedCount: detected.length,
+      wasTruncated: detected.length > selected.length,
     };
   }
 
-  /** Compte les apps du template installées sur l'appareil */
-  async countInstalled(template: ProfileTemplate): Promise<number> {
-    const installed = await AppListService.getAllApps();
-    const pkgs = new Set(installed.map((a) => a.packageName));
-    return template.packages.filter((p) => pkgs.has(p)).length;
+  /**
+   * Nombre d'apps du modèle présentes sur l'appareil, pour tous les modèles.
+   *
+   * Une seule lecture de l'inventaire : appeler un compteur par modèle
+   * déclenchait autant de scans du PackageManager, ce qui bloquait
+   * l'ouverture du panneau de modèles.
+   */
+  async countInstalled(
+    templates: ProfileTemplate[] = TEMPLATES,
+  ): Promise<Record<string, number>> {
+    const apps = await AppListService.getAllApps();
+    const installed = new Set(apps.map((app) => app.packageName));
+    return Object.fromEntries(
+      templates.map((template) => [
+        template.id,
+        template.packages.filter((pkg) => installed.has(pkg)).length,
+      ]),
+    );
   }
 }
 

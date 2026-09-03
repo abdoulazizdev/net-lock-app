@@ -2,7 +2,7 @@
   "expo": {
     "name": "NetOff",
     "slug": "netoff",
-    "version": "1.0.25",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icons/netoff_icon.png",
     "scheme": "netoff",
@@ -12,14 +12,14 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.netoff.app",
       "icon": "./assets/icons/netoff_icon.png",
-      "buildNumber": "25",
+      "buildNumber": "26",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Utilisé pour sécuriser l'accès à l'application."
       }
     },
     "android": {
       "package": "com.netoff.app",
-      "versionCode": 25,
+      "versionCode": 26,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": true,
       "permissions": [
@@ -38,7 +38,7 @@
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/adaptive_icon.png",
-        "backgroundColor": "#0C1438"
+        "backgroundColor": "#08090C"
       },
       "intentFilters": [
         {
@@ -67,9 +67,9 @@
           "image": "./assets/icons/netoff_icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0C1438",
+          "backgroundColor": "#08090C",
           "dark": {
-            "backgroundColor": "#0C1438"
+            "backgroundColor": "#08090C"
           }
         }
       ],
@@ -90,8 +90,7 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-font",
-      "expo-web-browser"
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true,

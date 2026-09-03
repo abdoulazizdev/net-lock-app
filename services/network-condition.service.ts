@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeModules } from "react-native";
 import StorageService from "./storage.service";
 
-const { NetworkConditionModule } = NativeModules;
+const { NetworkConditionModule, VpnModule } = NativeModules;
 
 export type ConnectionType =
   | "wifi"
@@ -96,9 +96,8 @@ class NetworkConditionService {
         else effectiveBlocked.delete(nr.packageName);
       }
 
-      const { NativeModules } = require("react-native");
-      if (NativeModules.VpnModule) {
-        await NativeModules.VpnModule.setBlockedApps([...effectiveBlocked]);
+      if (VpnModule) {
+        await VpnModule.setBlockedApps([...effectiveBlocked]);
       }
     } catch (e) {
       console.warn("applyConditionalRules:", e);

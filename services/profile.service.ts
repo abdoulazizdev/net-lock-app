@@ -160,14 +160,18 @@ class ProfileService {
 
   // ─── Privé : écrire les règles du profil dans le storage global ────────────
   private async _applyProfileRules(profile: Profile): Promise<void> {
-    await StorageService.clearRules();
-    for (const rule of profile.rules ?? []) {
-      await StorageService.saveRule({
+    // Une seule écriture : la boucle précédente relisait et réécrivait tout le
+    // stockage à chaque règle, ce qui gelait l'app dès quelques dizaines
+    // d'applications.
+    const now = new Date();
+    await StorageService.replaceRules(
+      (profile.rules ?? []).map((rule) => ({
         ...rule,
         profileId: profile.id,
-        updatedAt: new Date(),
-      });
-    }
+        createdAt: rule.createdAt ?? now,
+        updatedAt: now,
+      })),
+    );
   }
 
   // ─── Privé : envoyer les packages bloqués au VPN ──────────────────────────

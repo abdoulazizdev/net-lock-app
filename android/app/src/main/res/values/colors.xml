@@ -1,7 +1,19 @@
 <resources>
-  <color name="splashscreen_background">#ffffff</color>
-  <color name="iconBackground">#0C1438</color>
-  <color name="colorPrimary">#023c69</color>
-  <color name="colorPrimaryDark">#ffffff</color>
-  <color name="netoff_background">#1E40AF</color>
+  <!-- Palette NetOff — miroir de theme/tokens.ts (Palette.ink / Palette.brand). -->
+  <color name="splashscreen_background">#08090C</color>
+  <color name="iconBackground">#08090C</color>
+  <color name="colorPrimary">#5261F5</color>
+  <color name="colorPrimaryDark">#3F4BDB</color>
+  <color name="netoff_background">#5261F5</color>
+
+  <!-- Widget écran d'accueil -->
+  <color name="widget_surface">#0F1116</color>
+  <color name="widget_surface_active">#082016</color>
+  <color name="widget_border">#20242E</color>
+  <color name="widget_border_active">#0F3527</color>
+  <color name="widget_text">#F1F4F9</color>
+  <color name="widget_text_muted">#6B7484</color>
+  <color name="widget_success">#5FD9A5</color>
+  <color name="widget_danger">#F0625A</color>
+  <color name="widget_brand">#7183FF</color>
 </resources>

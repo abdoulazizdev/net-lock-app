@@ -106,7 +106,7 @@ class AllowlistService {
         "AllowlistService: VpnModule.setAllowlistMode non disponible — fallback blocklist",
       );
       const { default: AppListService } = await import("./app-list.service");
-      const allApps = await AppListService.getNonSystemApps();
+      const allApps = await AppListService.getUserApps();
       const allowed = new Set(allowedPackages);
       const toBlock = allApps
         .filter((app) => !allowed.has(app.packageName))
