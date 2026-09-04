@@ -1,6 +1,22 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
+  // Ces valeurs priment sur les valeurs par défaut du plugin expo-root-project,
+  // qui ne les définit que si elles n'existent pas déjà.
+  //
+  // Le projet est en workflow bare : `android/` est versionné et
+  // `expo prebuild` n'est jamais rejoué, donc la configuration
+  // `expo-build-properties` d'app.json ne s'applique pas d'elle-même. Sans ce
+  // bloc, la compilation retombait sur l'API 35 et Google Play refusait l'AAB.
+  //
+  // À garder synchronisé avec `expo-build-properties` dans app.json.
+  ext {
+    buildToolsVersion = "36.0.0"
+    minSdkVersion = 24
+    compileSdkVersion = 36
+    targetSdkVersion = 36
+  }
+
   repositories {
     google()
     mavenCentral()

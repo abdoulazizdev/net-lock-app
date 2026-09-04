@@ -30,8 +30,11 @@ android {
         applicationId 'com.netoff.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 24
-        versionName "1.0.24"
+        // EAS gère le versionCode à distance (`appVersionSource: "remote"` dans
+        // eas.json) et écrase cette valeur lors d'un build EAS. Elle sert aux
+        // builds locaux, et doit rester supérieure au dernier code publié.
+        versionCode 41
+        versionName "2.0.0"
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
