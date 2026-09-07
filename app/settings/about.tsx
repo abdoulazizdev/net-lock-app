@@ -10,6 +10,7 @@ import * as Linking from "expo-linking";
 import React from "react";
 import { Image, StyleSheet, View } from "react-native";
 
+import { SUPPORT, mailtoUrl, whatsappUrl } from "@/config/support";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { Radius, Spacing, useTheme } from "@/theme";
 import {
@@ -61,7 +62,6 @@ const PRIVACY: { icon: IconName; text: string }[] = [
   { icon: "cellphone-lock", text: "Règles, profils et statistiques restent en local." },
 ];
 
-const CONTACT_EMAIL = "abdoulaziz.dev@gmail.com";
 
 export default function AboutScreen() {
   const { t } = useTheme();
@@ -162,13 +162,18 @@ export default function AboutScreen() {
         <Section title="Liens">
           <ListGroup>
             <ListRow
+              icon="whatsapp"
+              title="WhatsApp"
+              subtitle={SUPPORT.whatsappDisplay}
+              trailing="chevron"
+              onPress={() => Linking.openURL(whatsappUrl("Bonjour, ")).catch(() => {})}
+            />
+            <ListRow
               icon="email-outline"
               title="Écrire au développeur"
-              subtitle={CONTACT_EMAIL}
+              subtitle={SUPPORT.email}
               trailing="chevron"
-              onPress={() =>
-                Linking.openURL(`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("[NetOff]")}`)
-              }
+              onPress={() => Linking.openURL(mailtoUrl("[NetOff]")).catch(() => {})}
             />
           </ListGroup>
         </Section>

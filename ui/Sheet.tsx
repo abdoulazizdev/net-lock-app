@@ -7,12 +7,22 @@
  * Le glissement passe par Gesture Handler et Reanimated : le panneau suit le
  * doigt sans latence, et se referme si la vitesse ou la distance dépasse le
  * seuil. Une modale sans geste de fermeture donne l'impression d'être piégé.
+ *
+ * Deux règles héritées de bugs réels :
+ *   — le geste n'est capté que sur la poignée et l'en-tête, jamais sur le
+ *     corps : sinon il vole le défilement et le bas du contenu devient
+ *     inatteignable ;
+ *   — la hauteur du clavier est retranchée à la main. En affichage bord à
+ *     bord, une `Modal` translucide n'est pas redimensionnée par Android :
+ *     sans ce calcul, le clavier recouvre le champ et son bouton.
  */
 
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   BackHandler,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -64,6 +74,8 @@ export type SheetProps = {
   /** Hauteur maximale, en fraction de l'écran. */
   maxHeightRatio?: number;
   contentStyle?: StyleProp<ViewStyle>;
+  /** Accès à la zone défilante — pour amener une section à l'écran. */
+  scrollRef?: React.RefObject<ScrollView | null>;
   children?: React.ReactNode;
 };
 
@@ -78,6 +90,7 @@ export function Sheet({
   dismissible = true,
   maxHeightRatio = 0.88,
   contentStyle,
+  scrollRef,
   children,
 }: SheetProps) {
   const { t } = useTheme();
@@ -98,6 +111,26 @@ export function Sheet({
     }
   }, [visible, screenH, translateY, backdrop]);
 
+  // Hauteur du clavier : la modale est translucide, Android ne la redimensionne
+  // pas — on remonte le panneau nous-mêmes.
+  const [keyboard, setKeyboard] = useState(0);
+  useEffect(() => {
+    if (!visible) {
+      setKeyboard(0);
+      return;
+    }
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const onShow = Keyboard.addListener(showEvent, (e) =>
+      setKeyboard(e.endCoordinates?.height ?? 0),
+    );
+    const onHide = Keyboard.addListener(hideEvent, () => setKeyboard(0));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, [visible]);
+
   // Le bouton retour Android ferme le panneau plutôt que l'écran.
   useEffect(() => {
     if (!visible || !dismissible) return;
@@ -114,6 +147,8 @@ export function Sheet({
 
   const pan = Gesture.Pan()
     .enabled(dismissible)
+    .activeOffsetY([-8, 8])
+    .failOffsetX([-24, 24])
     .onChange((e) => {
       // Vers le haut, on résiste : le panneau n'est pas extensible.
       translateY.value = Math.max(0, translateY.value + e.changeY);
@@ -155,88 +190,95 @@ export function Sheet({
           />
         </Animated.View>
 
-        <GestureDetector gesture={pan}>
-          <Animated.View
-            onLayout={(e) => {
-              sheetHeight.value = e.nativeEvent.layout.height;
-            }}
-            style={[
-              st.sheet,
-              {
-                backgroundColor: t.bg.elevated,
-                borderColor: t.border.normal,
-                maxHeight: screenH * maxHeightRatio,
-                paddingBottom: insets.bottom + Spacing.lg,
-              },
-              t.shadow.xl,
-              sheetStyle,
-            ]}
-          >
-            {dismissible ? (
-              <View style={st.grabberZone}>
-                <View style={[st.grabber, { backgroundColor: t.border.strong }]} />
-              </View>
-            ) : (
-              <View style={st.grabberSpacer} />
-            )}
+        <Animated.View
+          onLayout={(e) => {
+            sheetHeight.value = e.nativeEvent.layout.height;
+          }}
+          style={[
+            st.sheet,
+            {
+              backgroundColor: t.bg.elevated,
+              borderColor: t.border.normal,
+              maxHeight: Math.max(240, (screenH - keyboard) * maxHeightRatio),
+              marginBottom: keyboard,
+              paddingBottom: keyboard > 0 ? Spacing.md : insets.bottom + Spacing.lg,
+            },
+            t.shadow.xl,
+            sheetStyle,
+          ]}
+        >
+          {/* Le geste de fermeture ne vit que sur cet en-tête : le corps garde
+              son défilement, quel que soit l'endroit où le doigt se pose. */}
+          <GestureDetector gesture={pan}>
+            <View>
+              {dismissible ? (
+                <View style={st.grabberZone}>
+                  <View style={[st.grabber, { backgroundColor: t.border.strong }]} />
+                </View>
+              ) : (
+                <View style={st.grabberSpacer} />
+              )}
 
-            {title ? (
-              <View style={st.header}>
-                <View style={st.headerText}>
-                  <Text variant="title2" numberOfLines={2}>
-                    {title}
-                  </Text>
-                  {subtitle ? (
-                    <Text variant="callout" tone="muted" numberOfLines={3}>
-                      {subtitle}
+              {title ? (
+                <View style={st.header}>
+                  <View style={st.headerText}>
+                    <Text variant="title2" numberOfLines={2}>
+                      {title}
                     </Text>
+                    {subtitle ? (
+                      <Text variant="callout" tone="muted" numberOfLines={3}>
+                        {subtitle}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {dismissible ? (
+                    <IconButton
+                      icon="close"
+                      variant="soft"
+                      onPress={close}
+                      accessibilityLabel="Fermer"
+                    />
                   ) : null}
                 </View>
-                {dismissible ? (
-                  <IconButton
-                    icon="close"
-                    variant="soft"
-                    onPress={close}
-                    accessibilityLabel="Fermer"
-                  />
-                ) : null}
-              </View>
-            ) : null}
+              ) : null}
+            </View>
+          </GestureDetector>
 
-            {scrollable ? (
-              <ScrollView
-                style={st.bodyScroll}
-                contentContainerStyle={[st.body, contentStyle]}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {children}
-              </ScrollView>
-            ) : (
-              <View style={[st.body, contentStyle]}>{children}</View>
-            )}
+          {scrollable ? (
+            <ScrollView
+              ref={scrollRef}
+              style={st.bodyScroll}
+              contentContainerStyle={[st.body, contentStyle]}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={[st.body, contentStyle]}>{children}</View>
+          )}
 
-            {error ? (
-              <View
-                style={[
-                  st.error,
-                  {
-                    backgroundColor: t.intent.danger.bg,
-                    borderColor: t.intent.danger.border,
-                  },
-                ]}
-              >
-                <Text variant="footnote" tone="danger">
-                  {error}
-                </Text>
-              </View>
-            ) : null}
+          {error ? (
+            <View
+              style={[
+                st.error,
+                {
+                  backgroundColor: t.intent.danger.bg,
+                  borderColor: t.intent.danger.border,
+                },
+              ]}
+            >
+              <Text variant="footnote" tone="danger">
+                {error}
+              </Text>
+            </View>
+          ) : null}
 
-            {footer ? (
-              <View style={[st.footer, { borderTopColor: t.border.light }]}>{footer}</View>
-            ) : null}
-          </Animated.View>
-        </GestureDetector>
+          {footer ? (
+            <View style={[st.footer, { borderTopColor: t.border.light }]}>{footer}</View>
+          ) : null}
+        </Animated.View>
       </GestureHandlerRootView>
     </Modal>
   );
@@ -332,7 +374,7 @@ const st = StyleSheet.create({
     borderWidth: 1,
     borderBottomWidth: 0,
   },
-  grabberZone: { alignItems: "center", paddingTop: Spacing.md, paddingBottom: Spacing.xs },
+  grabberZone: { alignItems: "center", paddingTop: Spacing.md, paddingBottom: Spacing.sm },
   grabberSpacer: { height: Spacing.xl },
   grabber: { width: 40, height: 4, borderRadius: 2 },
   header: {
@@ -344,7 +386,7 @@ const st = StyleSheet.create({
     paddingBottom: Spacing.md,
   },
   headerText: { flex: 1, gap: Spacing.xs },
-  bodyScroll: { flexGrow: 0 },
+  bodyScroll: { flexGrow: 0, flexShrink: 1 },
   body: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.sm, gap: Spacing.md },
   error: {
     marginHorizontal: Spacing.xl,

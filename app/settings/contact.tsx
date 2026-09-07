@@ -4,12 +4,17 @@
  * Prépare un message pré-rempli avec le contexte technique (version, modèle,
  * version d'Android) : sans ces informations, la moitié des signalements de
  * bug ne mènent à rien.
+ *
+ * Le formulaire dépend d'une application e-mail configurée — ce qui n'est pas
+ * garanti. WhatsApp et les coordonnées en clair sont donc proposés d'emblée :
+ * il doit toujours rester une façon de nous joindre.
  */
 
 import * as Linking from "expo-linking";
 import React, { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
+import { SUPPORT, mailtoUrl, whatsappUrl } from "@/config/support";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { Radius, Spacing, useTheme } from "@/theme";
 import {
@@ -28,7 +33,6 @@ import {
   type IconName,
 } from "@/ui";
 
-const CONTACT_EMAIL = "abdoulaziz.dev@gmail.com";
 const MESSAGE_MIN = 10;
 
 const SUBJECTS: { key: string; label: string; icon: IconName; hint: string }[] = [
@@ -85,23 +89,66 @@ export default function ContactScreen() {
       .filter(Boolean)
       .join("\n");
 
-    const url = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
-      `[NetOff] ${selected?.label ?? "Message"}`,
-    )}&body=${encodeURIComponent(body)}`;
+    const url = mailtoUrl(`[NetOff] ${selected?.label ?? "Message"}`, body);
 
-    const supported = await Linking.canOpenURL(url).catch(() => false);
-    if (!supported) {
-      toast.error("Aucune application de messagerie configurée.");
-      return;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      // Pas d'app e-mail : on bascule sur WhatsApp avec le même message plutôt
+      // que de laisser l'utilisateur devant un bouton qui ne fait rien.
+      try {
+        await Linking.openURL(whatsappUrl(body));
+      } catch {
+        toast.error(`Écrivez-nous à ${SUPPORT.email}`);
+      }
     }
-    await Linking.openURL(url);
   }, [subject, message, includeDevice, deviceLine]);
+
+  const openWhatsApp = useCallback(async () => {
+    const body = [message.trim(), includeDevice ? deviceLine : ""]
+      .filter(Boolean)
+      .join("\n\n");
+    try {
+      await Linking.openURL(whatsappUrl(body || "Bonjour, "));
+    } catch {
+      toast.error(`WhatsApp indisponible — ${SUPPORT.whatsappDisplay}`);
+    }
+  }, [message, includeDevice, deviceLine]);
 
   return (
     <Screen>
       <AppBar title="Nous écrire" back />
 
       <ScreenScroll contentContainerStyle={st.content}>
+        <Section
+          title="Contact direct"
+          footnote="La réponse arrive plus vite par WhatsApp."
+        >
+          <View style={st.directRow}>
+            <Button
+              label="WhatsApp"
+              icon="whatsapp"
+              variant="secondary"
+              onPress={openWhatsApp}
+              style={st.flex}
+            />
+            <Button
+              label="E-mail"
+              icon="email-outline"
+              variant="secondary"
+              onPress={() =>
+                Linking.openURL(mailtoUrl("[NetOff]")).catch(() =>
+                  toast.error(`Écrivez-nous à ${SUPPORT.email}`),
+                )
+              }
+              style={st.flex}
+            />
+          </View>
+          <Text variant="footnote" tone="faint" center selectable>
+            {SUPPORT.whatsappDisplay} · {SUPPORT.email}
+          </Text>
+        </Section>
+
         <Section title="Sujet">
           <View style={st.grid}>
             {SUBJECTS.map((option) => {
@@ -204,6 +251,7 @@ export default function ContactScreen() {
 const st = StyleSheet.create({
   content: { paddingHorizontal: Spacing.gutter, gap: Spacing.xl, paddingTop: Spacing.sm },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
+  directRow: { flexDirection: "row", gap: Spacing.sm },
   subject: {
     flexGrow: 1,
     flexBasis: "46%",

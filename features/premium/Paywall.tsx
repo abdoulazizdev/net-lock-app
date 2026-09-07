@@ -8,12 +8,18 @@
  * Trois voies d'accès à Pro, dans cet ordre :
  *   1. achat via le store (RevenueCat),
  *   2. restauration d'un achat existant,
- *   3. code promotionnel.
+ *   3. code promotionnel — ou contact direct.
+ *
+ * Règle de fond : aucune de ces voies ne doit jamais être hors d'atteinte.
+ * Quand le store est indisponible (build sans facturation, appareil sans
+ * Play Store, pays non couvert), le panneau le dit et propose immédiatement
+ * le code et le contact direct, au lieu d'un bouton d'achat qui échouera.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Linking, ScrollView, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 
+import { SUPPORT, mailtoUrl, whatsappUrl } from "@/config/support";
 import AppEvents from "@/services/app-events";
 import SubscriptionService from "@/services/subscription.service";
 import { Radius, Spacing, useTheme } from "@/theme";
@@ -40,11 +46,7 @@ import {
 } from "./plans";
 import type { PaywallReason } from "./usePremium";
 
-/** Contact direct — utile là où les paiements du store sont indisponibles. */
-const SUPPORT = {
-  whatsapp: "+212646534846",
-  email: "abdoulaziz.dev@gmail.com",
-} as const;
+const CONTACT_MESSAGE = "Bonjour, je souhaite obtenir un accès Pro à NetOff.";
 
 export type PaywallProps = {
   visible: boolean;
@@ -65,7 +67,7 @@ export function Paywall({
 
   const [plans, setPlans] = useState<Plan[]>(FALLBACK_PLANS);
   const [loadingPlans, setLoadingPlans] = useState(false);
-  const [fromStore, setFromStore] = useState(false);
+  const [storeReady, setStoreReady] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState<"purchase" | "restore" | "code" | null>(null);
   const [showCode, setShowCode] = useState(false);
@@ -73,17 +75,24 @@ export function Paywall({
   const [codeError, setCodeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const scrollRef = useRef<ScrollView>(null);
+  // Le champ de code est plié par défaut : on l'amène à l'écran quand on le
+  // déplie, sinon l'utilisateur tape « J'ai un code » et ne voit rien bouger.
+  const pendingScroll = useRef(false);
+
   // Les offres ne sont chargées qu'à l'ouverture : inutile d'appeler le store
   // tant que l'utilisateur n'a pas demandé à voir les prix.
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
     setError(null);
+    setCodeError(null);
+    setShowCode(false);
     setLoadingPlans(SubscriptionService.isSdkReady());
     fetchPlans().then((result) => {
       if (cancelled) return;
       setPlans(result.plans);
-      setFromStore(result.fromStore);
+      setStoreReady(result.fromStore);
       setSelected(
         (result.plans.find((p) => p.recommended) ?? result.plans[0])?.id ?? null,
       );
@@ -104,17 +113,48 @@ export function Paywall({
     [onClose, onUpgraded],
   );
 
+  const selectedPlan = plans.find((p) => p.id === selected);
+  /** Le store peut-il réellement encaisser cette offre ? */
+  const canBuy = !!selectedPlan?.rcPackage;
+
+  const codeY = useRef(0);
+
+  const scrollToCode = useCallback(() => {
+    const y = Math.max(0, codeY.current - Spacing.md);
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y, animated: true }));
+  }, []);
+
+  const revealCode = useCallback(() => {
+    setCodeError(null);
+    if (showCode) {
+      scrollToCode();
+      return;
+    }
+    pendingScroll.current = true;
+    setShowCode(true);
+  }, [showCode, scrollToCode]);
+
+  const onCodeLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      codeY.current = e.nativeEvent.layout.y;
+      if (!pendingScroll.current) return;
+      pendingScroll.current = false;
+      scrollToCode();
+    },
+    [scrollToCode],
+  );
+
   const purchase = useCallback(async () => {
     const plan = plans.find((p) => p.id === selected);
     if (!plan) return;
 
-    // Sans SDK ni offre réelle, proposer l'achat serait mentir : on redirige
-    // vers le support, seule voie d'activation dans ce cas.
+    // Sans SDK ni offre réelle, proposer l'achat serait mentir : on bascule sur
+    // les voies qui, elles, fonctionnent.
     if (!plan.rcPackage) {
       setError(
-        "Le paiement n'est pas disponible sur cet appareil. Activez Pro avec un code ou écrivez-nous.",
+        "Le paiement n'est pas disponible sur cet appareil. Activez Pro avec un code, ou écrivez-nous : nous l'activons manuellement.",
       );
-      setShowCode(true);
+      revealCode();
       return;
     }
 
@@ -128,18 +168,29 @@ export function Paywall({
       }
       if (result.error === "USER_CANCELLED") return;
       setError(purchaseErrorMessage(result.error));
+      revealCode();
     } finally {
       setBusy(null);
     }
-  }, [plans, selected, succeed]);
+  }, [plans, selected, succeed, revealCode]);
 
   const restore = useCallback(async () => {
     setBusy("restore");
     setError(null);
     try {
       const result = await SubscriptionService.restore();
-      if (result.success) succeed("Achat restauré.");
-      else setError(result.error ?? "Aucun achat à restaurer.");
+      if (result.success) {
+        succeed("Achat restauré.");
+        return;
+      }
+      // `restore()` renvoie tantôt un code technique, tantôt une phrase :
+      // on ne montre jamais un « SDK_NOT_READY » brut à l'utilisateur.
+      const raw = result.error ?? "";
+      setError(
+        /^[A-Z_]+$/.test(raw)
+          ? purchaseErrorMessage(raw)
+          : raw || "Aucun achat à restaurer.",
+      );
     } finally {
       setBusy(null);
     }
@@ -162,42 +213,63 @@ export function Paywall({
     }
   }, [code, succeed]);
 
-  const contactSupport = useCallback((channel: "whatsapp" | "email") => {
-    const message = "Bonjour, je souhaite obtenir un accès Pro à NetOff.";
+  const contactSupport = useCallback(async (channel: "whatsapp" | "email") => {
     const url =
       channel === "whatsapp"
-        ? `https://wa.me/${SUPPORT.whatsapp}?text=${encodeURIComponent(message)}`
-        : `mailto:${SUPPORT.email}?subject=${encodeURIComponent("[NetOff] Accès Pro")}&body=${encodeURIComponent(message)}`;
-    Linking.openURL(url).catch(() =>
-      setError("Aucune application disponible pour ce mode de contact."),
-    );
+        ? whatsappUrl(CONTACT_MESSAGE)
+        : mailtoUrl("[NetOff] Accès Pro", CONTACT_MESSAGE);
+    try {
+      await Linking.openURL(url);
+    } catch {
+      setError(
+        channel === "whatsapp"
+          ? `WhatsApp n'a pas pu s'ouvrir. Écrivez-nous au ${SUPPORT.whatsappDisplay}.`
+          : `Aucune application e-mail configurée. Écrivez-nous à ${SUPPORT.email}.`,
+      );
+    }
   }, []);
-
-  const selectedPlan = plans.find((p) => p.id === selected);
 
   return (
     <Sheet
       visible={visible}
       onClose={onClose}
-      maxHeightRatio={0.94}
+      maxHeightRatio={0.92}
       error={error}
+      scrollRef={scrollRef}
+      contentStyle={st.sheetBody}
       footer={
         <>
-          <Button
-            label={
-              selectedPlan
-                ? `Passer à Pro — ${selectedPlan.price}`
-                : "Passer à Pro"
-            }
-            icon="shield-star-outline"
-            onPress={purchase}
-            loading={busy === "purchase"}
-            disabled={!selectedPlan || busy !== null}
-            size="lg"
-            fullWidth
-          />
+          {canBuy ? (
+            <Button
+              label={
+                selectedPlan
+                  ? `Passer à Pro — ${selectedPlan.price}`
+                  : "Passer à Pro"
+              }
+              icon="shield-star-outline"
+              onPress={purchase}
+              loading={busy === "purchase"}
+              disabled={!selectedPlan || busy !== null}
+              size="lg"
+              fullWidth
+            />
+          ) : (
+            <Button
+              label="Nous écrire pour activer Pro"
+              icon="whatsapp"
+              onPress={() => contactSupport("whatsapp")}
+              disabled={busy !== null}
+              size="lg"
+              fullWidth
+            />
+          )}
           <View style={st.footerLinks}>
-            <Touchable onPress={restore} feedback="none" hitSlop={8} disabled={busy !== null}>
+            <Touchable
+              onPress={restore}
+              feedback="none"
+              hitSlop={8}
+              disabled={busy !== null}
+            >
               <Text variant="footnote" tone="muted">
                 {busy === "restore" ? "Restauration…" : "Restaurer un achat"}
               </Text>
@@ -205,7 +277,7 @@ export function Paywall({
             <Text variant="footnote" tone="faint">
               ·
             </Text>
-            <Touchable onPress={() => setShowCode((v) => !v)} feedback="none" hitSlop={8}>
+            <Touchable onPress={revealCode} feedback="none" hitSlop={8}>
               <Text variant="footnote" tone="link">
                 J'ai un code
               </Text>
@@ -224,13 +296,78 @@ export function Paywall({
         >
           <Icon name={copy.icon} size={28} color={t.intent.focus.accent} />
         </View>
-        <Text variant="title1" center>
+        <Text variant="title2" center>
           {copy.title}
         </Text>
-        <Text variant="body" tone="secondary" center>
+        <Text variant="callout" tone="secondary" center>
           {copy.message}
         </Text>
       </View>
+
+      {/* Paiement indisponible : on l'annonce avant les prix, pas après l'échec */}
+      {!storeReady && !loadingPlans ? (
+        <View
+          style={[
+            st.notice,
+            {
+              backgroundColor: t.intent.warning.bg,
+              borderColor: t.intent.warning.border,
+            },
+          ]}
+        >
+          <View style={st.noticeHead}>
+            <Icon name="credit-card-off-outline" size={18} color={t.intent.warning.accent} />
+            <Text variant="headline" style={st.flex}>
+              Paiement indisponible ici
+            </Text>
+          </View>
+          <Text variant="footnote" tone="secondary">
+            Le store ne propose pas d'achat sur cet appareil. Écrivez-nous : nous
+            activons Pro manuellement, ou nous vous envoyons un code.
+          </Text>
+          <ContactRow onContact={contactSupport} />
+        </View>
+      ) : null}
+
+      {/* Code promotionnel — juste sous l'accroche, donc jamais à chercher */}
+      {showCode ? (
+        <View onLayout={onCodeLayout}>
+          <Section title="Code promotionnel">
+            <TextField
+              value={code}
+              onChangeText={(v) => {
+                setCode(v.toUpperCase());
+                setCodeError(null);
+              }}
+              placeholder="NETOFF-XXXX"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={applyCode}
+              icon="ticket-percent-outline"
+              error={codeError ?? undefined}
+              hint="Majuscules, tirets et espaces sont sans importance."
+            />
+            <Button
+              label="Activer le code"
+              variant="accent"
+              icon="check"
+              onPress={applyCode}
+              loading={busy === "code"}
+              disabled={busy !== null}
+              size="lg"
+              fullWidth
+            />
+            <Text variant="footnote" tone="faint">
+              Pas de code ? Demandez-nous-en un :
+            </Text>
+            <ContactRow onContact={contactSupport} />
+          </Section>
+        </View>
+      ) : null}
 
       {/* Offres */}
       <Section title="Choisir une formule">
@@ -251,64 +388,22 @@ export function Paywall({
             ))}
           </View>
         )}
-        {!fromStore && !loadingPlans ? (
+        {!storeReady && !loadingPlans ? (
           <Text variant="footnote" tone="faint">
             Prix indicatifs — les tarifs définitifs s'affichent depuis le store.
           </Text>
         ) : null}
       </Section>
 
-      {/* Code promotionnel */}
-      {showCode ? (
-        <Section title="Code promotionnel">
-          <TextField
-            value={code}
-            onChangeText={(v) => {
-              setCode(v.toUpperCase());
-              setCodeError(null);
-            }}
-            placeholder="NETOFF-XXXX"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            icon="ticket-percent-outline"
-            error={codeError ?? undefined}
-          />
-          <Button
-            label="Activer le code"
-            variant="secondary"
-            onPress={applyCode}
-            loading={busy === "code"}
-            disabled={busy !== null}
-            fullWidth
-          />
-          <View style={st.supportRow}>
-            <Button
-              label="WhatsApp"
-              icon="whatsapp"
-              variant="ghost"
-              size="sm"
-              onPress={() => contactSupport("whatsapp")}
-            />
-            <Button
-              label="E-mail"
-              icon="email-outline"
-              variant="ghost"
-              size="sm"
-              onPress={() => contactSupport("email")}
-            />
-          </View>
-        </Section>
-      ) : null}
-
       {/* Comparatif */}
       <Section title="Gratuit / Pro">
         <View style={[st.table, { borderColor: t.border.light, backgroundColor: t.bg.card }]}>
           <View style={st.tableHead}>
             <View style={st.tableLabel} />
-            <Text variant="overline" tone="faint" style={st.tableCol}>
+            <Text variant="overline" tone="faint" center style={st.tableCol}>
               Gratuit
             </Text>
-            <Text variant="overline" tone="focus" style={st.tableCol}>
+            <Text variant="overline" tone="focus" center style={st.tableCol}>
               Pro
             </Text>
           </View>
@@ -318,14 +413,14 @@ export function Paywall({
               <View style={st.tableRow}>
                 <View style={st.tableLabel}>
                   <Icon name={f.icon} size={16} color={t.text.muted} />
-                  <Text variant="callout" numberOfLines={1} style={st.flex}>
+                  <Text variant="callout" numberOfLines={2} style={st.flex}>
                     {f.label}
                   </Text>
                 </View>
-                <Text variant="footnote" tone="muted" center style={st.tableCol} numberOfLines={1}>
+                <Text variant="footnote" tone="muted" center style={st.tableCol} numberOfLines={2}>
                   {f.free}
                 </Text>
-                <Text variant="footnote" tone="focus" center style={st.tableCol} numberOfLines={1}>
+                <Text variant="footnote" tone="focus" center style={st.tableCol} numberOfLines={2}>
                   {f.premium}
                 </Text>
               </View>
@@ -334,11 +429,48 @@ export function Paywall({
         </View>
       </Section>
 
+      {/* Contact — toujours visible en bas, même quand le store fonctionne */}
+      <Section title="Une question ?">
+        <ContactRow onContact={contactSupport} />
+        <Text variant="footnote" tone="faint" center selectable>
+          {SUPPORT.whatsappDisplay} · {SUPPORT.email}
+        </Text>
+      </Section>
+
       <Text variant="footnote" tone="faint" center>
         Abonnement renouvelé automatiquement sauf annulation depuis votre compte
         du store. L'offre « à vie » est un paiement unique.
       </Text>
     </Sheet>
+  );
+}
+
+// ─── Contact direct ──────────────────────────────────────────────────────────
+
+function ContactRow({
+  onContact,
+}: {
+  onContact: (channel: "whatsapp" | "email") => void;
+}) {
+  return (
+    <View style={st.supportRow}>
+      <Button
+        label="WhatsApp"
+        icon="whatsapp"
+        variant="secondary"
+        size="sm"
+        onPress={() => onContact("whatsapp")}
+        style={st.flex}
+      />
+      <Button
+        label="E-mail"
+        icon="email-outline"
+        variant="secondary"
+        size="sm"
+        onPress={() => onContact("email")}
+        style={st.flex}
+      />
+    </View>
   );
 }
 
@@ -401,22 +533,31 @@ function PlanCard({
 }
 
 const st = StyleSheet.create({
-  hero: { alignItems: "center", gap: Spacing.sm, paddingBottom: Spacing.sm },
+  // Le dernier bloc ne doit pas coller au pied collant du panneau.
+  sheetBody: { paddingBottom: Spacing.lg },
+  hero: { alignItems: "center", gap: Spacing.xs, paddingBottom: Spacing.xs },
   heroIcon: {
-    width: 60,
-    height: 60,
+    width: 52,
+    height: 52,
     borderRadius: Radius.xl,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: Spacing.xs,
   },
+  notice: {
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+  },
+  noticeHead: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
   plans: { gap: Spacing.sm },
   plan: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     borderRadius: Radius.md,
   },
   radio: {
@@ -429,7 +570,7 @@ const st = StyleSheet.create({
   },
   planText: { flex: 1, gap: 2 },
   planTitleRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
-  supportRow: { flexDirection: "row", justifyContent: "center", gap: Spacing.sm },
+  supportRow: { flexDirection: "row", gap: Spacing.sm },
   table: { borderRadius: Radius.md, borderWidth: 1, overflow: "hidden" },
   tableHead: {
     flexDirection: "row",
@@ -442,7 +583,7 @@ const st = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
   },
   tableLabel: { flex: 1.4, flexDirection: "row", alignItems: "center", gap: Spacing.sm },
   tableCol: { flex: 1, textAlign: "center" },

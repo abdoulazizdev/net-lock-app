@@ -62,7 +62,14 @@ export function Stat({
           </Text>
         ) : null}
       </View>
-      <Text variant="overline" tone="muted" numberOfLines={1}>
+      {/* Deux lignes autorisées : un libellé tronqué (« CONNEXIONS COU… »)
+          ne se lit pas, et la place manque toujours en trois colonnes. */}
+      <Text
+        variant="overline"
+        tone="muted"
+        numberOfLines={2}
+        center={align === "center"}
+      >
         {label}
       </Text>
     </View>
@@ -182,11 +189,11 @@ const st = StyleSheet.create({
   },
   band: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "stretch",
     paddingVertical: Spacing.md,
     borderRadius: Radius.md,
     borderWidth: 1,
   },
-  bandItem: { flex: 1 },
+  bandItem: { flex: 1, paddingHorizontal: Spacing.xs },
   bandSep: { width: StyleSheet.hairlineWidth, alignSelf: "stretch" },
 });

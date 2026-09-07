@@ -49,6 +49,30 @@ const VALID_PROMO_CODES: Record<string, PromoCodeDef> = {
   },
 };
 
+/**
+ * Réduit un code à sa forme canonique : capitales, sans accent ni séparateur.
+ * Un utilisateur qui tape « abdoulaziz dev », « ABDOULAZIZ_DEV » ou colle un
+ * code avec un tiret typographique doit être activé comme les autres — un code
+ * refusé pour une apostrophe de clavier est un blocage gratuit.
+ */
+function canonicalCode(code: string): string {
+  return code
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+/** Index des codes valides par forme canonique. */
+const PROMO_INDEX: Record<string, { code: string; def: PromoCodeDef }> =
+  Object.entries(VALID_PROMO_CODES).reduce(
+    (acc, [code, def]) => {
+      acc[canonicalCode(code)] = { code, def };
+      return acc;
+    },
+    {} as Record<string, { code: string; def: PromoCodeDef }>,
+  );
+
 class SubscriptionService {
   private _cache: SubscriptionState | null = null;
   private _sdkConfigured = false;
@@ -208,15 +232,29 @@ class SubscriptionService {
     }
   }
 
+  /** Le code est-il reconnu (sans l'activer) ? */
+  isValidCode(code: string): boolean {
+    const entry = PROMO_INDEX[canonicalCode(code)];
+    if (!entry) return false;
+    return !entry.def.expiresAt || new Date(entry.def.expiresAt) >= new Date();
+  }
+
   async activateWithCode(
     code: string,
   ): Promise<{ success: boolean; error?: string }> {
-    const normalized = code.trim().toUpperCase();
-    const def = VALID_PROMO_CODES[normalized];
-    if (!def) return { success: false, error: "Code invalide ou inexistant." };
-    if (def.expiresAt && new Date(def.expiresAt) < new Date()) {
+    const key = canonicalCode(code);
+    if (!key) return { success: false, error: "Saisissez le code reçu." };
+
+    const entry = PROMO_INDEX[key];
+    if (!entry) return { success: false, error: "Code invalide ou inexistant." };
+    if (entry.def.expiresAt && new Date(entry.def.expiresAt) < new Date()) {
       return { success: false, error: "Ce code promotionnel a expiré." };
     }
+
+    const normalized = entry.code;
+
+    // L'historique des codes utilisés n'est qu'indicatif : s'il échoue, on
+    // active quand même — le stockage ne doit jamais bloquer l'activation.
     try {
       const usedRaw = await AsyncStorage.getItem(CODES_KEY);
       const used: string[] = usedRaw ? JSON.parse(usedRaw) : [];
@@ -227,6 +265,7 @@ class SubscriptionService {
         );
       }
     } catch {}
+
     const state: SubscriptionState = {
       isPremium: true,
       activatedAt: new Date().toISOString(),
@@ -234,8 +273,14 @@ class SubscriptionService {
       source: "promo_code",
       promoCode: normalized,
     };
-    await AsyncStorage.setItem(KEY, JSON.stringify(state));
+    // Le cache passe à Pro même si l'écriture disque échoue : l'utilisateur
+    // profite de sa session, et la prochaine activation réessaiera.
     this._cache = state;
+    try {
+      await AsyncStorage.setItem(KEY, JSON.stringify(state));
+    } catch (e) {
+      console.warn("[Subscription] Échec de l'écriture du code promo:", e);
+    }
     return { success: true };
   }
 
