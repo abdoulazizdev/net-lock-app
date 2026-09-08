@@ -22,9 +22,6 @@
       "versionCode": 28,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": true,
-      "blockedPermissions": [
-        "com.google.android.gms.permission.AD_ID"
-      ],
       "permissions": [
         "INTERNET",
         "BIND_VPN_SERVICE",
