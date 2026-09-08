@@ -55,11 +55,18 @@ const CAPABILITIES: { icon: IconName; title: string; body: string }[] = [
   },
 ];
 
+// Ces phrases sont comparées par Google Play à la déclaration « Sécurité des
+// données ». Elles doivent rester exactes au mot près : voir
+// docs/play-data-safety.md avant d'y toucher.
 const PRIVACY: { icon: IconName; text: string }[] = [
   { icon: "wifi-off", text: "Aucun serveur distant : le tunnel ne sort pas de l'appareil." },
-  { icon: "database-off-outline", text: "Aucun compte, aucune donnée envoyée à un tiers." },
+  { icon: "account-off-outline", text: "Aucun compte : ni e-mail, ni inscription, ni profil publicitaire." },
   { icon: "eye-off-outline", text: "Le contenu de vos connexions n'est ni lu ni enregistré." },
   { icon: "cellphone-lock", text: "Règles, profils et statistiques restent en local." },
+  {
+    icon: "credit-card-outline",
+    text: "Seul l'achat Pro passe par un tiers (RevenueCat et Google Play) : un identifiant anonyme et l'état de l'abonnement, rien de votre usage.",
+  },
 ];
 
 

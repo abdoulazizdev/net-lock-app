@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.netoff.app",
       "icon": "./assets/icons/netoff_icon.png",
-      "buildNumber": "28²²",
+      "buildNumber": "28",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Utilisé pour sécuriser l'accès à l'application."
       }
@@ -22,6 +22,9 @@
       "versionCode": 28,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": true,
+      "blockedPermissions": [
+        "com.google.android.gms.permission.AD_ID"
+      ],
       "permissions": [
         "INTERNET",
         "BIND_VPN_SERVICE",
