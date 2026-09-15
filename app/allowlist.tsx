@@ -10,7 +10,7 @@
  */
 
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, StyleSheet, View } from "react-native";
 
 import { plural } from "@/lib/format";
@@ -59,7 +59,7 @@ export default function AllowlistScreen() {
   const { t } = useTheme();
   const catalog = useAppCatalog();
   const filter = useAppFilter(catalog.apps);
-  const { limits } = usePremium();
+  const { limits, loading: premiumLoading } = usePremium();
   const paywall = usePaywall();
   const { guard, ParentalGate } = useParentalGuard();
 
@@ -69,11 +69,22 @@ export default function AllowlistScreen() {
   const [saving, setSaving] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(false);
 
+  /** Pro activé depuis le paywall : ne pas renvoyer l'utilisateur en arrière. */
+  const upgraded = useRef(false);
+
   // L'écran est réservé à Pro : on l'annonce à l'ouverture plutôt que de
-  // laisser l'utilisateur préparer une sélection inutilisable.
+  // laisser l'utilisateur préparer une sélection inutilisable. Tant que
+  // l'abonnement n'est pas lu, on ne juge pas : ouvrir le paywall à un abonné
+  // parce que la lecture n'est pas finie est pire que d'attendre une frame.
   useEffect(() => {
-    if (!limits.canUseAllowlist().allowed) paywall.open("allowlist");
-  }, [limits, paywall]);
+    if (premiumLoading) return;
+    if (limits.canUseAllowlist().allowed) {
+      // Pro activé entre-temps (code, achat, restauration) : on referme.
+      paywall.close();
+      return;
+    }
+    paywall.open("allowlist");
+  }, [premiumLoading, limits, paywall]);
 
   useEffect(() => {
     AllowlistService.getState()
@@ -382,8 +393,14 @@ export default function AllowlistScreen() {
       <Paywall
         visible={paywall.visible}
         reason={paywall.reason}
+        onUpgraded={() => {
+          upgraded.current = true;
+        }}
         onClose={() => {
           paywall.close();
+          // `limits` n'est pas encore rafraîchi au moment où le paywall se
+          // referme sur une activation réussie : c'est le drapeau qui tranche.
+          if (upgraded.current) return;
           if (!limits.canUseAllowlist().allowed) router.back();
         }}
       />

@@ -161,6 +161,16 @@ class SubscriptionService {
     return s.isPremium;
   }
 
+  /**
+   * État connu sans attendre le disque, ou `null` s'il n'a pas encore été lu.
+   * Les écrans réservés à Pro se montent avant la fin de la lecture
+   * asynchrone : sans ce raccourci, ils traitent un abonné comme un compte
+   * gratuit pendant une frame et lui ouvrent le paywall au visage.
+   */
+  peek(): boolean | null {
+    return this._cache ? this._cache.isPremium : null;
+  }
+
   async activateFromPurchase(expiresAt?: string): Promise<void> {
     const state: SubscriptionState = {
       isPremium: true,

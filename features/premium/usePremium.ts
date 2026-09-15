@@ -49,8 +49,11 @@ export type PremiumLimits = {
 };
 
 export function usePremium() {
-  const [isPremium, setIsPremium] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Départ sur l'état déjà connu du service : un abonné n'est jamais traité
+  // comme un compte gratuit, même le temps d'une frame.
+  const known = SubscriptionService.peek();
+  const [isPremium, setIsPremium] = useState(known ?? false);
+  const [loading, setLoading] = useState(known === null);
 
   const refresh = useCallback(async () => {
     try {
