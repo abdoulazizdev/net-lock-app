@@ -34,7 +34,9 @@ android {
         // eas.json) et écrase cette valeur lors d'un build EAS. Elle sert aux
         // builds locaux, et doit rester supérieure au dernier code publié.
         versionCode 41
-        versionName "2.0.0"
+        // Source de vérité du nom de version : le dossier android/ existant,
+        // EAS ignore `expo.version` d'app.json. Garder les deux d'accord.
+        versionName "2.1.0"
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
