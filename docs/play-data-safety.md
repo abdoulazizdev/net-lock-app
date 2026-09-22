@@ -116,7 +116,29 @@ genre suffit à faire rejeter une nouvelle déclaration.
 3. **Option 2 (supprimer la fonctionnalité) écartée** : elle reviendrait à
    retirer les achats intégrés, donc la version Pro.
 
-## 5. Règle pour la suite
+## 5. Accès aux notifications (garde des apps bloquées)
+
+Depuis la version qui introduit `NotificationGuardService`, l'app déclare
+`android.permission.BIND_NOTIFICATION_LISTENER_SERVICE`. Trois points à tenir :
+
+- **Rien ne sort de l'appareil.** Le service lit le nom du paquet émetteur
+  pour retirer la notification, ne stocke que le nombre de notifications
+  masquées, et ne transmet rien. La déclaration « Sécurité des données » est
+  donc **inchangée** : aucun nouveau type de données à cocher.
+- **Fonctionnalité principale.** Play exige que l'accès aux notifications serve
+  le cœur de l'app : ici, bloquer une application inclut la faire taire, ce
+  qu'aucune autre API Android ne permet (une notification push arrive par les
+  Services Google Play, jamais par la connexion de l'app).
+- **Divulgation visible.** L'écran Réglages › Notifications bloquées explique
+  l'usage avant de demander l'accès, et l'utilisateur doit l'accorder
+  lui-même dans Android. Cet écran fait office de divulgation proéminente ;
+  ne pas le contourner par un raccourci qui ouvrirait les réglages système
+  sans explication.
+
+Attendez-vous à une relecture plus longue lors de la première publication qui
+inclut cette permission.
+
+## 6. Règle pour la suite
 
 Toute nouvelle dépendance qui parle au réseau (analytics, crash reporting,
 publicité, notifications push) impose de **remettre à jour ce formulaire avant

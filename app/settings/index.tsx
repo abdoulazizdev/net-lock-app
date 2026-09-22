@@ -17,6 +17,7 @@ import { useParentalGuard } from "@/features/security/useParentalGuard";
 import { useVpn } from "@/features/vpn/useVpn";
 import AllowlistService, { type AllowlistState } from "@/services/allowlist.service";
 import AppEvents from "@/services/app-events";
+import NotificationGuardService from "@/services/notification-guard.service";
 import OemCompatService, { type DeviceInfo } from "@/services/oem-compat.service";
 import ParentalControlService from "@/services/parental-control.service";
 import StorageService from "@/services/storage.service";
@@ -54,9 +55,10 @@ export default function SettingsScreen() {
   const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [parentalEnabled, setParentalEnabled] = useState(false);
   const [lockEnabled, setLockEnabled] = useState(false);
+  const [notifGuard, setNotifGuard] = useState(false);
 
   const load = useCallback(async () => {
-    const [state, info, parental, auth] = await Promise.all([
+    const [state, info, parental, auth, guardState] = await Promise.all([
       AllowlistService.getState().catch(() => ({ enabled: false, packages: [] })),
       OemCompatService.getDeviceInfo().catch(() => null),
       ParentalControlService.isParentalEnabled().catch(() => false),
@@ -64,11 +66,13 @@ export default function SettingsScreen() {
         isPinEnabled: false,
         isBiometricEnabled: false,
       })),
+      NotificationGuardService.getState(),
     ]);
     setAllowlist(state);
     setDevice(info);
     setParentalEnabled(parental);
     setLockEnabled(auth.isPinEnabled || auth.isBiometricEnabled);
+    setNotifGuard(guardState.granted && guardState.enabled);
   }, []);
 
   useEffect(() => {
@@ -176,6 +180,18 @@ export default function SettingsScreen() {
                 if (!paywall.enforce(limits.canUseAllowlist())) return;
                 router.push("/allowlist");
               }}
+            />
+            <ListRow
+              icon="bell-cancel-outline"
+              tone={notifGuard ? "allowed" : "default"}
+              title="Notifications bloquées"
+              subtitle={
+                notifGuard
+                  ? "Les apps bloquées ne notifient plus"
+                  : "Les apps bloquées peuvent encore notifier"
+              }
+              trailing="chevron"
+              onPress={() => openSection("/settings/notifications")}
             />
             <ListRow
               icon="battery-heart-variant"

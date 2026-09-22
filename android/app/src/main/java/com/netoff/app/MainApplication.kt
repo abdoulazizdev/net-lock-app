@@ -33,6 +33,7 @@ class MainApplication : Application(), ReactApplication {
                     add(NetworkConditionPackage())   // ← Réseau conditionnel
                     add(InAppUpdatePackage())          // ← Mises à jour in-app
                     add(OemCompatPackage())            // ← Compatibilité OEM
+                    add(NotificationGuardPackage())    // ← Notifications des apps bloquées
                 }
 
             override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
